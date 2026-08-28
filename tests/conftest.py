@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -133,3 +134,26 @@ def no_renderer(tmp_path: Path) -> dict[str, str]:
         "raise ImportError('рендерер недоступен — заглушка теста')\n", encoding="utf-8"
     )
     return {"PATH": f"{stub_bin}:/usr/bin:/bin", "PYTHONPATH": str(stub_lib)}
+
+
+@pytest.fixture
+def domain_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Окружение блока `domain`: боевая методика, состояние — во временной папке.
+
+    Рабочий каталог тоже уводится во временный: блок отказывается работать при
+    форке чек-листа рядом (`checklist_data/`), и проверять это на настоящем
+    репозитории нельзя. Возвращается каталог состояния (`STATE_DIR`).
+    """
+    state = tmp_path / "state"
+    monkeypatch.setenv("AUDIT_DATA_DIR", str(DATA))
+    monkeypatch.setenv("STATE_DIR", str(state))
+    monkeypatch.chdir(tmp_path)
+    return state
+
+
+@pytest.fixture
+def data_copy(tmp_path: Path) -> Path:
+    """Копия каталога методики, которую тесту можно портить."""
+    dst = tmp_path / "data-copy"
+    shutil.copytree(DATA, dst)
+    return dst
