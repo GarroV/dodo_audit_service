@@ -34,7 +34,8 @@
   zones.csv      — физические зоны и их доли в 100%
   scoring.json   — ставки вычетов и матрица букв
 """
-import argparse, csv, json, os, re, sys
+import argparse, csv, json, os, re, sys, tempfile, time
+from contextlib import contextmanager
 from datetime import date, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -117,9 +118,90 @@ def load_state():
         return json.load(f)
 
 
+def state_dir():
+    return os.path.dirname(os.path.abspath(STATE)) or "."
+
+
 def save_state(st):
-    with open(STATE, "w", encoding="utf-8") as f:
-        json.dump(st, f, ensure_ascii=False, indent=1)
+    """Атомарная запись: сначала временный файл рядом, потом os.replace.
+
+    Решение D007 — состояние живёт в файле, значит альбом из нескольких кадров
+    пишется параллельно. Запись поверх файла оставляла обрезанный JSON.
+    """
+    d = state_dir()
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".inspection-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(st, f, ensure_ascii=False, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, STATE)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _lock_exclusive(fh):
+    """Взять исключительную блокировку без ожидания. False — занято."""
+    try:
+        import fcntl
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            return False
+    except ImportError:
+        import msvcrt
+        try:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            return True
+        except OSError:
+            return False
+
+
+def _unlock(fh):
+    try:
+        import fcntl
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except ImportError:
+        import msvcrt
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+
+
+LOCK_TIMEOUT_SEC = 30.0
+
+
+@contextmanager
+def state_lock():
+    """Блокировка на проверку: один файл состояния — один пишущий процесс.
+
+    Читающие команды блокировку не берут — им хватает атомарности замены файла.
+    """
+    d = state_dir()
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, os.path.basename(STATE) + ".lock")
+    fh = open(path, "a+")
+    try:
+        deadline = time.time() + LOCK_TIMEOUT_SEC
+        while not _lock_exclusive(fh):
+            if time.time() > deadline:
+                sys.exit(f"Состояние {STATE} занято другим процессом дольше "
+                         f"{LOCK_TIMEOUT_SEC:g} с — запись отменена")
+            time.sleep(0.01)
+        try:
+            yield
+        finally:
+            _unlock(fh)
+    finally:
+        fh.close()
 
 
 def cmd_index(a):
@@ -471,6 +553,10 @@ def cmd_score(a):
             print(f"  {z['name_ru']}: D1 {z['D1']}, D2 {z['D2']}, D3 {z['D3']}, потеряно {z['loss']:g} из {z['share']:g}%{tag}")
 
 
+# Команды, которые меняют состояние: они и только они берут блокировку.
+MUTATING = {"init", "meta", "add", "edit", "photo", "drop", "info"}
+
+
 def main():
     p = argparse.ArgumentParser(add_help=True)
     s = p.add_subparsers(dest="cmd", required=True)
@@ -509,7 +595,11 @@ def main():
     sc = s.add_parser("score"); sc.add_argument("--json", action="store_true"); sc.set_defaults(fn=cmd_score)
 
     a = p.parse_args()
-    a.fn(a)
+    if a.cmd in MUTATING:
+        with state_lock():
+            a.fn(a)
+    else:
+        a.fn(a)
 
 
 if __name__ == "__main__":
