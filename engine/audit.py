@@ -162,7 +162,7 @@ def cmd_init(a):
                    "contact": a.contact or "",
                    "auditor": a.auditor or "", "type": a.type or "Плановая",
                    "date": a.date or date.today().isoformat(), "lang": a.lang or "ru"},
-          "findings": [], "info": {}}
+          "findings": [], "info": {}, "seq": 0}
     save_state(st)
     print(json.dumps(st["meta"], ensure_ascii=False))
 
@@ -200,7 +200,10 @@ def cmd_add(a):
         sys.exit(f"Нет зоны {a.zone}. Доступны: {', '.join(sorted(zc))}")
     allowed = zone_codes(r, zones)
     st = load_state()
-    n = max([f["n"] for f in st["findings"]], default=0) + 1
+    check_pair_free(st, qid, a.zone)
+    # Счётчик сквозной: номера аудитор называет вслух, переиспользовать нельзя.
+    n = max([f["n"] for f in st["findings"]] + [int(st.get("seq") or 0)]) + 1
+    st["seq"] = n
     f = {"n": n, "qid": qid, "level": lvl, "zone": a.zone, "photos": split_photos(a.photo),
          "comment": a.comment or "", "evidence": a.evidence or ""}
     if a.zone not in allowed:
