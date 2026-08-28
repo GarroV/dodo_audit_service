@@ -15,6 +15,9 @@
         зафиксировать нарушение (можно повторять одно и то же qid в разных зонах).
         --photo можно указать несколько раз или через запятую — все ракурсы одного
         нарушения идут в одну запись
+  audit.py edit --n N [--qid PRD01] [--level D2] [--zone fridge] [--evidence "..."] [--comment "..."]
+        поправить уже зафиксированное нарушение #N. Синонимы из контракта блока:
+        --code = --qid, --text = --evidence. Меняются только переданные поля
   audit.py photo N --add путь1,путь2 [--clear]
         доснять фото к уже зафиксированному нарушению #N
   audit.py drop N            удалить нарушение по номеру
@@ -209,6 +212,64 @@ def cmd_add(a):
     print(f"#{n} {qid} {lvl} / {a.zone}: {r['question_ru'][:90]}{ph}{warn}")
 
 
+def find_by_n(st, n):
+    for f in st["findings"]:
+        if f["n"] == n:
+            return f
+    return None
+
+
+def known_numbers(st):
+    return ", ".join(f"#{f['n']}" for f in st["findings"]) or "ни одной записи"
+
+
+def check_pair_free(st, qid, zone, skip_n=None):
+    """Пара «пункт + зона» уникальна: один и тот же пункт в одной зоне — одно нарушение."""
+    for f in st["findings"]:
+        if f["n"] != skip_n and f["qid"] == qid and f["zone"] == zone:
+            sys.exit(f"{qid} в зоне {zone} уже зафиксировано — запись #{f['n']}. "
+                     f"Доснимите фото (audit.py photo {f['n']} --add ...) "
+                     f"или поправьте её (audit.py edit --n {f['n']} ...)")
+
+
+def cmd_edit(a):
+    st = load_state()
+    f = find_by_n(st, a.n)
+    if f is None:
+        sys.exit(f"Нарушения #{a.n} нет. Есть: {known_numbers(st)}")
+    changed = [k for k, v in (("qid", a.qid), ("level", a.level), ("zone", a.zone),
+                              ("evidence", a.evidence), ("comment", a.comment)) if v is not None]
+    if not changed:
+        sys.exit("Нечего менять: укажите хотя бы одно из "
+                 "--qid/--level/--zone/--evidence/--comment")
+    cl = {r["id"]: r for r in load_checklist()}
+    zones = load_zones()
+    zc = {z["code"] for z in zones}
+    qid = (a.qid if a.qid is not None else f["qid"]).strip().upper()
+    lvl = (a.level if a.level is not None else f["level"]).strip().upper()
+    zone = (a.zone if a.zone is not None else f["zone"]).strip()
+    if qid not in cl:
+        sys.exit(f"Нет вопроса {qid} в чек-листе")
+    r = cl[qid]
+    if lvl not in r["levels"]:
+        sys.exit(f"У вопроса {qid} нет уровня {lvl}. Доступны: {'/'.join(r['levels'])}")
+    if zone not in zc:
+        sys.exit(f"Нет зоны {zone}. Доступны: {', '.join(sorted(zc))}")
+    check_pair_free(st, qid, zone, skip_n=f["n"])
+    f["qid"], f["level"], f["zone"] = qid, lvl, zone
+    if a.evidence is not None:
+        f["evidence"] = a.evidence
+    if a.comment is not None:
+        f["comment"] = a.comment
+    if zone in zone_codes(r, zones):
+        f.pop("zone_unusual", None)
+    else:
+        f["zone_unusual"] = True
+    save_state(st)
+    warn = "  (зона нетипична для этого вопроса — перепроверьте)" if f.get("zone_unusual") else ""
+    print(f"#{f['n']} {qid} {lvl} / {zone}: {r['question_ru'][:90]}{warn}")
+
+
 def cmd_photo(a):
     st = load_state()
     hit = [f for f in st["findings"] if f["n"] == a.n]
@@ -378,6 +439,13 @@ def main():
                     help="путь к фото; можно указать несколько раз или через запятую")
     ad.add_argument("--comment"); ad.add_argument("--evidence")
     ad.set_defaults(fn=cmd_add)
+    ed = s.add_parser("edit")
+    ed.add_argument("--n", type=int, required=True)
+    ed.add_argument("--qid", "--code", dest="qid")
+    ed.add_argument("--level"); ed.add_argument("--zone")
+    ed.add_argument("--evidence", "--text", dest="evidence")
+    ed.add_argument("--comment")
+    ed.set_defaults(fn=cmd_edit)
     ph = s.add_parser("photo"); ph.add_argument("n", type=int)
     ph.add_argument("--add", action="append"); ph.add_argument("--clear", action="store_true")
     ph.set_defaults(fn=cmd_photo)
