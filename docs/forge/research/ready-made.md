@@ -87,10 +87,9 @@ def media_group_handler(func=None, only_album=True, receive_timeout=1.0, ...):
 Использование — просто два декоратора:
 
 ```python
-@dp.message(F.media_group_id, F.content_type.in_({'photo'}))
+@dp.message(F.media_group_id, F.content_type.in_({"photo"}))
 @media_group_handler
-async def album_handler(messages: List[types.Message]):
-    ...
+async def album_handler(messages: List[types.Message]): ...
 ```
 
 Для aiogram 3.x (наш вероятный выбор, см. направление «стек») библиотека использует

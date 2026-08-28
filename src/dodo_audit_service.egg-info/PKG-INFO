@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: dodo-audit-service
+Version: 0.1.0
+Summary: Сервис выездных проверок пиццерий: телеграм-бот фиксации нарушений, расчёт оценки и сборка отчёта
+Requires-Python: >=3.12
+Requires-Dist: weasyprint==69.0
+Requires-Dist: pillow==12.3.0
+Requires-Dist: openpyxl==3.1.5
+Provides-Extra: dev
+Requires-Dist: ruff==0.16.5; extra == "dev"
+Requires-Dist: mypy==1.19.1; extra == "dev"
+Requires-Dist: pytest==8.4.2; extra == "dev"
+Requires-Dist: pytest-cov==7.0.0; extra == "dev"
+Requires-Dist: vulture==2.14; extra == "dev"
+Requires-Dist: deptry==0.23.1; extra == "dev"
+Requires-Dist: import-linter==2.3; extra == "dev"

@@ -32,7 +32,9 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-exclude = ["engine", ".venv"]
+# docs/ исключены: ruff форматирует python-блоки внутри markdown,
+# а документы кодом проекта не являются.
+exclude = [".venv", "docs", "engine"]
 
 [tool.ruff.lint]
 # Наборы включены явным списком, а не пресетом: пресеты шире канона проекта
@@ -58,6 +60,10 @@ exclude = ["engine", "\\.venv"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Покрытие считается по src/. Движок в метрику не входит осознанно: тесты
+# запускают его подпроцессом через CLI, и построчное покрытие дочернего процесса
+# не видно без отдельной настройки (задача T037). Проверен он при этом хорошо —
+# 88 функциональных тестов гоняют его команды.
 addopts = "--cov=src --cov-report=term-missing --junitxml=reports/junit.xml"
 
 [tool.coverage.run]

@@ -411,6 +411,9 @@ def cmd_photo(a):
     cur = photos_of(f)
     if a.clear:
         cur = []
+    # Существование файла здесь НЕ проверяется намеренно: в боте фотография
+    # хранится идентификатором телеграма и скачивается только на сборке отчёта.
+    # Пропавший кадр ловится там, где путь резолвится, — задача T043 блока report.
     cur = cur + [x for x in split_photos(a.add) if x not in cur]
     f.pop("photo", None)
     f["photos"] = cur
@@ -422,8 +425,12 @@ def cmd_drop(a):
     st = load_state()
     before = len(st["findings"])
     st["findings"] = [f for f in st["findings"] if f["n"] != a.n]
+    # Удалять нечего — это отказ, а не успех: бот по коду возврата скажет
+    # аудитору «удалено», и тот пойдёт дальше с записью, которая осталась.
+    if len(st["findings"]) == before:
+        sys.exit(f"Нарушения #{a.n} нет")
     save_state(st)
-    print("удалено" if len(st["findings"]) < before else f"нарушения #{a.n} не было")
+    print("удалено")
 
 
 def cmd_info(a):

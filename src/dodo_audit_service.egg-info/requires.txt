@@ -1,0 +1,12 @@
+weasyprint==69.0
+pillow==12.3.0
+openpyxl==3.1.5
+
+[dev]
+ruff==0.16.5
+mypy==1.19.1
+pytest==8.4.2
+pytest-cov==7.0.0
+vulture==2.14
+deptry==0.23.1
+import-linter==2.3

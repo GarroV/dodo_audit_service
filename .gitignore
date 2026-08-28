@@ -19,3 +19,11 @@ inspection.json
 checklist_data/
 secret.env
 .venv
+
+# Артефакты прогона
+.coverage
+reports/
+
+# Симлинки на данные, подкладываемые в рабочие копии блоков
+/data
+/examples
