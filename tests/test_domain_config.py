@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from conftest import DATA, requires_data
 
-from src.domain import check_environment, list_items
+from src.domain import add_finding, check_environment, list_items, start_inspection
 from src.domain.errors import ConfigError
 
 pytestmark = requires_data
@@ -104,6 +104,19 @@ def test_форк_чек_листа_в_каталоге_состояния_ос�
     with pytest.raises(ConfigError) as e:
         check_environment()
     assert "checklist_data" in str(e.value)
+
+
+def test_форк_чек_листа_в_папке_чата_останавливает_запись(domain_env: Path) -> None:
+    """Папка чата — рабочий каталог движка, форк в ней он бы и подхватил.
+
+    Явный `CHECKLIST_DIR` перебивает такой форк по приоритету, но полагаться на
+    один заслон нельзя: методику из-под ног не выдёргивают посреди проверки.
+    """
+    start_inspection(42, unit="Белград-1", kind="Плановая", report_lang="ru")
+    (domain_env / "chat_42" / "checklist_data").mkdir()
+    with pytest.raises(ConfigError) as e:
+        add_finding(42, code="CLN05", level="D1", zone="hot_kitchen", text="нагар")
+    assert "checklist_data" in str(e.value), f"не сказано, что нашли: {e.value}"
 
 
 def test_чтение_чек_листа_без_настроенного_окружения_это_отказ(
