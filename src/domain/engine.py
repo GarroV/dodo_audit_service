@@ -46,19 +46,27 @@ def option(name: str, value: str) -> str:
 
 
 def run_audit(
-    args: Sequence[str], *, chat_id: int, settings: Settings, create: bool = False
+    args: Sequence[str],
+    *,
+    chat_id: int,
+    settings: Settings,
+    create: bool = False,
+    require_state: bool = True,
 ) -> str:
     """Выполнить команду `audit.py` в папке чата и вернуть её вывод.
 
     Ненулевой код — `EngineError` с текстом самого движка: проверки методики
-    живут в нём, блок их не повторяет, но и не глотает.
+    живут в нём, блок их не повторяет, но и не глотает. Отсутствие начатой
+    проверки — отдельный отказ: бот на него предлагает начать проверку, а не
+    показывает аудитору внутренности движка.
     """
     work = chat_dir(chat_id, settings)
     if create:
         work.mkdir(parents=True, exist_ok=True)
-    elif not work.is_dir():
+    elif require_state and not state_file(chat_id, settings).is_file():
         raise InspectionNotStarted(
-            f"В этом чате проверка не начата: нет папки {work}. Сначала start_inspection()"
+            f"В этом чате проверка не начата — нет {state_file(chat_id, settings)}. "
+            f"Сначала start_inspection()"
         )
     # Рабочий каталог движка — папка чата: именно относительно неё он ищет форк
     # чек-листа и резолвит относительные пути фотографий.

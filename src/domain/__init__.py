@@ -16,6 +16,7 @@ from .checklist import allowed_levels, checklist_version, get_item, list_items, 
 from .config import check_environment
 from .findings import add_finding, attach_photo, drop_finding, edit_finding
 from .models import ChecklistItem, Finding, Inspection, Score, Zone, ZoneScore
+from .scoring import score
 from .state import get_state, start_inspection
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "get_state",
     "list_items",
     "list_zones",
+    "score",
     "start_inspection",
 ]
