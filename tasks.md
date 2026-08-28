@@ -6,7 +6,7 @@
 | id | блок | зависит от | статус | задача | issue |
 |---|---|---|---|---|---|
 <!-- | T001 | api | — | todo | Пример: спроектировать схему БД | #12 | -->
-| T001 | chores | — | blocked:Q001 | Получить токен Telegram-бота и положить в `.env` как `TELEGRAM_BOT_TOKEN`; проверить смоуком `getMe` | #3 |
+| T001 | chores | — | done | Получить токен Telegram-бота и положить в `.env` как `TELEGRAM_BOT_TOKEN`; проверить смоуком `getMe` | #3 |
 | T002 | chores | — | blocked:Q003 | Положить ключ OpenAI в `.env` как `OPENAI_API_KEY`; проверить смоуком один настоящий вызов | #4 |
 | T003 | chores | — | todo | Поставить конфиги проверок качества до первой строки кода: ruff (наборы E,F,I,B,S,ASYNC,RUF), mypy --strict, pytest+cov с отчётом reports/junit.xml, vulture, deptry, import-linter с контрактами из графа блоков | #5 |
 | T004 | chores | T003 | todo | Завести Makefile: `make regress` (прогон движка на эталонных данных), `make check` (все гейты), `make demo` | #6 |
