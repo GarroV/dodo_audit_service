@@ -17,3 +17,4 @@ venv/
 # Состояние проверок
 inspection.json
 checklist_data/
+secret.env
