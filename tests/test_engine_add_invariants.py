@@ -23,9 +23,7 @@ def numbers(workdir: Path) -> list[int]:
     return [f["n"] for f in state_of(workdir)["findings"]]
 
 
-def test_повторный_add_той_же_пары_отклоняется(
-    started: Callable[..., Run], workdir: Path
-) -> None:
+def test_повторный_add_той_же_пары_отклоняется(started: Callable[..., Run], workdir: Path) -> None:
     started("add", "--qid", "CLN06", "--level", "D1", "--zone", "hot_kitchen")
     r = started("add", "--qid", "CLN06", "--level", "D1", "--zone", "hot_kitchen")
     assert r.code != 0, "второй такой же add обязан быть отклонён"
@@ -75,15 +73,27 @@ def test_счётчик_поднимается_от_старого_состоя�
     """Боевые `inspection.json` собраны до появления счётчика — они не должны ломаться."""
     st = state_of(workdir)
     st["findings"] = [
-        {"n": 1, "qid": "CLN05", "level": "D1", "zone": "hot_kitchen", "photos": [],
-         "comment": "", "evidence": "старая запись"},
-        {"n": 4, "qid": "CLN06", "level": "D1", "zone": "dining", "photos": [],
-         "comment": "", "evidence": "старая запись"},
+        {
+            "n": 1,
+            "qid": "CLN05",
+            "level": "D1",
+            "zone": "hot_kitchen",
+            "photos": [],
+            "comment": "",
+            "evidence": "старая запись",
+        },
+        {
+            "n": 4,
+            "qid": "CLN06",
+            "level": "D1",
+            "zone": "dining",
+            "photos": [],
+            "comment": "",
+            "evidence": "старая запись",
+        },
     ]
     st.pop("seq", None)
-    (workdir / "inspection.json").write_text(
-        json.dumps(st, ensure_ascii=False), encoding="utf-8"
-    )
+    (workdir / "inspection.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
     r = started("add", "--qid", "CLN06", "--level", "D1", "--zone", "dough")
     assert r.code == 0, r.text
     assert numbers(workdir) == [1, 4, 5], "счётчик не подхватил максимум из старого состояния"

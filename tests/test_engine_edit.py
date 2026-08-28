@@ -53,9 +53,7 @@ def test_edit_меняет_формулировку(started: Callable[..., Run],
     assert finding(workdir, 1)["evidence"] == "стало"
 
 
-def test_edit_понимает_имена_из_контракта_блока(
-    started: Callable[..., Run], workdir: Path
-) -> None:
+def test_edit_понимает_имена_из_контракта_блока(started: Callable[..., Run], workdir: Path) -> None:
     """`--code` и `--text` — синонимы `--qid` и `--evidence` из контракта блока."""
     started("add", "--qid", "CLN06", "--level", "D1", "--zone", "hot_kitchen")
     r = started("edit", "--n", "1", "--code", "CLN05", "--text", "нагар на подине")

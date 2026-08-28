@@ -28,7 +28,9 @@ EXAMPLES = ROOT / "examples"
 NO_DATA = not (DATA / "checklist.csv").exists()
 NO_EXAMPLES = not (EXAMPLES / "belgrade-1" / "inspection.json").exists()
 
-requires_data = pytest.mark.skipif(NO_DATA, reason="нет data/checklist.csv — методика вне git (D002)")
+requires_data = pytest.mark.skipif(
+    NO_DATA, reason="нет data/checklist.csv — методика вне git (D002)"
+)
 requires_examples = pytest.mark.skipif(
     NO_EXAMPLES, reason="нет examples/belgrade-1 — боевые проверки вне git (D002)"
 )
@@ -47,15 +49,23 @@ class Run:
         return self.out + self.err
 
 
-def run_engine(script: Path, *args: str, cwd: Path, state: Path | None = None) -> Run:
+def run_engine(
+    script: Path,
+    *args: str,
+    cwd: Path,
+    state: Path | None = None,
+    env_extra: dict[str, str] | None = None,
+) -> Run:
     """Запустить скрипт движка в отдельном процессе.
 
     Путь к состоянию передаётся через `INSPECTION_FILE` — тот же механизм,
-    которым бот будет разводить проверки по чатам.
+    которым бот будет разводить проверки по чатам. `env_extra` нужен тестам,
+    которые имитируют машину без рабочего рендерера PDF.
     """
     env = dict(os.environ)
     if state is not None:
         env["INSPECTION_FILE"] = str(state)
+    env.update(env_extra or {})
     p = subprocess.run(  # noqa: S603 — аргументы собираем сами, ввода извне тут нет
         [sys.executable, str(script), *args],
         cwd=str(cwd),
@@ -88,8 +98,10 @@ def audit(workdir: Path) -> Callable[..., Run]:
 def report(workdir: Path) -> Callable[..., Run]:
     """Вызов `report.py` в той же рабочей папке."""
 
-    def call(*args: str) -> Run:
-        return run_engine(REPORT, *args, cwd=workdir, state=workdir / "inspection.json")
+    def call(*args: str, env_extra: dict[str, str] | None = None) -> Run:
+        return run_engine(
+            REPORT, *args, cwd=workdir, state=workdir / "inspection.json", env_extra=env_extra
+        )
 
     return call
 
@@ -100,3 +112,24 @@ def started(audit: Callable[..., Run]) -> Callable[..., Run]:
     r = audit("init", "--unit", "Тестовая", "--auditor", "Тест", "--date", "2026-08-21")
     assert r.code == 0, r.text
     return audit
+
+
+@pytest.fixture
+def no_renderer(tmp_path: Path) -> dict[str, str]:
+    """Окружение, в котором ни один рендерер PDF не работает.
+
+    Проверяем именно поведение при провале сборки: заглушка `wkhtmltopdf`
+    падает, chromium в урезанном PATH не находится, а импорт `weasyprint`
+    подменён модулем, который бросает исключение.
+    """
+    stub_bin = tmp_path / "stub-bin"
+    stub_bin.mkdir()
+    wk = stub_bin / "wkhtmltopdf"
+    wk.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    wk.chmod(0o755)
+    stub_lib = tmp_path / "stub-lib"
+    stub_lib.mkdir()
+    (stub_lib / "weasyprint.py").write_text(
+        "raise ImportError('рендерер недоступен — заглушка теста')\n", encoding="utf-8"
+    )
+    return {"PATH": f"{stub_bin}:/usr/bin:/bin", "PYTHONPATH": str(stub_lib)}

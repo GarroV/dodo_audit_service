@@ -66,9 +66,7 @@ def test_meta_правит_только_переданные_поля(started: C
     assert after["date"] == before["date"], "правка партнёра затёрла дату"
 
 
-def test_meta_не_трогает_зафиксированные_записи(
-    started: Callable[..., Run], workdir: Path
-) -> None:
+def test_meta_не_трогает_зафиксированные_записи(started: Callable[..., Run], workdir: Path) -> None:
     started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen")
     r = started("meta", "--auditor", "Другой аудитор")
     assert r.code == 0, r.text

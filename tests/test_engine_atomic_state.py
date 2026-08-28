@@ -35,9 +35,7 @@ def in_parallel(calls: list[Callable[[], Run]]) -> list[Run]:
         return [f.result() for f in [pool.submit(c) for c in calls]]
 
 
-def test_параллельные_кадры_альбома_не_теряются(
-    started: Callable[..., Run], workdir: Path
-) -> None:
+def test_параллельные_кадры_альбома_не_теряются(started: Callable[..., Run], workdir: Path) -> None:
     """Шесть кадров одного нарушения, доснятых одновременно, — шесть фотографий."""
     started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen")
     for r_no in range(ROUNDS):
@@ -53,13 +51,25 @@ def test_параллельные_записи_не_затирают_друг_д
     started: Callable[..., Run], workdir: Path
 ) -> None:
     """Одно и то же нарушение в разных зонах, зафиксированное одновременно."""
-    zones = ["hot_kitchen", "cold_kitchen", "dough", "dining", "fridge", "freezer",
-             "dry_storage", "facade", "dishwashing", "staff"]
+    zones = [
+        "hot_kitchen",
+        "cold_kitchen",
+        "dough",
+        "dining",
+        "fridge",
+        "freezer",
+        "dry_storage",
+        "facade",
+        "dishwashing",
+        "staff",
+    ]
     seen: list[int] = []
     for r_no in range(ROUNDS):
         results = in_parallel(
-            [lambda z=z: started("add", "--qid", "PRD09", "--level", "D1", "--zone", z)
-             for z in zones]
+            [
+                lambda z=z: started("add", "--qid", "PRD09", "--level", "D1", "--zone", z)
+                for z in zones
+            ]
         )
         assert all(r.code == 0 for r in results), [r.text for r in results if r.code]
         st = state_of(workdir)
@@ -95,10 +105,12 @@ def test_состояние_читается_целиком_во_время_за
     def writers() -> Run:
         try:
             for r_no in range(ROUNDS):
-                in_parallel([
-                    lambda i=i, r_no=r_no: started("photo", "1", "--add", f"r{r_no}p{i}.jpg")
-                    for i in range(PARALLEL)
-                ])
+                in_parallel(
+                    [
+                        lambda i=i, r_no=r_no: started("photo", "1", "--add", f"r{r_no}p{i}.jpg")
+                        for i in range(PARALLEL)
+                    ]
+                )
         finally:
             done.set()
         return Run(0, "", "")
