@@ -3,11 +3,16 @@
 
   report.py pdf  [--out отчёт.pdf] [--lang ru|en] [--photos all|d2d3|none]
   report.py letter [--lang ru|en]      печатает текст письма в stdout
+  report.py html [--out отчёт.html] [--lang ru|en] [--photos ...]
+        тот же HTML, из которого собирается PDF — для сверки вида и тестов
 
-PDF собирается через HTML: wkhtmltopdf → chromium → weasyprint, что найдётся первым.
+Рендерер зафиксирован: WeasyPrint (решение D009). Шрифт с кириллицей лежит
+в проекте (engine/assets/fonts) и подключается явным путём, чтобы вид отчёта
+не зависел от того, что установлено на машине.
 """
-import argparse, base64, json, mimetypes, os, re, shutil, subprocess, sys, tempfile
+import argparse, base64, json, mimetypes, os, re, sys, tempfile
 from datetime import date, timedelta
+from urllib.parse import quote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -99,9 +104,31 @@ def esc(s):
     return (str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
+FONT_DIR = os.path.join(HERE, "assets", "fonts")
+FONT_FAMILY = "Audit Sans"
+
+
+def font_css():
+    """Кириллический шрифт из проекта, а не из системы.
+
+    Без этого на чистом контейнере вместо букв получаются квадратики, а вид
+    отчёта зависит от того, что стоит на машине сборки.
+    """
+    faces = []
+    for name, weight in (("DejaVuSans.ttf", "normal"), ("DejaVuSans-Bold.ttf", "bold")):
+        path = os.path.join(FONT_DIR, name)
+        if os.path.exists(path):
+            faces.append(f'@font-face {{ font-family: "{FONT_FAMILY}"; font-weight: {weight}; '
+                         f'font-style: normal; src: url("file://{quote(path)}"); }}')
+    if not faces:
+        sys.stderr.write(f"ВНИМАНИЕ: шрифта отчёта нет в {FONT_DIR}, "
+                         "вид зависит от шрифтов машины\n")
+    return "\n".join(faces)
+
+
 CSS = """
 @page { size: A4; margin: 16mm 14mm 18mm 14mm; }
-body { font-family: "DejaVu Sans", "Helvetica Neue", Arial, sans-serif; color:#23202B; font-size:10.5pt; line-height:1.45; }
+body { font-family: "Audit Sans", "DejaVu Sans", "Helvetica Neue", Arial, sans-serif; color:#23202B; font-size:10.5pt; line-height:1.45; }
 h1 { font-size:19pt; margin:0 0 2mm 0; color:#3F2A63; letter-spacing:-.2pt; }
 h2 { font-size:12.5pt; margin:9mm 0 3mm 0; color:#3F2A63; border-bottom:1.4pt solid #E6E1EF; padding-bottom:1.5mm; page-break-after:avoid; page-break-inside:avoid; }
 h2.sec-findings { page-break-before:always; margin-top:0; }
@@ -133,6 +160,13 @@ tr.z0 td { background:#FCEFEF; }
 """
 
 
+def deadline_text(f, t):
+    """Срок устранения по нарушению. Письмо на него ссылается — печатаем в отчёте."""
+    if f["level"] == "D3" or not f.get("days"):
+        return t["immediately"]
+    return fmt_date(f.get("due")) or t["immediately"]
+
+
 def build_html(res, lang, photos):
     t = T[lang]
     m = res["meta"]
@@ -145,8 +179,10 @@ def build_html(res, lang, photos):
     zk = "zone_name_en" if lang == "en" else "zone_name_ru"
     nk = "name_en" if lang == "en" else "name_ru"
     g = res["grade"]
-    h = [f"<style>{CSS}</style>", f"<h1>{esc(t['title'])}</h1>", '<table class="meta">']
+    h = [f"<style>{font_css()}\n{CSS}</style>", f"<h1>{esc(t['title'])}</h1>",
+         '<table class="meta">']
     for k, v in ((t["unit"], m.get("unit")), (t["city"], m.get("city")),
+                 (t["partner"], m.get("partner")),
                  (t["auditor"], m.get("auditor")), (t["date"], fmt_date(m.get("date")))):
         if v:
             h.append(f'<tr><td class="k">{esc(k)}</td><td>{esc(v)}</td></tr>')
@@ -206,7 +242,8 @@ def build_html(res, lang, photos):
                 h.append(f'<div class="c"><b>{esc(t["recorded"])}:</b> {esc(f["evidence"])}</div>')
             if f.get("comment"):
                 h.append(f'<div class="c">{esc(t["comment"])}: {esc(f["comment"])}</div>')
-            h.append(f'<div class="m">{esc(t["process"])}: {esc(f.get(pk) or "")}{esc(nc)}</div>')
+            h.append(f'<div class="m">{esc(t["process"])}: {esc(f.get(pk) or "")}{esc(nc)}'
+                     f' · {esc(t["deadline"])}: {esc(deadline_text(f, t))}</div>')
             if photos == "all" or (photos == "d2d3" and f["level"] in ("D2", "D3")):
                 shots = f.get("photos") or ([f["photo"]] if f.get("photo") else [])
                 if shots:
@@ -247,36 +284,66 @@ def build_html(res, lang, photos):
     return "<html><head><meta charset='utf-8'/></head><body>" + "".join(h) + "</body></html>"
 
 
+PDF_MIN_BYTES = 1000
+
+
+def pdf_problem(path):
+    """Почему собранное не является отчётом. None — отчёт на месте."""
+    if not os.path.exists(path):
+        return "файл не создан"
+    size = os.path.getsize(path)
+    if size < PDF_MIN_BYTES:
+        return f"файл слишком мал ({size} байт)"
+    with open(path, "rb") as f:
+        if f.read(5) != b"%PDF-":
+            return "собран файл, но это не PDF"
+    return None
+
+
 def html_to_pdf(html, out):
+    """Собрать PDF рядом во временный файл и подменить им out только после проверки.
+
+    Провал сборки обязан быть провалом вызова. Раньше успехом считалось само
+    наличие файла по пути --out: прошлый отчёт из этой же папки засчитывался
+    за собранный, и вызов возвращал 0, ничего не собрав.
+    """
+    d = os.path.dirname(os.path.abspath(out)) or "."
+    if not os.path.isdir(d):
+        sys.exit(f"Папки {d} нет — некуда класть отчёт")
     hf = tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8")
-    hf.write(html); hf.close()
-    if shutil.which("wkhtmltopdf"):
-        r = subprocess.run(["wkhtmltopdf", "--enable-local-file-access", "--encoding", "utf-8",
-                            "--margin-top", "16mm", "--margin-bottom", "18mm",
-                            "--margin-left", "14mm", "--margin-right", "14mm",
-                            "--footer-font-size", "7", "--footer-right", "[page]/[topage]",
-                            hf.name, out], capture_output=True, text=True)
-        if os.path.exists(out) and os.path.getsize(out) > 1000:
-            os.unlink(hf.name); return out
-        sys.stderr.write(r.stderr[-800:] + "\n")
-    for chrome in ("chromium", "chromium-browser", "google-chrome",
-                   "/opt/pw-browsers/chromium/chrome-linux/chrome"):
-        p = shutil.which(chrome) if not chrome.startswith("/") else (chrome if os.path.exists(chrome) else None)
-        if p:
-            subprocess.run([p, "--headless", "--disable-gpu", "--no-sandbox",
-                            f"--print-to-pdf={out}", "--no-pdf-header-footer", f"file://{hf.name}"],
-                           capture_output=True)
-            if os.path.exists(out):
-                os.unlink(hf.name); return out
+    hf.write(html)
+    hf.close()
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".report-", suffix=".pdf")
+    os.close(fd)
     try:
-        from weasyprint import HTML
-        HTML(filename=hf.name).write_pdf(out)
-        os.unlink(hf.name); return out
-    except Exception as e:
-        sys.exit(f"Не удалось собрать PDF: {e}. HTML сохранён: {hf.name}")
+        try:
+            from weasyprint import HTML
+        except Exception as e:
+            sys.exit(f"Рендерер PDF недоступен: {e}. Нужен WeasyPrint 69.x и системные "
+                     f"библиотеки Pango. HTML сохранён: {hf.name}")
+        try:
+            HTML(filename=hf.name).write_pdf(tmp)
+        except Exception as e:
+            sys.exit(f"Не удалось собрать PDF: {e}. HTML сохранён: {hf.name}")
+        bad = pdf_problem(tmp)
+        if bad:
+            sys.exit(f"Сборка PDF не дала отчёта: {bad}. HTML сохранён: {hf.name}")
+        # mkstemp даёт 0600 — отчёт должен получить обычные права, как любой файл.
+        mask = os.umask(0)
+        os.umask(mask)
+        os.chmod(tmp, 0o666 & ~mask)
+        os.replace(tmp, out)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    os.unlink(hf.name)
+    return out
 
 
-LETTER = {
+# Два шаблона, а не один с условными вставками: при чистой проверке письмо
+# не должно требовать план действий по нарушениям, которых нет. Обе боевые
+# проверки были именно такими, и оба письма переписывались руками.
+LETTER_PLAN = {
     "ru": """Тема: Результаты проверки — {unit}, {date}: оценка {grade} ({pct}%)
 
 Здравствуйте{partner_greet}!
@@ -291,7 +358,7 @@ LETTER = {
 
 Просим до {plan_due} прислать план действий по устранению: ответственный и дата по каждому пункту. Нарушения D2 ждём закрытыми в срок, указанный в отчёте, D3 — немедленно, с подтверждением фотографией.
 
-{call_block}Спасибо за работу. Готовы обсудить любой пункт отчёта и помочь с приоритизацией.
+Спасибо за работу. Готовы обсудить любой пункт отчёта и помочь с приоритизацией.
 
 С уважением,
 {auditor}
@@ -310,7 +377,43 @@ What we recorded:
 
 Please send us your action plan by {plan_due}, with an owner and a date for each item. D2 violations are expected to be closed within the deadline stated in the report; D3 violations immediately, confirmed with a photo.
 
-{call_block}Thank you for your work. We are happy to walk through any item in the report and help with prioritisation.
+Thank you for your work. We are happy to walk through any item in the report and help with prioritisation.
+
+Best regards,
+{auditor}
+Dodo Brands""",
+}
+LETTER_CLEAN = {
+    "ru": """Тема: Результаты проверки — {unit}, {date}: оценка {grade} ({pct}%)
+
+Здравствуйте{partner_greet}!
+
+{date} мы провели проверку пиццерии {unit}{city}. Вид проверки — {type}.
+
+Итоговая оценка — {grade} ({pct}%).{grade_note} Существенных (D2) и критических (D3) нарушений не зафиксировано.
+
+Что отметили:
+{summary_lines}
+Подробный отчёт с фотофиксацией, разбивкой по зонам и сроками устранения по каждому пункту — во вложении. Плана действий не ждём: перечисленные отклонения устраняются в рабочем порядке в сроки, указанные в отчёте.
+
+Спасибо за работу. Готовы обсудить любой пункт отчёта.
+
+С уважением,
+{auditor}
+Dodo Brands""",
+    "en": """Subject: Inspection results — {unit}, {date}: grade {grade} ({pct}%)
+
+Hello{partner_greet},
+
+On {date} we inspected the {unit} store{city}. Inspection type: {type}.
+
+The final grade is {grade} ({pct}%).{grade_note} No major (D2) or critical (D3) violations were recorded.
+
+What we noted:
+{summary_lines}
+The full report — photo evidence, the breakdown by zone and a deadline for every item — is attached. No action plan is expected: the deviations listed above are closed in the normal course of work within the deadlines stated in the report.
+
+Thank you for your work. We are happy to walk through any item in the report.
 
 Best regards,
 {auditor}
@@ -328,52 +431,92 @@ GRADE_NOTE = {
 }
 
 
-def build_letter(res, lang):
-    m = res["meta"]; c = res["counts"]
+def summary_lines(res, lang, clean):
+    """Сводка нарушений. При чистой проверке перечисляем зоны с D1, а не D2/D3."""
+    c = res["counts"]
     zk = "zone_name_en" if lang == "en" else "zone_name_ru"
     qk = "question_en" if lang == "en" else "question_ru"
-    if lang == "en":
-        lines = [f"— {c['D3']} critical D3, {c['D2']} major D2, {c['D1']} minor D1 violations."]
+    if clean:
+        lines = [f"— minor D1 deviations: {c['D1']}." if lang == "en"
+                 else f"— незначительных отклонений D1: {c['D1']}."]
+        shown = ("D1",)
     else:
-        lines = [f"— критических D3: {c['D3']}, значительных D2: {c['D2']}, незначительных D1: {c['D1']}."]
-    worst = {}
+        lines = [f"— {c['D3']} critical D3, {c['D2']} major D2, {c['D1']} minor D1 violations."
+                 if lang == "en"
+                 else f"— критических D3: {c['D3']}, значительных D2: {c['D2']}, "
+                      f"незначительных D1: {c['D1']}."]
+        shown = ("D2", "D3")
+    by_zone = {}
     for f in res["findings"]:
-        if f["level"] in ("D2", "D3"):
-            worst.setdefault(f[zk], []).append(f)
-    for z, lst in worst.items():
-        names = "; ".join(x.get("evidence") or clean_q(x.get(qk) or x["question_ru"]) for x in lst[:3])
+        if f["level"] in shown:
+            by_zone.setdefault(f[zk], []).append(f)
+    for z, lst in by_zone.items():
+        names = "; ".join(x.get("evidence") or clean_q(x.get(qk) or x["question_ru"])
+                          for x in lst[:3])
         lines.append(f"— {z}: {names}" + (" …" if len(lst) > 3 else ""))
-    crit = ""
-    d3 = [f for f in res["findings"] if f["level"] == "D3"]
-    if d3:
-        if lang == "en":
-            crit = ("\nCritical (D3): " + "; ".join((f.get("evidence") or clean_q(f.get(qk) or f["question_ru"])) + f" — {f[zk]}" for f in d3)
-                    + ". Per our methodology a D3 violation zeroes the whole zone where it was found.\n\n")
-        else:
-            crit = ("\nКритично (D3): " + "; ".join((f.get("evidence") or clean_q(f.get(qk) or f["question_ru"])) + f" — {f[zk]}" for f in d3)
-                    + ". По методике нарушение D3 обнуляет всю зону, в которой оно зафиксировано.\n\n")
+    return "\n".join(lines)
+
+
+def plan_due_date(res):
+    """Срок плана действий: дата отчёта плюс plan_due_days из scoring.json."""
+    m = res["meta"]
     cl = {r["id"]: r for r in load_checklist()}
-    call, plan_due = "", ""
     for k, v in (res.get("info") or {}).items():
         if v and (re.search(r"план\w* действий", (cl.get(k, {}).get("question_ru") or "").lower())
                   or "action plan" in (cl.get(k, {}).get("question_en") or "").lower()):
-            plan_due = str(v)
-    if not plan_due:
-        days = int(load_cfg().get("plan_due_days", 10))
-        try:
-            plan_due = (date.fromisoformat(m["date"]) + timedelta(days=days)).isoformat()
-        except Exception:
-            plan_due = "___"
+            return str(v)
+    days = int(load_cfg().get("plan_due_days", 10))
+    try:
+        return (date.fromisoformat(m["date"]) + timedelta(days=days)).isoformat()
+    except (ValueError, TypeError, KeyError):
+        return "___"
+
+
+def build_letter(res, lang):
+    m = res["meta"]
+    c = res["counts"]
+    zk = "zone_name_en" if lang == "en" else "zone_name_ru"
+    qk = "question_en" if lang == "en" else "question_ru"
+    clean = not c["D2"] and not c["D3"]
+    crit = ""
+    d3 = [f for f in res["findings"] if f["level"] == "D3"]
+    if d3:
+        names = "; ".join((f.get("evidence") or clean_q(f.get(qk) or f["question_ru"]))
+                          + f" — {f[zk]}" for f in d3)
+        if lang == "en":
+            crit = ("\nCritical (D3): " + names + ". Per our methodology a D3 violation zeroes "
+                    "the whole zone where it was found.\n\n")
+        else:
+            crit = ("\nКритично (D3): " + names + ". По методике нарушение D3 обнуляет всю зону, "
+                    "в которой оно зафиксировано.\n\n")
     contact = m.get("contact") or ""
-    return LETTER[lang].format(
+    template = LETTER_CLEAN[lang] if clean else LETTER_PLAN[lang]
+    return template.format(
         unit=m.get("unit", ""), date=fmt_date(m.get("date")),
         city=(f", {m['city']}" if m.get("city") else ""),
-        type=(TYPE_EN.get(m.get("type", ""), m.get("type", "")) if lang == "en" else m.get("type", "")),
+        type=(TYPE_EN.get(m.get("type", ""), m.get("type", "")) if lang == "en"
+              else m.get("type", "")),
         grade=res["grade"], pct=f"{res['pct']:g}",
         grade_note=GRADE_NOTE[lang].get(res["grade"], ""),
-        summary_lines="\n".join(lines), critical_block=crit, call_block=call,
-        plan_due=fmt_date(plan_due), partner_greet=(f", {contact}" if contact else ""),
+        summary_lines=summary_lines(res, lang, clean), critical_block=crit,
+        plan_due=fmt_date(plan_due_date(res)),
+        partner_greet=(f", {contact}" if contact else ""),
         auditor=m.get("auditor") or "___")
+
+
+def letter_problems(text, res):
+    """Письмо уходит партнёру: пустое или без ключевых полей — это провал, не успех."""
+    m = res["meta"]
+    bad = []
+    if not text.strip():
+        bad.append("текст пустой")
+    if not (m.get("unit") or "").strip():
+        bad.append("не указана пиццерия")
+    if not (m.get("date") or "").strip():
+        bad.append("не указана дата проверки")
+    if not res.get("grade"):
+        bad.append("нет оценки")
+    return bad
 
 
 def fmt_date(s):
@@ -402,6 +545,8 @@ def main():
     s = p.add_subparsers(dest="cmd", required=True)
     a1 = s.add_parser("pdf"); a1.add_argument("--out"); a1.add_argument("--lang"); a1.add_argument("--photos", default="all")
     a2 = s.add_parser("letter"); a2.add_argument("--lang")
+    a3 = s.add_parser("html"); a3.add_argument("--out"); a3.add_argument("--lang")
+    a3.add_argument("--photos", default="all")
     a = p.parse_args()
     st = load_state()
     res = compute(st, load_checklist(), load_zones(), load_cfg())
@@ -409,7 +554,21 @@ def main():
     if lang not in T:
         lang = "ru"
     if a.cmd == "letter":
-        print(build_letter(res, lang)); return
+        text = build_letter(res, lang)
+        bad = letter_problems(text, res)
+        if bad:
+            sys.exit("Письмо не собрано: " + "; ".join(bad))
+        print(text)
+        return
+    if a.cmd == "html":
+        html = build_html(res, lang, a.photos)
+        if a.out:
+            with open(a.out, "w", encoding="utf-8") as f:
+                f.write(html)
+            print(a.out)
+        else:
+            print(html)
+        return
     out = a.out or default_name(st["meta"])
     html_to_pdf(build_html(res, lang, a.photos), out)
     print(out)

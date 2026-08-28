@@ -27,9 +27,13 @@ bounds:
 
 # Регрессионный якорь: цифры на боевых данных не должны меняться.
 # Ожидается: belgrade-1 → 97.5%, A, 5×D1 ; belgrade-2 → 97.0%, A, 6×D1
+# Пути к движку и питону — абсолютные не для красоты: examples/ это симлинк на
+# основную копию репозитория, и относительный ../../engine/audit.py из worktree
+# приводил в движок ОСНОВНОЙ копии. Регресс при этом был зелёным, ничего не
+# проверяя. Проверено на себе 28.08.2026.
 regress:
-	@cd examples/belgrade-1 && python3 ../../engine/audit.py score | head -2
-	@cd examples/belgrade-2 && python3 ../../engine/audit.py score | head -2
+	@cd examples/belgrade-1 && $(CURDIR)/$(VENV)/python $(CURDIR)/engine/audit.py score | head -2
+	@cd examples/belgrade-2 && $(CURDIR)/$(VENV)/python $(CURDIR)/engine/audit.py score | head -2
 
 demo:
 	@echo "демо-набор поднимается блоком infra (задача T074)"

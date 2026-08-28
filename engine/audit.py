@@ -11,10 +11,15 @@
         список физических зон с долями
   audit.py init --unit "..." [--city ...] [--partner ...] [--auditor ...] [--type ...] [--date ...] [--lang ru|en]
         создать новую проверку (inspection.json в текущей папке)
+  audit.py meta [--unit ...] [--city ...] [--partner ...] [--auditor ...] [--date ...] [--lang ...]
+        поправить шапку уже начатой проверки, не трогая зафиксированные записи
   audit.py add --qid PRD01 --level D2 --zone fridge [--photo путь] [--comment "..."] [--evidence "..."]
         зафиксировать нарушение (можно повторять одно и то же qid в разных зонах).
         --photo можно указать несколько раз или через запятую — все ракурсы одного
         нарушения идут в одну запись
+  audit.py edit --n N [--qid PRD01] [--level D2] [--zone fridge] [--evidence "..."] [--comment "..."]
+        поправить уже зафиксированное нарушение #N. Синонимы из контракта блока:
+        --code = --qid, --text = --evidence. Меняются только переданные поля
   audit.py photo N --add путь1,путь2 [--clear]
         доснять фото к уже зафиксированному нарушению #N
   audit.py drop N            удалить нарушение по номеру
@@ -29,7 +34,8 @@
   zones.csv      — физические зоны и их доли в 100%
   scoring.json   — ставки вычетов и матрица букв
 """
-import argparse, csv, json, os, re, sys
+import argparse, csv, json, os, re, sys, tempfile, time
+from contextlib import contextmanager
 from datetime import date, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -112,9 +118,90 @@ def load_state():
         return json.load(f)
 
 
+def state_dir():
+    return os.path.dirname(os.path.abspath(STATE)) or "."
+
+
 def save_state(st):
-    with open(STATE, "w", encoding="utf-8") as f:
-        json.dump(st, f, ensure_ascii=False, indent=1)
+    """Атомарная запись: сначала временный файл рядом, потом os.replace.
+
+    Решение D007 — состояние живёт в файле, значит альбом из нескольких кадров
+    пишется параллельно. Запись поверх файла оставляла обрезанный JSON.
+    """
+    d = state_dir()
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".inspection-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(st, f, ensure_ascii=False, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, STATE)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _lock_exclusive(fh):
+    """Взять исключительную блокировку без ожидания. False — занято."""
+    try:
+        import fcntl
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            return False
+    except ImportError:
+        import msvcrt
+        try:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            return True
+        except OSError:
+            return False
+
+
+def _unlock(fh):
+    try:
+        import fcntl
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except ImportError:
+        import msvcrt
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+
+
+LOCK_TIMEOUT_SEC = 30.0
+
+
+@contextmanager
+def state_lock():
+    """Блокировка на проверку: один файл состояния — один пишущий процесс.
+
+    Читающие команды блокировку не берут — им хватает атомарности замены файла.
+    """
+    d = state_dir()
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, os.path.basename(STATE) + ".lock")
+    fh = open(path, "a+")
+    try:
+        deadline = time.time() + LOCK_TIMEOUT_SEC
+        while not _lock_exclusive(fh):
+            if time.time() > deadline:
+                sys.exit(f"Состояние {STATE} занято другим процессом дольше "
+                         f"{LOCK_TIMEOUT_SEC:g} с — запись отменена")
+            time.sleep(0.01)
+        try:
+            yield
+        finally:
+            _unlock(fh)
+    finally:
+        fh.close()
 
 
 def cmd_index(a):
@@ -154,12 +241,57 @@ def cmd_zones(a):
         print(f"{z['code']} | {z['name_ru']} | {z['name_en']} | {z['share_pct']:g}%")
 
 
+LANGS = ("ru", "en")
+META_FIELDS = ("unit", "city", "partner", "contact", "auditor", "type", "date", "lang")
+
+
+def clean_unit(v):
+    v = (v or "").strip()
+    if not v:
+        sys.exit('Не указана пиццерия: нужен --unit "Белград-1"')
+    return v
+
+
+def clean_date(v):
+    v = (v or "").strip()
+    try:
+        return date.fromisoformat(v).isoformat()
+    except (ValueError, TypeError):
+        sys.exit(f"Дата «{v}» не в формате ISO. Нужен ГГГГ-ММ-ДД, например 2026-08-21")
+
+
+def clean_lang(v):
+    v = (v or "").strip().lower()
+    if v not in LANGS:
+        sys.exit(f"Язык «{v}» не поддерживается. Доступны: {', '.join(LANGS)}")
+    return v
+
+
 def cmd_init(a):
-    st = {"meta": {"unit": a.unit, "city": a.city or "", "partner": a.partner or "",
+    st = {"meta": {"unit": clean_unit(a.unit), "city": a.city or "", "partner": a.partner or "",
                    "contact": a.contact or "",
                    "auditor": a.auditor or "", "type": a.type or "Плановая",
-                   "date": a.date or date.today().isoformat(), "lang": a.lang or "ru"},
-          "findings": [], "info": {}}
+                   "date": clean_date(a.date or date.today().isoformat()),
+                   "lang": clean_lang(a.lang or "ru")},
+          "findings": [], "info": {}, "seq": 0}
+    save_state(st)
+    print(json.dumps(st["meta"], ensure_ascii=False))
+
+
+def cmd_meta(a):
+    """Правка шапки уже начатой проверки: меняются только переданные поля."""
+    st = load_state()
+    given = {k: getattr(a, k) for k in META_FIELDS if getattr(a, k) is not None}
+    if not given:
+        sys.exit("Нечего менять: укажите хотя бы одно из "
+                 + ", ".join(f"--{k}" for k in META_FIELDS))
+    if "unit" in given:
+        given["unit"] = clean_unit(given["unit"])
+    if "date" in given:
+        given["date"] = clean_date(given["date"])
+    if "lang" in given:
+        given["lang"] = clean_lang(given["lang"])
+    st["meta"].update(given)
     save_state(st)
     print(json.dumps(st["meta"], ensure_ascii=False))
 
@@ -197,7 +329,10 @@ def cmd_add(a):
         sys.exit(f"Нет зоны {a.zone}. Доступны: {', '.join(sorted(zc))}")
     allowed = zone_codes(r, zones)
     st = load_state()
-    n = max([f["n"] for f in st["findings"]], default=0) + 1
+    check_pair_free(st, qid, a.zone)
+    # Счётчик сквозной: номера аудитор называет вслух, переиспользовать нельзя.
+    n = max([f["n"] for f in st["findings"]] + [int(st.get("seq") or 0)]) + 1
+    st["seq"] = n
     f = {"n": n, "qid": qid, "level": lvl, "zone": a.zone, "photos": split_photos(a.photo),
          "comment": a.comment or "", "evidence": a.evidence or ""}
     if a.zone not in allowed:
@@ -207,6 +342,64 @@ def cmd_add(a):
     warn = "  (зона нетипична для этого вопроса — перепроверьте)" if a.zone not in allowed else ""
     ph = f"  [фото: {len(f['photos'])}]" if f["photos"] else ""
     print(f"#{n} {qid} {lvl} / {a.zone}: {r['question_ru'][:90]}{ph}{warn}")
+
+
+def find_by_n(st, n):
+    for f in st["findings"]:
+        if f["n"] == n:
+            return f
+    return None
+
+
+def known_numbers(st):
+    return ", ".join(f"#{f['n']}" for f in st["findings"]) or "ни одной записи"
+
+
+def check_pair_free(st, qid, zone, skip_n=None):
+    """Пара «пункт + зона» уникальна: один и тот же пункт в одной зоне — одно нарушение."""
+    for f in st["findings"]:
+        if f["n"] != skip_n and f["qid"] == qid and f["zone"] == zone:
+            sys.exit(f"{qid} в зоне {zone} уже зафиксировано — запись #{f['n']}. "
+                     f"Доснимите фото (audit.py photo {f['n']} --add ...) "
+                     f"или поправьте её (audit.py edit --n {f['n']} ...)")
+
+
+def cmd_edit(a):
+    st = load_state()
+    f = find_by_n(st, a.n)
+    if f is None:
+        sys.exit(f"Нарушения #{a.n} нет. Есть: {known_numbers(st)}")
+    changed = [k for k, v in (("qid", a.qid), ("level", a.level), ("zone", a.zone),
+                              ("evidence", a.evidence), ("comment", a.comment)) if v is not None]
+    if not changed:
+        sys.exit("Нечего менять: укажите хотя бы одно из "
+                 "--qid/--level/--zone/--evidence/--comment")
+    cl = {r["id"]: r for r in load_checklist()}
+    zones = load_zones()
+    zc = {z["code"] for z in zones}
+    qid = (a.qid if a.qid is not None else f["qid"]).strip().upper()
+    lvl = (a.level if a.level is not None else f["level"]).strip().upper()
+    zone = (a.zone if a.zone is not None else f["zone"]).strip()
+    if qid not in cl:
+        sys.exit(f"Нет вопроса {qid} в чек-листе")
+    r = cl[qid]
+    if lvl not in r["levels"]:
+        sys.exit(f"У вопроса {qid} нет уровня {lvl}. Доступны: {'/'.join(r['levels'])}")
+    if zone not in zc:
+        sys.exit(f"Нет зоны {zone}. Доступны: {', '.join(sorted(zc))}")
+    check_pair_free(st, qid, zone, skip_n=f["n"])
+    f["qid"], f["level"], f["zone"] = qid, lvl, zone
+    if a.evidence is not None:
+        f["evidence"] = a.evidence
+    if a.comment is not None:
+        f["comment"] = a.comment
+    if zone in zone_codes(r, zones):
+        f.pop("zone_unusual", None)
+    else:
+        f["zone_unusual"] = True
+    save_state(st)
+    warn = "  (зона нетипична для этого вопроса — перепроверьте)" if f.get("zone_unusual") else ""
+    print(f"#{f['n']} {qid} {lvl} / {zone}: {r['question_ru'][:90]}{warn}")
 
 
 def cmd_photo(a):
@@ -360,6 +553,10 @@ def cmd_score(a):
             print(f"  {z['name_ru']}: D1 {z['D1']}, D2 {z['D2']}, D3 {z['D3']}, потеряно {z['loss']:g} из {z['share']:g}%{tag}")
 
 
+# Команды, которые меняют состояние: они и только они берут блокировку.
+MUTATING = {"init", "meta", "add", "edit", "photo", "drop", "info"}
+
+
 def main():
     p = argparse.ArgumentParser(add_help=True)
     s = p.add_subparsers(dest="cmd", required=True)
@@ -371,6 +568,10 @@ def main():
     for f in ("unit", "city", "partner", "contact", "auditor", "type", "date", "lang"):
         n.add_argument(f"--{f}")
     n.set_defaults(fn=cmd_init)
+    mt = s.add_parser("meta")
+    for f in META_FIELDS:
+        mt.add_argument(f"--{f}")
+    mt.set_defaults(fn=cmd_meta)
     ad = s.add_parser("add")
     ad.add_argument("--qid", required=True); ad.add_argument("--level", required=True)
     ad.add_argument("--zone", required=True)
@@ -378,6 +579,13 @@ def main():
                     help="путь к фото; можно указать несколько раз или через запятую")
     ad.add_argument("--comment"); ad.add_argument("--evidence")
     ad.set_defaults(fn=cmd_add)
+    ed = s.add_parser("edit")
+    ed.add_argument("--n", type=int, required=True)
+    ed.add_argument("--qid", "--code", dest="qid")
+    ed.add_argument("--level"); ed.add_argument("--zone")
+    ed.add_argument("--evidence", "--text", dest="evidence")
+    ed.add_argument("--comment")
+    ed.set_defaults(fn=cmd_edit)
     ph = s.add_parser("photo"); ph.add_argument("n", type=int)
     ph.add_argument("--add", action="append"); ph.add_argument("--clear", action="store_true")
     ph.set_defaults(fn=cmd_photo)
@@ -387,7 +595,11 @@ def main():
     sc = s.add_parser("score"); sc.add_argument("--json", action="store_true"); sc.set_defaults(fn=cmd_score)
 
     a = p.parse_args()
-    a.fn(a)
+    if a.cmd in MUTATING:
+        with state_lock():
+            a.fn(a)
+    else:
+        a.fn(a)
 
 
 if __name__ == "__main__":
