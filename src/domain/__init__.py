@@ -14,7 +14,9 @@ from __future__ import annotations
 
 from .checklist import allowed_levels, checklist_version, get_item, list_items, list_zones
 from .config import check_environment
+from .findings import add_finding, attach_photo, drop_finding, edit_finding
 from .models import ChecklistItem, Finding, Inspection, Score, Zone, ZoneScore
+from .state import get_state, start_inspection
 
 __all__ = [
     "ChecklistItem",
@@ -23,10 +25,16 @@ __all__ = [
     "Score",
     "Zone",
     "ZoneScore",
+    "add_finding",
     "allowed_levels",
+    "attach_photo",
     "check_environment",
     "checklist_version",
+    "drop_finding",
+    "edit_finding",
     "get_item",
+    "get_state",
     "list_items",
     "list_zones",
+    "start_inspection",
 ]

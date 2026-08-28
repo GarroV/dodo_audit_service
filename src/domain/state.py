@@ -1,0 +1,234 @@
+"""Состояние проверки: чтение, старт и собственные поля блока.
+
+Состояние — файл `inspection.json` в папке на чат (решение D007). Открывает его
+только этот блок; остальные ходят через функции отсюда, чтобы переезд на базу
+был заменой одного слоя, а не переписыванием бота.
+
+Часть полей ведёт движок (шапка и записи), часть — блок: языки интерфейса и
+речи, версия методики, арендатор. Свои поля лежат в том же файле под ключом
+`domain`: проверка должна быть одним объектом, иначе половина её сведений
+потеряется при первом же переносе. Движок чужие ключи не трогает — он читает
+файл целиком и целиком же пишет обратно.
+"""
+
+from __future__ import annotations
+
+# fcntl есть только в POSIX. Продукт работает в linux-контейнере (решение D003),
+# разработка — на macOS; отдельной ветки под Windows у блока нет намеренно.
+import fcntl
+import json
+import os
+import re
+import tempfile
+import time
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+from .checklist import checklist_version
+from .config import DEFAULT_LANG, Settings, check_environment
+from .engine import option, run_audit, state_file
+from .errors import DomainError, ValidationError
+from .models import Finding, Inspection
+
+#: Ключ со сведениями, которых у движка нет. `schema` — чтобы будущий переезд
+#: состояния (в том числе в базу) видел, какой формы данные ему достались.
+DOMAIN_KEY = "domain"
+SCHEMA = 1
+
+#: Арендатор по умолчанию. Функций мультиарендности в MVP нет (решение D005),
+#: но поле есть с первого дня: задним числом его в готовые проверки не вписать.
+DEFAULT_TENANT = "default"
+
+LANG_CODE = re.compile(r"^[a-z]{2}$")
+
+#: Ожидание блокировки состояния. Столько же ждёт движок — разные значения
+#: означали бы, что при заторе первым сдаётся тот, кто просто медленнее.
+LOCK_TIMEOUT_SEC = 30.0
+
+
+def _clean_lang(value: str, field: str) -> str:
+    """Язык — параметр, но не любая строка: в состояние идёт код вида `ru`."""
+    lang = (value or "").strip().lower()
+    if not LANG_CODE.match(lang):
+        raise ValidationError(
+            f"Язык «{value}» для поля «{field}» не похож на код языка: нужен код из двух букв, "
+            f"например ru или en"
+        )
+    return lang
+
+
+@contextmanager
+def state_lock(path: Path) -> Iterator[None]:
+    """Та же блокировка, что берёт движок: файл `<состояние>.lock`, `flock`.
+
+    Протокол приходится повторять, а не переиспользовать: движок вызывается
+    подпроцессом и своих функций наружу не отдаёт. Разойтись эти две реализации
+    не могут — блокировка опознаётся по имени файла, а не по коду.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.parent / (path.name + ".lock")
+    with lock_path.open("a+") as fh:
+        deadline = time.time() + LOCK_TIMEOUT_SEC
+        while True:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.time() > deadline:
+                    raise DomainError(
+                        f"Состояние {path} занято другим процессом дольше "
+                        f"{LOCK_TIMEOUT_SEC:g} с — запись отменена"
+                    ) from None
+                time.sleep(0.01)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def _write_atomic(path: Path, raw: Mapping[str, Any]) -> None:
+    """Временный файл рядом, fsync, `os.replace` — как пишет движок.
+
+    Запись поверх файла оставляла обрезанный JSON, когда альбом приходил
+    несколькими кадрами разом.
+    """
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".inspection-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(raw, f, ensure_ascii=False, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _read_raw(path: Path) -> dict[str, Any]:
+    try:
+        data: Any = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise DomainError(
+            f"Состояние проверки испорчено и прочитать его нельзя: {path} ({exc}). "
+            f"Файл не тронут — разбирать руками"
+        ) from exc
+    if not isinstance(data, dict):
+        raise DomainError(f"Состояние проверки не похоже на проверку: {path}")
+    return data
+
+
+def patch_domain_block(path: Path, values: Mapping[str, Any]) -> None:
+    """Дописать поля блока в состояние, не трогая того, что ведёт движок."""
+    with state_lock(path):
+        raw = _read_raw(path)
+        block = dict(raw.get(DOMAIN_KEY) or {})
+        block.update(values)
+        raw[DOMAIN_KEY] = block
+        _write_atomic(path, raw)
+
+
+def _finding(raw: Mapping[str, Any]) -> Finding:
+    photos = [p for p in (raw.get("photos") or []) if p]
+    if not photos and raw.get("photo"):
+        photos = [str(raw["photo"])]  # старая форма записи: одно фото строкой
+    return Finding(
+        n=int(raw["n"]),
+        code=str(raw.get("qid") or ""),
+        level=str(raw.get("level") or ""),
+        zone=str(raw.get("zone") or ""),
+        text=str(raw.get("evidence") or ""),
+        comment=str(raw.get("comment") or ""),
+        photos=[str(p) for p in photos],
+        zone_unusual=bool(raw.get("zone_unusual")),
+    )
+
+
+def _inspection(chat_id: int, raw: Mapping[str, Any]) -> Inspection:
+    meta: Mapping[str, Any] = raw.get("meta") or {}
+    block: Mapping[str, Any] = raw.get(DOMAIN_KEY) or {}
+    return Inspection(
+        chat_id=chat_id,
+        unit=str(meta.get("unit") or ""),
+        kind=str(meta.get("type") or ""),
+        date=str(meta.get("date") or ""),
+        # Язык отчёта хранится там, откуда его берёт сборка отчёта, — в шапке
+        # движка. Второй копии у блока нет намеренно: разошлись бы.
+        report_lang=str(meta.get("lang") or DEFAULT_LANG),
+        ui_lang=str(block.get("ui_lang") or DEFAULT_LANG),
+        speech_lang=str(block.get("speech_lang") or DEFAULT_LANG),
+        checklist_version=str(block.get("checklist_version") or ""),
+        tenant=str(block.get("tenant") or DEFAULT_TENANT),
+        city=str(meta.get("city") or ""),
+        partner=str(meta.get("partner") or ""),
+        contact=str(meta.get("contact") or ""),
+        auditor=str(meta.get("auditor") or ""),
+        findings=[_finding(f) for f in (raw.get("findings") or [])],
+    )
+
+
+def read_state(chat_id: int, settings: Settings) -> Inspection | None:
+    path = state_file(chat_id, settings)
+    if not path.is_file():
+        return None
+    return _inspection(chat_id, _read_raw(path))
+
+
+def get_state(chat_id: int) -> Inspection | None:
+    """Проверка этого чата или `None`, если она не начата."""
+    return read_state(chat_id, check_environment())
+
+
+def start_inspection(
+    chat_id: int,
+    unit: str,
+    kind: str,
+    report_lang: str,
+    *,
+    ui_lang: str = DEFAULT_LANG,
+    speech_lang: str = DEFAULT_LANG,
+    date: str | None = None,
+    city: str = "",
+    partner: str = "",
+    contact: str = "",
+    auditor: str = "",
+    tenant: str = DEFAULT_TENANT,
+) -> Inspection:
+    """Начать проверку в чате.
+
+    Существующее состояние движок затирает целиком и молча — спрашивать
+    аудитора «продолжить или начать заново» обязан бот (задача T052), поэтому
+    здесь такой защиты нет. Дату по умолчанию (сегодня) ставит движок.
+    """
+    settings = check_environment()
+    args = [
+        "init",
+        option("unit", unit),
+        option("type", kind),
+        option("lang", report_lang.strip().lower()),
+        option("city", city),
+        option("partner", partner),
+        option("contact", contact),
+        option("auditor", auditor),
+    ]
+    if date is not None:
+        args.append(option("date", date))
+    # Свои языки проверяем до вызова: иначе проверка окажется начатой, а поля
+    # блока — нет, и состояние останется наполовину заполненным.
+    block = {
+        "schema": SCHEMA,
+        "chat_id": chat_id,
+        "tenant": tenant,
+        "checklist_version": checklist_version(),
+        "ui_lang": _clean_lang(ui_lang, "язык интерфейса"),
+        "speech_lang": _clean_lang(speech_lang, "язык речи аудитора"),
+    }
+    run_audit(args, chat_id=chat_id, settings=settings, create=True)
+    patch_domain_block(state_file(chat_id, settings), block)
+    started = read_state(chat_id, settings)
+    if started is None:
+        raise DomainError(
+            f"Движок отчитался об успехе, но состояния нет: {state_file(chat_id, settings)}"
+        )
+    return started
