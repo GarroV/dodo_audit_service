@@ -126,8 +126,22 @@ def font_css():
     return "\n".join(faces)
 
 
+def page_css(t):
+    """Страница и её номер — CSS Paged Media, нижний колонтитул `@bottom-center`.
+
+    Подпись берётся из словаря языка: отчёт печатают и подшивают, и английский
+    экземпляр не должен получить русское «стр.».
+    """
+    label = str(t["page"]).replace('"', "")
+    return (
+        "@page { size: A4; margin: 16mm 14mm 18mm 14mm;\n"
+        '  @bottom-center { content: "' + label + ' " counter(page) " / " counter(pages);\n'
+        '    font-family: "Audit Sans", "DejaVu Sans", Arial, sans-serif;\n'
+        "    font-size: 6.5pt; color: #6F6880; } }\n"
+    )
+
+
 CSS = """
-@page { size: A4; margin: 16mm 14mm 18mm 14mm; }
 body { font-family: "Audit Sans", "DejaVu Sans", "Helvetica Neue", Arial, sans-serif; color:#23202B; font-size:10.5pt; line-height:1.45; }
 h1 { font-size:19pt; margin:0 0 2mm 0; color:#3F2A63; letter-spacing:-.2pt; }
 h2 { font-size:12.5pt; margin:9mm 0 3mm 0; color:#3F2A63; border-bottom:1.4pt solid #E6E1EF; padding-bottom:1.5mm; page-break-after:avoid; page-break-inside:avoid; }
@@ -179,7 +193,7 @@ def build_html(res, lang, photos):
     zk = "zone_name_en" if lang == "en" else "zone_name_ru"
     nk = "name_en" if lang == "en" else "name_ru"
     g = res["grade"]
-    h = [f"<style>{font_css()}\n{CSS}</style>", f"<h1>{esc(t['title'])}</h1>",
+    h = [f"<style>{font_css()}\n{page_css(t)}\n{CSS}</style>", f"<h1>{esc(t['title'])}</h1>",
          '<table class="meta">']
     for k, v in ((t["unit"], m.get("unit")), (t["city"], m.get("city")),
                  (t["partner"], m.get("partner")),
