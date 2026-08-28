@@ -1,0 +1,204 @@
+"""Карта кадров: что видно на фотографии → какие пункты стоит показать.
+
+Источник — `data/photo-cues.md`, документ управляющей компании. Он лежит рядом с
+методикой и читается при каждом обращении: методику подкладывают томом снаружи,
+и кеш означал бы работу по старой карте до перезапуска.
+
+Карта здесь только **добавляет** кандидатов и переставляет их вперёд. Резать ей
+перечень запрещено: разведка на боевом кадре показала, что при отсутствии
+правильного кода среди кандидатов модель не отказывается, а уверенно предлагает
+похожий пункт (`docs/forge/research/recognize-probe.md`).
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from src.domain import check_environment
+
+from .errors import RecognizeConfigError
+
+#: Файл карты кадров внутри каталога методики (`AUDIT_DATA_DIR`).
+CUES_FILE = "photo-cues.md"
+
+#: Заголовок раздела с порогами классов. Это не подсказки «что видно», а
+#: справка «когда D1, а когда D2» — она уходит в промпт отдельным куском.
+THRESHOLDS_HEADING = "## Пороги классов"
+
+_CODE = re.compile(r"\b[A-Z]{3}\d{2}\b")
+_WORD = re.compile(r"[а-яёa-z0-9]+")
+
+#: Окончания отсекаются по длине — от длинных к коротким. Полноценный
+#: морфологический разбор здесь не нужен и стоил бы отдельной зависимости:
+#: задача — свести «печь» и «печи», «маркировки» и «маркировка» к одному ключу.
+_SUFFIXES = (
+    "ами",
+    "ями",
+    "ого",
+    "его",
+    "ые",
+    "ие",
+    "ый",
+    "ий",
+    "ой",
+    "ей",
+    "ом",
+    "ем",
+    "ах",
+    "ях",
+    "ов",
+    "ев",
+    "ая",
+    "яя",
+    "ое",
+    "ее",
+    "ся",
+    "ть",
+    "а",
+    "я",
+    "ы",
+    "и",
+    "у",
+    "ю",
+    "е",
+    "о",
+    "ь",
+)
+
+#: Слова, которые есть в половине подсказок и потому ничего не различают.
+_STOPWORDS = frozenset(
+    """
+    без более все всё вид виден видно вокруг где для его есть еще ещё или
+    как когда который мест над нет них ним она они оно под при про рядом сам
+    свой себя так там тот три чем что это этот
+    """.split()
+)
+
+#: Стем считается различающим, если встречается не более чем в стольких
+#: подсказках. Слово «продукт» есть в десятке строк и само по себе не значит
+#: ничего; «огнетушитель» — ровно в одной и попадает в цель.
+_DISTINCTIVE_AT_MOST = 3
+
+
+@dataclass(frozen=True)
+class Cue:
+    """Одна строка карты: что видно на кадре и какие пункты за этим стоят."""
+
+    phrase: str
+    codes: tuple[str, ...]
+
+
+def _stem(word: str) -> str:
+    w = word.replace("ё", "е")
+    for suffix in _SUFFIXES:
+        if len(w) - len(suffix) >= 3 and w.endswith(suffix):
+            return w[: -len(suffix)]
+    return w
+
+
+def _stems(text: str) -> set[str]:
+    return {
+        stem
+        for word in _WORD.findall(text.lower())
+        if len(word) >= 3 and word not in _STOPWORDS
+        for stem in (_stem(word),)
+        if len(stem) >= 3
+    }
+
+
+def cues_path() -> Path:
+    """Где лежит карта кадров. Каталог методики задаётся `AUDIT_DATA_DIR`."""
+    return check_environment().data_dir / CUES_FILE
+
+
+def _read(path: Path | None) -> str:
+    target = path if path is not None else cues_path()
+    if not target.is_file():
+        raise RecognizeConfigError(
+            f"Не найдена карта кадров {CUES_FILE}: {target}. Без неё сужение перечня "
+            f"пунктов превращается в догадку, а неполный перечень модель не отвергает — "
+            f"она уверенно предлагает похожий пункт (docs/forge/research/recognize-probe.md)"
+        )
+    return target.read_text(encoding="utf-8")
+
+
+def load_cues(path: Path | None = None) -> tuple[Cue, ...]:
+    """Разобрать карту кадров в строки «фраза → коды».
+
+    Берутся только строки таблиц: первая ячейка — что видно, коды — из
+    остальных. Раздел порогов классов пропускается целиком, там коды стоят в
+    первой ячейке и подсказками не являются.
+    """
+    cues: list[Cue] = []
+    in_thresholds = False
+    for line in _read(path).splitlines():
+        if line.startswith("## "):
+            in_thresholds = line.strip().startswith(THRESHOLDS_HEADING)
+            continue
+        if in_thresholds or not line.lstrip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        codes = tuple(dict.fromkeys(_CODE.findall(" ".join(cells[1:]))))
+        phrase = cells[0]
+        if not codes or not phrase or set(phrase) <= set("- :"):
+            continue
+        cues.append(Cue(phrase=phrase, codes=codes))
+    return tuple(cues)
+
+
+def match_cues(note: str, cues: tuple[Cue, ...]) -> tuple[str, ...]:
+    """Коды, которые карта поднимает по словам комментария.
+
+    Подсказка срабатывает, когда совпали два слова или одно различающее.
+    Порядок — сначала по числу совпавших слов, потом по доле совпавшего в самой
+    подсказке: строка «Печь» совпала целиком и стоит выше строки «Печь: экран
+    настроек, время и температура выпекания», где совпало одно слово из шести.
+    """
+    words = _stems(note)
+    if not words:
+        return ()
+    phrase_stems = [_stems(c.phrase) for c in cues]
+    frequency: dict[str, int] = {}
+    for stems in phrase_stems:
+        for stem in stems:
+            frequency[stem] = frequency.get(stem, 0) + 1
+
+    scored: list[tuple[int, float, int, tuple[str, ...]]] = []
+    for order, (cue, stems) in enumerate(zip(cues, phrase_stems, strict=True)):
+        hit = stems & words
+        if not hit:
+            continue
+        distinctive = any(frequency[stem] <= _DISTINCTIVE_AT_MOST for stem in hit)
+        if len(hit) < 2 and not distinctive:
+            continue
+        scored.append((-len(hit), -len(hit) / len(stems), order, cue.codes))
+
+    codes: list[str] = []
+    for _, _, _, cue_codes in sorted(scored):
+        for code in cue_codes:
+            if code not in codes:
+                codes.append(code)
+    return tuple(codes)
+
+
+def class_thresholds(path: Path | None = None) -> str:
+    """Раздел карты с порогами классов — тот кусок, что уходит в промпт.
+
+    Целиком карта в промпт не идёт: она вдвое длиннее самого перечня пунктов,
+    а модели нужна не она, а границы D1/D2/D3 по тем пунктам, где выбор есть.
+    """
+    lines: list[str] = []
+    collecting = False
+    for line in _read(path).splitlines():
+        if line.startswith("## "):
+            if collecting:
+                break
+            collecting = line.strip().startswith(THRESHOLDS_HEADING)
+            continue
+        if collecting:
+            lines.append(line)
+    return "\n".join(lines).strip()
