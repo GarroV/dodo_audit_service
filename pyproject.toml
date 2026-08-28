@@ -1,0 +1,92 @@
+[project]
+name = "dodo-audit-service"
+version = "0.1.0"
+description = "Сервис выездных проверок пиццерий: телеграм-бот фиксации нарушений, расчёт оценки и сборка отчёта"
+requires-python = ">=3.12"
+
+# Зависимости продукта добавляет тот блок, который начинает их использовать —
+# тогда проверка неиспользуемых зависимостей (deptry) остаётся живой, а не
+# заглушённой списком «объявлено на будущее». Выбранные версии и обоснование —
+# docs/forge/plan.md, раздел «Стек с обоснованием».
+# Версии прибиваются точно (==): pip не умеет карантин свежих версий, поэтому
+# обновление — отдельное осознанное изменение, а не автоподтягивание.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "ruff==0.16.5",
+    "mypy==1.19.1",
+    "pytest==8.4.2",
+    "pytest-cov==7.0.0",
+    "vulture==2.14",
+    "deptry==0.23.1",
+    "import-linter==2.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["engine", ".venv"]
+
+[tool.ruff.lint]
+# Наборы включены явным списком, а не пресетом: пресеты шире канона проекта
+# и дают по два сообщения на одну строку от пересекающихся правил.
+select = ["E", "F", "I", "B", "S", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # assert в тестах — это их работа
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+exclude = ["engine", "\\.venv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--cov=src --cov-report=term-missing --junitxml=reports/junit.xml"
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.vulture]
+paths = ["src"]
+min_confidence = 60  # 80 не ловит неиспользуемые функции — проверено порчей
+exclude = [".venv"]
+
+[tool.deptry]
+known_first_party = ["src"]
+extend_exclude = ["^engine/", "^\\.venv/", "^tests/"]
+
+# Инструменты проверок не импортируются кодом — они запускаются командами.
+[tool.deptry.per_rule_ignores]
+DEP002 = ["ruff", "mypy", "pytest", "pytest-cov", "vulture", "deptry", "import-linter"]
+
+[tool.importlinter]
+root_packages = [
+    "src",
+]
+# Нужно, чтобы контракт про engine видел внешний по отношению к src пакет.
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Блоки идут слоями, обратный импорт запрещён"
+type = "layers"
+layers = [
+    "src.bot",
+    "src.recognize : src.report",
+    "src.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Движок вызывается подпроцессом, а не импортируется"
+type = "forbidden"
+source_modules = [
+    "src.bot",
+    "src.recognize",
+    "src.report",
+]
+forbidden_modules = [
+    "engine",
+]
