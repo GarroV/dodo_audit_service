@@ -11,6 +11,8 @@
         список физических зон с долями
   audit.py init --unit "..." [--city ...] [--partner ...] [--auditor ...] [--type ...] [--date ...] [--lang ru|en]
         создать новую проверку (inspection.json в текущей папке)
+  audit.py meta [--unit ...] [--city ...] [--partner ...] [--auditor ...] [--date ...] [--lang ...]
+        поправить шапку уже начатой проверки, не трогая зафиксированные записи
   audit.py add --qid PRD01 --level D2 --zone fridge [--photo путь] [--comment "..."] [--evidence "..."]
         зафиксировать нарушение (можно повторять одно и то же qid в разных зонах).
         --photo можно указать несколько раз или через запятую — все ракурсы одного
@@ -157,12 +159,57 @@ def cmd_zones(a):
         print(f"{z['code']} | {z['name_ru']} | {z['name_en']} | {z['share_pct']:g}%")
 
 
+LANGS = ("ru", "en")
+META_FIELDS = ("unit", "city", "partner", "contact", "auditor", "type", "date", "lang")
+
+
+def clean_unit(v):
+    v = (v or "").strip()
+    if not v:
+        sys.exit('Не указана пиццерия: нужен --unit "Белград-1"')
+    return v
+
+
+def clean_date(v):
+    v = (v or "").strip()
+    try:
+        return date.fromisoformat(v).isoformat()
+    except (ValueError, TypeError):
+        sys.exit(f"Дата «{v}» не в формате ISO. Нужен ГГГГ-ММ-ДД, например 2026-08-21")
+
+
+def clean_lang(v):
+    v = (v or "").strip().lower()
+    if v not in LANGS:
+        sys.exit(f"Язык «{v}» не поддерживается. Доступны: {', '.join(LANGS)}")
+    return v
+
+
 def cmd_init(a):
-    st = {"meta": {"unit": a.unit, "city": a.city or "", "partner": a.partner or "",
+    st = {"meta": {"unit": clean_unit(a.unit), "city": a.city or "", "partner": a.partner or "",
                    "contact": a.contact or "",
                    "auditor": a.auditor or "", "type": a.type or "Плановая",
-                   "date": a.date or date.today().isoformat(), "lang": a.lang or "ru"},
+                   "date": clean_date(a.date or date.today().isoformat()),
+                   "lang": clean_lang(a.lang or "ru")},
           "findings": [], "info": {}, "seq": 0}
+    save_state(st)
+    print(json.dumps(st["meta"], ensure_ascii=False))
+
+
+def cmd_meta(a):
+    """Правка шапки уже начатой проверки: меняются только переданные поля."""
+    st = load_state()
+    given = {k: getattr(a, k) for k in META_FIELDS if getattr(a, k) is not None}
+    if not given:
+        sys.exit("Нечего менять: укажите хотя бы одно из "
+                 + ", ".join(f"--{k}" for k in META_FIELDS))
+    if "unit" in given:
+        given["unit"] = clean_unit(given["unit"])
+    if "date" in given:
+        given["date"] = clean_date(given["date"])
+    if "lang" in given:
+        given["lang"] = clean_lang(given["lang"])
+    st["meta"].update(given)
     save_state(st)
     print(json.dumps(st["meta"], ensure_ascii=False))
 
@@ -435,6 +482,10 @@ def main():
     for f in ("unit", "city", "partner", "contact", "auditor", "type", "date", "lang"):
         n.add_argument(f"--{f}")
     n.set_defaults(fn=cmd_init)
+    mt = s.add_parser("meta")
+    for f in META_FIELDS:
+        mt.add_argument(f"--{f}")
+    mt.set_defaults(fn=cmd_meta)
     ad = s.add_parser("add")
     ad.add_argument("--qid", required=True); ad.add_argument("--level", required=True)
     ad.add_argument("--zone", required=True)
