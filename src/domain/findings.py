@@ -12,8 +12,8 @@ from __future__ import annotations
 import re
 
 from .config import Settings, check_environment
-from .engine import option, run_audit, state_file
-from .errors import EngineError, InspectionNotStarted, ValidationError
+from .engine import option, run_audit
+from .errors import EngineError, ValidationError
 from .models import Finding
 from .state import read_state
 
@@ -29,13 +29,6 @@ FIELD_OPTIONS = {
     "text": "evidence",
     "comment": "comment",
 }
-
-
-def _require_started(chat_id: int, settings: Settings) -> None:
-    if not state_file(chat_id, settings).is_file():
-        raise InspectionNotStarted(
-            f"В этом чате проверка не начата — записывать нечего (чат {chat_id})"
-        )
 
 
 def _number(out: str, command: str) -> int:
@@ -72,7 +65,6 @@ def add_finding(
     аудитору в чате показывают именно его.
     """
     settings = check_environment()
-    _require_started(chat_id, settings)
     out = run_audit(
         [
             "add",
@@ -95,7 +87,6 @@ def edit_finding(chat_id: int, n: int, **fields: str) -> Finding:
     молча ничего не сделать здесь хуже всего, аудитор уйдёт с ошибкой в отчёте.
     """
     settings = check_environment()
-    _require_started(chat_id, settings)
     unknown = sorted(set(fields) - set(FIELD_OPTIONS))
     if unknown:
         raise ValidationError(
@@ -116,7 +107,6 @@ def edit_finding(chat_id: int, n: int, **fields: str) -> Finding:
 def drop_finding(chat_id: int, n: int) -> None:
     """Удалить запись. Удалять нечего — отказ, а не тихий успех."""
     settings = check_environment()
-    _require_started(chat_id, settings)
     run_audit(["drop", str(n)], chat_id=chat_id, settings=settings)
     state = read_state(chat_id, settings)
     if state is not None and state.finding(n) is not None:
@@ -133,7 +123,6 @@ def attach_photo(chat_id: int, n: int, file_id: str) -> None:
     режет по ней список, и один кадр молча превратился бы в два несуществующих.
     """
     settings = check_environment()
-    _require_started(chat_id, settings)
     photo = file_id.strip()
     if not photo:
         raise ValidationError(f"Пустой идентификатор кадра для записи #{n}")

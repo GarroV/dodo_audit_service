@@ -71,9 +71,7 @@ def test_разбивка_по_зонам_совпадает_с_прямым_з�
 
 
 @pytest.mark.parametrize("name", ПРОВЕРКИ)
-def test_оценка_совпадает_с_тем_что_движок_печатает_человеку(
-    name: str, domain_env: Path
-) -> None:
+def test_оценка_совпадает_с_тем_что_движок_печатает_человеку(name: str, domain_env: Path) -> None:
     """Аудитор в чате и партнёр в отчёте должны видеть одни и те же цифры."""
     первая_строка = прямой_запуск(name).splitlines()[0]
     подложить(domain_env, 1, EXAMPLES / name / "inspection.json")

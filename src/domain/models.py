@@ -83,11 +83,9 @@ class Finding:
     text: str
     comment: str = ""
     photos: list[str] = field(default_factory=list)
+    #: Зона не из списка этого пункта. Движок такую запись пропускает и лишь
+    #: помечает — бот показывает пометку аудитору, чтобы тот перепроверил.
     zone_unusual: bool = False
-
-    @property
-    def is_violation(self) -> bool:
-        return self.level != "D0"
 
 
 @dataclass(frozen=True)
