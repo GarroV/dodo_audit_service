@@ -16,6 +16,9 @@ dependencies = [
     "weasyprint==69.0",
     "pillow==12.3.0",
     "openpyxl==3.1.5",
+    # Блок bot: диалог с аудитором (docs/forge/plan.md, раздел «Стек»).
+    "aiogram==3.31.0",
+    "aiogram-media-group==0.5.1",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +27,7 @@ dev = [
     "mypy==1.19.1",
     "pytest==8.4.2",
     "pytest-cov==7.0.0",
+    "pytest-asyncio==1.4.0",
     "vulture==2.14",
     "deptry==0.23.1",
     "import-linter==2.3",
@@ -57,9 +61,18 @@ strict = true
 files = ["src"]
 exclude = ["engine", "\\.venv"]
 
+# aiogram-media-group не публикует типы (нет py.typed) — единственная причина
+# исключения, не связано со строгостью проверки остального кода блока bot.
+[[tool.mypy.overrides]]
+module = "aiogram_media_group.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Хендлеры и мидлвари бота — корутины (aiogram); markers, а не auto-режим, чтобы
+# синхронные тесты domain и движка не проверялись случайно как асинхронные.
+asyncio_mode = "strict"
 # Покрытие считается по src/. Движок в метрику не входит осознанно: тесты
 # запускают его подпроцессом через CLI, и построчное покрытие дочернего процесса
 # не видно без отдельной настройки (задача T037). Проверен он при этом хорошо —
