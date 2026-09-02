@@ -414,3 +414,27 @@ async def test_voice_comment_also_cancels_the_analyze_question(
     await feed(dp, bot, callback("rec:analyze:601"))
 
     assert session.last_text == t("record.analyze_gone", "ru")
+
+
+async def test_measurement_stays_a_measurement_after_an_edit(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Смена зоны не превращает замер в нарушение — пометка держится и после правки.
+
+    Найдено просмотром живого разговора, а не тестом: строка правки собиралась
+    одним шаблоном на все классы, и у записи `D0` пометка «замер» пропадала.
+    """
+    started()
+    stub_classify(
+        monkeypatch,
+        suggestion(candidate("INF10", "D0", "fridge", "Температура холодильника +4 °C")),
+    )
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, photo_message("frame-1", caption="температура холодильника"))
+    await feed(dp, bot, callback("rec:pick:0"))
+    session.clear()
+    await feed(dp, bot, callback("ez:1:freezer"))
+
+    assert "замер" in session.last_text

@@ -233,6 +233,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Поправлено. #{n} {code} · {level} · {zone} · {pct}%",
         "en": "Updated. #{n} {code} · {level} · {zone} · {pct}%",
     },
+    "edit.changed_info": {
+        "ru": "Поправлено. #{n} {code} · {level} замер · {zone} · {pct}%",
+        "en": "Updated. #{n} {code} · {level} measurement · {zone} · {pct}%",
+    },
     "edit.dropped": {
         "ru": "Запись #{n} удалена. Накоплено: {pct}%",
         "en": "Record #{n} deleted. Score now: {pct}%",

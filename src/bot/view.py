@@ -102,9 +102,13 @@ def confirm_line(finding: domain.Finding, pct: float, lang: str) -> str:
 
 
 def changed_line(finding: domain.Finding, pct: float, lang: str) -> str:
-    """Та же строка после правки — с пересчитанным процентом (T056)."""
+    """Та же строка после правки — с пересчитанным процентом (T056).
+
+    Пометка «замер» держится и здесь: смена зоны у информационной записи не
+    превращает её в нарушение, а строка без пометки читалась бы именно так.
+    """
     return t(
-        "edit.changed",
+        "edit.changed_info" if finding.level == INFO_LEVEL else "edit.changed",
         lang,
         n=finding.n,
         code=finding.code,
