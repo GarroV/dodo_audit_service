@@ -1,0 +1,81 @@
+{
+  "_comment": "Scoring rules for the DEMO checklist only. These numbers are illustrative and do not represent any real audit methodology.",
+  "start_pct": 100.0,
+  "penalty": {
+    "D1": 1.0,
+    "D2": 5.0
+  },
+  "d3": {
+    "mode": "zero_zone_share",
+    "_mode_options": "zero_zone_share — a D3 finding burns the whole share of its own zone; zero_total — any D3 zeroes the entire audit.",
+    "skip_other_violations_in_d3_zone": true,
+    "_skip_comment": "true — D1/D2 findings in a zone that already has a D3 still appear in the report, but do not reduce the score again (the zone is already lost). false — they would be subtracted on top."
+  },
+  "cap_zone_loss_at_share": false,
+  "_cap_comment": "true — total deductions in one zone cannot exceed that zone's share (e.g. many D1 findings in a 20%-share zone cost at most 20%, not more). false — deductions simply add up.",
+  "floor_pct": 0.0,
+  "grades": {
+    "_logic": "Checked strictly in this order; the first matching rule wins.",
+    "rules": [
+      {
+        "grade": "D",
+        "if": {
+          "min_d3": 1
+        },
+        "label_ru": "Critical failure",
+        "label_en": "Critical failure"
+      },
+      {
+        "grade": "C",
+        "if": {
+          "min_d2": 2
+        },
+        "label_ru": "Below standard",
+        "label_en": "Below standard"
+      },
+      {
+        "grade": "C",
+        "if": {
+          "pct_below": 90.0
+        },
+        "label_ru": "Below standard",
+        "label_en": "Below standard"
+      },
+      {
+        "grade": "A",
+        "if": {
+          "pct_at_least": 95.0,
+          "max_d2": 0
+        },
+        "label_ru": "Meets standard",
+        "label_en": "Meets standard"
+      },
+      {
+        "grade": "B",
+        "if": {
+          "pct_at_least": 90.0,
+          "max_d2": 1
+        },
+        "label_ru": "Minor deviations",
+        "label_en": "Minor deviations"
+      }
+    ],
+    "fallback": {
+      "grade": "C",
+      "label_ru": "Below standard",
+      "label_en": "Below standard"
+    }
+  },
+  "deadlines": {
+    "_comment": "The remediation deadline comes from the days column in checklist.csv. This section is a ceiling by severity: the deadline can never exceed the value given here. D3 is always immediate.",
+    "max_days": {
+      "D1": 14,
+      "D2": 7,
+      "D3": 0
+    },
+    "d3_note_ru": "immediately",
+    "d3_note_en": "immediately"
+  },
+  "plan_due_days": 10,
+  "_plan_due_comment": "The action-plan due date in the letter is the report date plus this many days."
+}

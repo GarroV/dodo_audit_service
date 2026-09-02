@@ -1,0 +1,11 @@
+id,kind,process_ru,process_en,question_ru,question_en,levels,zones,days
+DEM01,violation,Guest Area,Guest Area,"(D1, D2) Waste bins outside the entrance are closed and not overflowing","(D1, D2) Waste bins outside the entrance are closed and not overflowing",D1;D2,facade,7
+DEM02,violation,Guest Area,Guest Area,"(D1) Entrance door glass and handles show no visible smudges, dust, or marks","(D1) Entrance door glass and handles show no visible smudges, dust, or marks",D1,"facade,dining",3
+DEM03,violation,Guest Area,Guest Area,"(D1, D2) Dining tables and chairs are clean and free of visible damage","(D1, D2) Dining tables and chairs are clean and free of visible damage",D1;D2,dining,5
+DEM04,violation,Guest Area,Guest Area,(D2) Menu boards and price displays match the current offer,(D2) Menu boards and price displays match the current offer,D2,dining,10
+DEM05,violation,Kitchen Operations,Kitchen Operations,"(D1, D2, D3) Products past their shelf life are not stored or used in production","(D1, D2, D3) Products past their shelf life are not stored or used in production",D1;D2;D3,"kitchen,storage",1
+DEM06,violation,Kitchen Operations,Kitchen Operations,"(D1, D2) Work surfaces and cutting boards are sanitized between different food types","(D1, D2) Work surfaces and cutting boards are sanitized between different food types",D1;D2,kitchen,3
+DEM07,violation,Storage & Labelling,Storage & Labelling,"(D1, D2) Dry goods are stored at least 15 cm off the floor and away from walls","(D1, D2) Dry goods are stored at least 15 cm off the floor and away from walls",D1;D2,storage,7
+DEM08,violation,Storage & Labelling,Storage & Labelling,(D1) Opened containers are labeled with the date they were opened,(D1) Opened containers are labeled with the date they were opened,D1,storage,3
+DEM09,violation,Staff & Hygiene,Staff & Hygiene,"(D1, D2) Staff uniforms are clean and worn correctly during the shift","(D1, D2) Staff uniforms are clean and worn correctly during the shift",D1;D2,staff,5
+DEM10,violation,Staff & Hygiene,Staff & Hygiene,"(D1, D2) The handwashing sink is stocked with soap, paper towels, and hot water","(D1, D2) The handwashing sink is stocked with soap, paper towels, and hot water",D1;D2,"staff,kitchen",3
