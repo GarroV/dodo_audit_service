@@ -1,0 +1,413 @@
+"""T031/T032/T064: разбор комментария (и, по нажатию «Разобрать», кадра) в предложения.
+
+`ask_model` подменяется — сеть здесь не участвует, реальный вызов проверен
+вручную (см. журнал блока). Тесты закрепляют то, что контракт требует
+буквально: код и зона либо из ответа модели, либо неопределены явно, кандидаты
+не досочиняются сверх присланного моделью, `needs_human` поднимается ровно по
+трём причинам (нет кандидатов, есть уточняющий вопрос, низкая уверенность или
+неизвестная зона).
+
+T064 — отдельный случай этого же `classify()`: комментарий пуст, кадр есть.
+Отдельной функции для него нет: контракт `docs/forge/plan.md` даёт один вход
+`classify(note, photo, zone_hint)`, кнопку «Разобрать» дожимает бот (T067) —
+без нажатия он этот вызов просто не делает. Здесь проверяется то, что
+происходит ПОСЛЕ решения бота позвать модель: кадр обязан уйти в запрос, а
+не потеряться из-за пустой строки комментария.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import pytest
+from conftest import requires_data
+
+from src.recognize.classify import classify, needs_photo
+from src.recognize.client import ModelAnswer
+from src.recognize.models import UNKNOWN_ZONE
+from src.recognize.shortlist import shortlist
+
+pytestmark = requires_data
+
+
+class _Recorder:
+    """Подменяет `ask_model`: помнит последний вызов, отдаёт заданный ответ."""
+
+    def __init__(self, payload: dict[str, Any], usage: dict[str, int] | None = None) -> None:
+        self.payload = payload
+        self.usage = usage or {}
+        self.calls: list[dict[str, Any]] = []
+
+    def __call__(self, **kwargs: Any) -> ModelAnswer:
+        self.calls.append(kwargs)
+        return ModelAnswer(payload=self.payload, usage=self.usage)
+
+    @property
+    def last(self) -> dict[str, Any]:
+        return self.calls[-1]
+
+
+def _patch(monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> None:
+    monkeypatch.setattr("src.recognize.classify.ask_model", recorder)
+
+
+# --- needs_photo ------------------------------------------------------------
+
+
+def test_пустой_комментарий_всегда_требует_кадр(domain_env: Path) -> None:
+    assert needs_photo("", ()) is True
+    assert needs_photo("   ", ("CLN05",)) is True
+
+
+def test_несколько_подсказок_требуют_кадр(domain_env: Path) -> None:
+    assert needs_photo("грязно", ("CLN05", "CLN06")) is True
+
+
+def test_одна_подсказка_с_единственным_классом_кадр_не_нужен(domain_env: Path) -> None:
+    # CLN05 — «Печь без загрязнений (D1)», единственный допустимый класс
+    assert needs_photo("печь грязная", ("CLN05",)) is False
+
+
+def test_одна_подсказка_с_выбором_класса_требует_кадр(domain_env: Path) -> None:
+    # PRD09 — пункт с выбором класса (D1/D2/D3): кадр разрешает спор
+    assert needs_photo("нет маркировки", ("PRD09",)) is True
+
+
+# --- classify: разбор ответа -------------------------------------------------
+
+
+def test_запись_разбирается_в_кандидата(domain_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    recorder = _Recorder(
+        {
+            "records": [
+                {
+                    "item": "CLN05:D1",
+                    "zone": "hot_kitchen",
+                    "wording": "Под лентой печи нагар.",
+                    "reason": "видно на кадре",
+                    "confidence": 0.9,
+                }
+            ],
+            "question": "",
+        }
+    )
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("печь в нагаре", zone_hint="hot_kitchen")
+
+    # Assert
+    assert len(s.candidates) == 1
+    c = s.candidates[0]
+    assert (c.code, c.level, c.zone) == ("CLN05", "D1", "hot_kitchen")
+    assert c.wording == "Под лентой печи нагар."
+    assert c.confidence == 0.9
+    assert s.needs_human is False, "вопроса нет, уверенность выше порога, зона известна"
+
+
+def test_несколько_нарушений_в_одном_комментарии_дают_несколько_кандидатов(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: «грязный пол и мусорка переполнена» — правило 11
+    recorder = _Recorder(
+        {
+            "records": [
+                {
+                    "item": "CLN05:D1",
+                    "zone": "hot_kitchen",
+                    "wording": "a",
+                    "reason": "",
+                    "confidence": 0.9,
+                },
+                {
+                    "item": "CLN06:D1",
+                    "zone": "hot_kitchen",
+                    "wording": "b",
+                    "reason": "",
+                    "confidence": 0.8,
+                },
+            ],
+            "question": "",
+        }
+    )
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("пол грязный и мусорка переполнена", zone_hint="hot_kitchen")
+
+    # Assert
+    assert [c.code for c in s.candidates] == ["CLN05", "CLN06"]
+
+
+def test_код_NONE_не_становится_кандидатом(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    recorder = _Recorder({"records": [{"item": "NONE"}], "question": ""})
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("всё чисто", zone_hint="hot_kitchen")
+
+    # Assert: пустой список — валидный ответ, а не ошибка разбора
+    assert s.candidates == ()
+    assert s.needs_human is True
+
+
+def test_зона_UNKNOWN_подставляется_подсказкой(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: модель честно не увидела зону в словах аудитора
+    recorder = _Recorder(
+        {
+            "records": [
+                {
+                    "item": "CLN05:D1",
+                    "zone": UNKNOWN_ZONE,
+                    "wording": "x",
+                    "reason": "",
+                    "confidence": 0.9,
+                }
+            ],
+            "question": "",
+        }
+    )
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("печь грязная", zone_hint="hot_kitchen")
+
+    # Assert: подсказка компенсирует, а не сама модель угадывает
+    assert s.candidates[0].zone == "hot_kitchen"
+
+
+def test_зона_UNKNOWN_без_подсказки_поднимает_needs_human(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    recorder = _Recorder(
+        {
+            "records": [
+                {
+                    "item": "CLN05:D1",
+                    "zone": UNKNOWN_ZONE,
+                    "wording": "x",
+                    "reason": "",
+                    "confidence": 0.9,
+                }
+            ],
+            "question": "",
+        }
+    )
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("печь грязная")
+
+    # Assert
+    assert s.candidates[0].zone == UNKNOWN_ZONE
+    assert s.needs_human is True, "неизвестная зона — человек обязан её назвать"
+
+
+def test_вопрос_модели_поднимает_needs_human_даже_с_кандидатом(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: правило 7 — не додумывать, спросить в question
+    recorder = _Recorder(
+        {
+            "records": [
+                {
+                    "item": "CLN03:D1",
+                    "zone": "hot_kitchen",
+                    "wording": "x",
+                    "reason": "",
+                    "confidence": 0.95,
+                }
+            ],
+            "question": "Это сохранялось после уборки или рабочая грязь?",
+        }
+    )
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("разводы на полу", zone_hint="hot_kitchen")
+
+    # Assert
+    assert s.needs_human is True
+    assert s.question
+
+
+def test_низкая_уверенность_поднимает_needs_human(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: порог 0.6 по умолчанию (docs/forge/research/recognize-probe.md — 0.55 у промаха)
+    recorder = _Recorder(
+        {
+            "records": [
+                {
+                    "item": "CLN05:D1",
+                    "zone": "hot_kitchen",
+                    "wording": "x",
+                    "reason": "",
+                    "confidence": 0.5,
+                }
+            ],
+            "question": "",
+        }
+    )
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("печь грязная", zone_hint="hot_kitchen")
+
+    # Assert
+    assert s.needs_human is True
+
+
+def test_уверенность_вне_границ_обрезается(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: строгая схема не проверяет границы числа — их обрезает разбор
+    recorder = _Recorder(
+        {
+            "records": [
+                {
+                    "item": "CLN05:D1",
+                    "zone": "hot_kitchen",
+                    "wording": "x",
+                    "reason": "",
+                    "confidence": 5,
+                }
+            ],
+            "question": "",
+        }
+    )
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("печь грязная", zone_hint="hot_kitchen")
+
+    # Assert
+    assert s.candidates[0].confidence == 1.0
+
+
+def test_кандидаты_обрезаются_до_max_candidates(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: контракт блока — не больше пяти кнопок
+    записи = [
+        {
+            "item": "CLN05:D1",
+            "zone": "hot_kitchen",
+            "wording": f"{i}",
+            "reason": "",
+            "confidence": 0.9,
+        }
+        for i in range(7)
+    ]
+    recorder = _Recorder({"records": записи, "question": ""})
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("печь грязная", zone_hint="hot_kitchen")
+
+    # Assert
+    assert len(s.candidates) == 5
+
+
+def test_пустой_список_записей_это_валидный_ответ(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    recorder = _Recorder({"records": [], "question": ""})
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("ничего особенного", zone_hint="hot_kitchen")
+
+    # Assert
+    assert s.candidates == ()
+    assert s.needs_human is True
+    assert s.degraded is False, "пустой ответ модели — не деградация, деградация без модели"
+
+
+def test_испорченная_запись_в_списке_молча_пропускается(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: строгая схема не даст такого в бою, но разбор не должен упасть
+    recorder = _Recorder({"records": ["не словарь", 42], "question": ""})
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("печь грязная", zone_hint="hot_kitchen")
+
+    # Assert
+    assert s.candidates == ()
+
+
+# --- classify: когда кадр уходит в запрос (T064 — «Разобрать» без комментария) ---
+
+
+def test_кадр_без_комментария_уходит_в_модель(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: ровно то, что бот делает по кнопке «Разобрать» (D043, D046) —
+    # комментария нет вовсе, есть только кадр
+    recorder = _Recorder({"records": [], "question": ""})
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("", photo=b"jpeg-bytes", zone_hint="hot_kitchen")
+
+    # Assert
+    assert s.used_photo is True
+    assert recorder.last["photo"] == b"jpeg-bytes"
+
+
+def test_без_кадра_и_без_комментария_модель_всё_равно_зовут_без_фото(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: вырожденный случай — вызывающий код передал пустой вход.
+    # `classify` не отказывается сам: решение «звать ли вообще» — у бота.
+    recorder = _Recorder({"records": [], "question": "Опишите, что видите."})
+    _patch(monkeypatch, recorder)
+
+    # Act
+    s = classify("", photo=None, zone_hint="hot_kitchen")
+
+    # Assert
+    assert s.used_photo is False
+    assert recorder.last["photo"] is None
+
+
+def test_однозначный_комментарий_с_кадром_кадр_не_смотрят(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: карта кадров подняла один код с одним классом — кадру
+    # нечего добавить (`needs_photo` — экономия токенов, см. classify.py).
+    # «нет одноразовых халатов» → ровно CLN24, у него единственный класс D1.
+    recorder = _Recorder(
+        {
+            "records": [
+                {
+                    "item": "CLN24:D1",
+                    "zone": "hot_kitchen",
+                    "wording": "x",
+                    "reason": "",
+                    "confidence": 0.9,
+                }
+            ],
+            "question": "",
+        }
+    )
+    _patch(monkeypatch, recorder)
+    assert shortlist("нет одноразовых халатов", "hot_kitchen").cue_hits == ("CLN24",)
+
+    # Act
+    s = classify("нет одноразовых халатов", photo=b"jpeg-bytes", zone_hint="hot_kitchen")
+
+    # Assert
+    assert s.used_photo is False
+    assert recorder.last["photo"] is None

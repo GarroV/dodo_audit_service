@@ -16,6 +16,9 @@ dependencies = [
     "weasyprint==69.0",
     "pillow==12.3.0",
     "openpyxl==3.1.5",
+    # recognize: единственный провайдер LLM — OpenAI (решение D010). Один
+    # клиент закрывает и разбор комментариев, и транскрипцию голоса.
+    "openai==2.9.0",
 ]
 
 [project.optional-dependencies]
