@@ -51,9 +51,7 @@ def методика(data_copy: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return data_copy
 
 
-def test_сумма_долей_мимо_100_роняет_расчёт(
-    started: Callable[..., Run], методика: Path
-) -> None:
+def test_сумма_долей_мимо_100_роняет_расчёт(started: Callable[..., Run], методика: Path) -> None:
     started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen")
     # Ровно тот случай из задачи: доли разошлись на сотую от округления.
     сумма = переписать_доли(методика, {"facade": 9.99})
@@ -75,9 +73,7 @@ def test_отказ_называет_файл_с_долями(started: Callable[
     assert str(методика / "zones.csv") in r.text, f"в отказе нет пути к файлу: {r.text!r}"
 
 
-def test_неравные_доли_не_подменяются_равными(
-    started: Callable[..., Run], методика: Path
-) -> None:
+def test_неравные_доли_не_подменяются_равными(started: Callable[..., Run], методика: Path) -> None:
     """Кухня тяжелее фасада — методика, а не ошибка: сумма сходится, доли живут как есть."""
     сумма = переписать_доли(методика, {"facade": 5.0, "hot_kitchen": 15.0})
     assert сумма == pytest.approx(100.0)
@@ -90,9 +86,7 @@ def test_неравные_доли_не_подменяются_равными(
     assert "15%" in строки["hot_kitchen"], f"доля кухни подменена: {строки['hot_kitchen']!r}"
 
 
-def test_неравные_доли_доходят_до_оценки(
-    started: Callable[..., Run], методика: Path
-) -> None:
+def test_неравные_доли_доходят_до_оценки(started: Callable[..., Run], методика: Path) -> None:
     """Разбивка по зонам в `score` обязана считаться по долям из файла, а не по 100/N."""
     переписать_доли(методика, {"facade": 5.0, "hot_kitchen": 15.0})
     started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen")
