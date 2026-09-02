@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -179,7 +180,7 @@ def build_edit_router() -> Router:
             return
         await apply(message, chat_id, int(raw), lang, level=level)
 
-    @router.message(StateFilter(EditFlow.waiting_text), F.text)
+    @router.message(StateFilter(EditFlow.waiting_text), F.text, ~F.text.startswith("/"))
     async def on_new_text(message: Message, state: FSMContext) -> None:
         """Новая формулировка. Пустую не принимаем: запись без текста бесполезна."""
         chat_id = message.chat.id
@@ -192,5 +193,20 @@ def build_edit_router() -> Router:
             return
         await state.clear()
         await apply(message, chat_id, n, lang, text=wording)
+
+    @router.message(StateFilter(EditFlow.waiting_text))
+    async def on_anything_else(message: Message, state: FSMContext) -> None:
+        """Кадр, голос или команда вместо формулировки — аудитор вернулся к работе.
+
+        Вопрос снимается, а сообщение идёт дальше своим обработчикам
+        (`SkipHandler`). Без этого случилось бы худшее из возможного: кадр
+        пропал бы, а следующий комментарий молча стал бы формулировкой старой
+        записи — и узнал бы об этом партнёр из отчёта.
+        """
+        data = await state.get_data()
+        n = int(data.get("edit_n", 0))
+        await state.clear()
+        await message.answer(t("edit.text_dropped", chat_ui_lang(message.chat.id), n=n))
+        raise SkipHandler
 
     return router

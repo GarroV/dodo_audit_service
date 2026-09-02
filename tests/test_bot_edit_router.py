@@ -13,7 +13,15 @@
 from __future__ import annotations
 
 import pytest
-from bot_harness import AUDITOR_ID, CHAT_ID, callback_query, feed, make_bot, text_message
+from bot_harness import (
+    AUDITOR_ID,
+    CHAT_ID,
+    callback_query,
+    feed,
+    make_bot,
+    photo_message,
+    text_message,
+)
 from conftest import requires_data
 
 from src import domain
@@ -300,3 +308,48 @@ async def test_malformed_button_code_does_not_crash_the_bot(domain_env: object) 
     # Бот жив: обычная правка следом проходит как ни в чём не бывало.
     await feed(dp, bot, callback_query("edit:1:drop"))
     assert session.last_text == t("edit.dropped", "ru", n=1, pct=_pct())
+
+
+async def test_photo_instead_of_wording_cancels_the_question_and_is_still_taken(
+    domain_env: object,
+) -> None:
+    """Кадр вместо формулировки: вопрос снят, а сам кадр не пропал.
+
+    Худший исход без этой ветки — молчаливый: кадр съедается ожиданием текста, а
+    следующий комментарий аудитора становится формулировкой старой записи, и
+    узнаёт об этом партнёр из отчёта.
+    """
+    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "прежний текст")
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, callback_query("edit:1:text"))
+    session.clear()
+    await feed(dp, bot, photo_message("escape-frame", message_id=777))
+
+    assert t("edit.text_dropped", "ru", n=1) in session.texts
+    assert session.keyboard_data() == ["rec:analyze:777"], "кадр не дошёл до приёма материала"
+
+    # Следующий комментарий относится к кадру, а не к формулировке записи.
+    state = domain.get_state(CHAT_ID)
+    assert state is not None
+    assert state.findings[0].text == "прежний текст"
+
+
+async def test_command_instead_of_wording_still_runs(domain_env: object) -> None:
+    """Команда вместо формулировки исполняется, а не становится текстом записи."""
+    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "прежний текст")
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, callback_query("edit:1:text"))
+    session.clear()
+    await feed(dp, bot, text_message("/finish"))
+
+    assert t("edit.text_dropped", "ru", n=1) in session.texts
+    assert any(text.startswith("Итог:") for text in session.texts), "команда не отработала"
+    state = domain.get_state(CHAT_ID)
+    assert state is not None
+    assert state.findings[0].text == "прежний текст"

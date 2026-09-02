@@ -241,6 +241,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Запись #{n} удалена. Накоплено: {pct}%",
         "en": "Record #{n} deleted. Score now: {pct}%",
     },
+    "edit.text_dropped": {
+        "ru": "Вопрос про формулировку записи #{n} снят — вы вернулись к работе.",
+        "en": "The wording question for record #{n} is off — you are back to work.",
+    },
     "edit.nothing_to_undo": {
         "ru": "Удалять нечего: в проверке ни одной записи.",
         "en": "Nothing to undo: the inspection has no records.",
