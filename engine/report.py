@@ -41,6 +41,7 @@ T = {
                         "и не более одного D2; C — два и более D2 либо результат ниже 90%; "
                         "D — хотя бы одно нарушение D3."),
         "photo_app": "Фотоприложение",
+        "photo_missing": "Фотография не приложена",
     },
     "en": {
         "title": "Pizzeria inspection report", "unit": "Store", "city": "City",
@@ -64,6 +65,7 @@ T = {
                         "and at most one D2; C — two or more D2, or a result below 90%; "
                         "D — at least one D3 violation."),
         "photo_app": "Photo appendix",
+        "photo_missing": "Photo not attached",
     },
 }
 TYPE_EN = {"Плановая": "Scheduled", "Повторная": "Follow-up", "Внеплановая": "Unscheduled",
@@ -91,6 +93,58 @@ def img_tag(path, max_px=1100):
         mime = mimetypes.guess_type(path)[0] or "image/jpeg"
     b64 = base64.b64encode(data).decode()
     return f'<img src="data:{mime};base64,{b64}" />'
+
+
+def load_photo_map(path):
+    """Карта «ссылка на кадр → файл». Битую карту не проглатываем.
+
+    В боте кадр хранится идентификатором телеграма, а не путём: скачивает его
+    и раскладывает по файлам вызывающий, движок лишь получает готовую карту.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception as e:
+        sys.exit(f"Карта кадров не читается ({path}): {e}")
+    if not isinstance(data, dict):
+        sys.exit(f"Карта кадров должна быть объектом «ссылка: путь», а не {type(data).__name__}")
+    return {str(k): str(v) for k, v in data.items()}
+
+
+class Photos:
+    """Где взять кадр и что нарисовать, если его нет.
+
+    Пустота на месте фотографии — худший исход: партнёр видит нарушение без
+    доказательства и справедливо его оспаривает. Поэтому промах всегда даёт
+    видимую отметку в отчёте и строку в stderr, а не тихо пропадает.
+    """
+
+    def __init__(self, mapping=None):
+        #: None — ссылка считается путём (запуск движка руками). Карта задана —
+        #: резолвим только по ней: идентификатор телеграма путём не является.
+        self.map = mapping
+        self.misses = []
+
+    def path(self, src):
+        src = str(src or "")
+        if self.map is not None:
+            return self.map.get(src) or ""
+        return src
+
+    def html(self, src, t):
+        tag = img_tag(self.path(src))
+        if tag:
+            return tag
+        self.misses.append(str(src or ""))
+        return f'<div class="miss">{esc(t["photo_missing"])}</div>'
+
+
+def shots_html(f, t, src):
+    """Разметка кадров одной записи. Нет кадров — нет и блока."""
+    shots = f.get("photos") or ([f["photo"]] if f.get("photo") else [])
+    if not shots:
+        return []
+    return ['<div class="shots">'] + [src.html(x, t) for x in shots] + ["</div>"]
 
 
 def clean_q(text):
@@ -126,36 +180,51 @@ def font_css():
     return "\n".join(faces)
 
 
+def page_css(t):
+    """Страница и её номер — CSS Paged Media, нижний колонтитул `@bottom-center`.
+
+    Подпись берётся из словаря языка: отчёт печатают и подшивают, и английский
+    экземпляр не должен получить русское «стр.».
+    """
+    label = str(t["page"]).replace('"', "")
+    return (
+        "@page { size: A4; margin: 16mm 14mm 18mm 14mm;\n"
+        '  @bottom-center { content: "' + label + ' " counter(page) " / " counter(pages);\n'
+        '    font-family: "Audit Sans", "DejaVu Sans", Arial, sans-serif;\n'
+        "    font-size: 6.5pt; color: #6F6880; } }\n"
+    )
+
+
 CSS = """
-@page { size: A4; margin: 16mm 14mm 18mm 14mm; }
-body { font-family: "Audit Sans", "DejaVu Sans", "Helvetica Neue", Arial, sans-serif; color:#23202B; font-size:10.5pt; line-height:1.45; }
+body { font-family: "Audit Sans", "DejaVu Sans", "Helvetica Neue", Arial, sans-serif; color:#23202B; font-size:10.5pt; line-height:1.3; }
 h1 { font-size:19pt; margin:0 0 2mm 0; color:#3F2A63; letter-spacing:-.2pt; }
-h2 { font-size:12.5pt; margin:9mm 0 3mm 0; color:#3F2A63; border-bottom:1.4pt solid #E6E1EF; padding-bottom:1.5mm; page-break-after:avoid; page-break-inside:avoid; }
+h2 { font-size:12.5pt; margin:6mm 0 2.5mm 0; color:#3F2A63; border-bottom:1.4pt solid #E6E1EF; padding-bottom:1.2mm; page-break-after:avoid; page-break-inside:avoid; }
 h2.sec-findings { page-break-before:always; margin-top:0; }
-.meta { width:100%; border-collapse:collapse; margin-top:4mm; }
-.meta td { padding:1.3mm 0; vertical-align:top; font-size:10pt; }
+.meta { width:100%; border-collapse:collapse; margin-top:3mm; }
+.meta td { padding:0.8mm 0; vertical-align:top; font-size:10pt; line-height:1.15; }
 .meta td.k { color:#6F6880; width:38mm; }
-.hero { margin:6mm 0 0 0; padding:5mm 6mm; border-radius:3mm; background:#F6F4FA; border:1pt solid #E6E1EF; }
+.hero { margin:4mm 0 0 0; padding:3.5mm 6mm; border-radius:3mm; background:#F6F4FA; border:1pt solid #E6E1EF; }
 .hero td { vertical-align:middle; }
 .hero .g { font-size:40pt; font-weight:bold; line-height:1; padding-right:8mm; white-space:nowrap; }
-.hero .p { font-size:22pt; font-weight:bold; color:#3F2A63; }
-.hero .l { color:#6F6880; font-size:9.5pt; text-transform:uppercase; letter-spacing:.5pt; }
-table.d { width:100%; border-collapse:collapse; margin-top:3mm; font-size:9.5pt; }
-table.d th { background:#F6F4FA; color:#3F2A63; text-align:left; padding:2mm 2.5mm; border:.6pt solid #E0DAEA; font-weight:600; }
-table.d td { padding:2mm 2.5mm; border:.6pt solid #E6E1EF; vertical-align:top; }
+.hero .p { font-size:22pt; font-weight:bold; color:#3F2A63; line-height:1.2; }
+.hero .l { color:#6F6880; font-size:9.5pt; text-transform:uppercase; letter-spacing:.5pt; line-height:1.2; }
+table.d { width:100%; border-collapse:collapse; margin-top:2.5mm; font-size:9.5pt; line-height:1.2; }
+table.d th { background:#F6F4FA; color:#3F2A63; text-align:left; padding:1.3mm 2.5mm; border:.6pt solid #E0DAEA; font-weight:600; }
+table.d td { padding:1.3mm 2.5mm; border:.6pt solid #E6E1EF; vertical-align:top; }
 table.d td.n { text-align:right; white-space:nowrap; }
 tr.z0 td { background:#FCEFEF; }
 .badge { display:inline-block; padding:.4mm 2mm; border-radius:1.4mm; color:#fff; font-size:8.5pt; font-weight:bold; }
 .D1 { background:#8A8496; } .D2 { background:#C2700F; } .D3 { background:#A81E1E; }
-.f { margin:0 0 4mm 0; padding:3mm 0 0 0; border-top:.6pt solid #EDE9F3; page-break-inside:avoid; }
+.f { margin:0 0 3mm 0; padding:2.2mm 0 0 0; border-top:.6pt solid #EDE9F3; page-break-inside:avoid; }
 .f .h { font-weight:600; }
 .f .m { color:#6F6880; font-size:9pt; margin-top:.8mm; }
-.f .c { margin-top:1.2mm; font-size:9.5pt; }
-.f .shots { margin-top:2mm; }
+.f .c { margin-top:1mm; font-size:9.5pt; }
+.f .shots { margin-top:1.5mm; }
+.f .miss { display:inline-block; box-sizing:border-box; width:78mm; padding:9mm 4mm; margin:0 2mm 2mm 0; text-align:center; color:#A81E1E; background:#FCEFEF; border:1pt dashed #D08A8A; border-radius:1.5mm; font-size:9pt; }
 .f img { max-width:78mm; max-height:70mm; margin:0 2mm 2mm 0; border:1pt solid #E0DAEA; border-radius:1.5mm; }
-.zh { margin:6mm 0 1mm 0; font-weight:bold; color:#3F2A63; font-size:11pt; page-break-after:avoid; page-break-inside:avoid; }
-.note { color:#6F6880; font-size:8.8pt; margin-top:4mm; line-height:1.5; }
-.info p { margin:1.5mm 0; }
+.zh { margin:4.5mm 0 1mm 0; font-weight:bold; color:#3F2A63; font-size:11pt; page-break-after:avoid; page-break-inside:avoid; }
+.note { color:#6F6880; font-size:8.8pt; margin-top:3mm; line-height:1.35; }
+.info p { margin:1.2mm 0; }
 .info .k { color:#6F6880; }
 """
 
@@ -167,8 +236,9 @@ def deadline_text(f, t):
     return fmt_date(f.get("due")) or t["immediately"]
 
 
-def build_html(res, lang, photos):
+def build_html(res, lang, photos, src=None):
     t = T[lang]
+    src = Photos() if src is None else src
     m = res["meta"]
     itype = m.get("type", "")
     if lang == "en":
@@ -179,7 +249,7 @@ def build_html(res, lang, photos):
     zk = "zone_name_en" if lang == "en" else "zone_name_ru"
     nk = "name_en" if lang == "en" else "name_ru"
     g = res["grade"]
-    h = [f"<style>{font_css()}\n{CSS}</style>", f"<h1>{esc(t['title'])}</h1>",
+    h = [f"<style>{font_css()}\n{page_css(t)}\n{CSS}</style>", f"<h1>{esc(t['title'])}</h1>",
          '<table class="meta">']
     for k, v in ((t["unit"], m.get("unit")), (t["city"], m.get("city")),
                  (t["partner"], m.get("partner")),
@@ -245,12 +315,7 @@ def build_html(res, lang, photos):
             h.append(f'<div class="m">{esc(t["process"])}: {esc(f.get(pk) or "")}{esc(nc)}'
                      f' · {esc(t["deadline"])}: {esc(deadline_text(f, t))}</div>')
             if photos == "all" or (photos == "d2d3" and f["level"] in ("D2", "D3")):
-                shots = f.get("photos") or ([f["photo"]] if f.get("photo") else [])
-                if shots:
-                    h.append('<div class="shots">')
-                    for src in shots:
-                        h.append(img_tag(src))
-                    h.append("</div>")
+                h.extend(shots_html(f, t, src))
             h.append("</div>")
 
     info = {k: v for k, v in (res.get("info") or {}).items() if k not in HIDDEN_INFO}
@@ -271,12 +336,7 @@ def build_html(res, lang, photos):
                     h.append(f'<div class="c">{esc(f["evidence"])}</div>')
                 if f.get("comment"):
                     h.append(f'<div class="c">{esc(t["comment"])}: {esc(f["comment"])}</div>')
-                shots = f.get("photos") or ([f["photo"]] if f.get("photo") else [])
-                if shots:
-                    h.append('<div class="shots">')
-                    for src in shots:
-                        h.append(img_tag(src))
-                    h.append("</div>")
+                h.extend(shots_html(f, t, src))
                 h.append("</div>")
 
     h.append(f'<div class="note"><b>{esc(t["method"])}.</b> '
@@ -544,9 +604,11 @@ def main():
     p = argparse.ArgumentParser()
     s = p.add_subparsers(dest="cmd", required=True)
     a1 = s.add_parser("pdf"); a1.add_argument("--out"); a1.add_argument("--lang"); a1.add_argument("--photos", default="all")
+    a1.add_argument("--photo-map", help="JSON-карта «ссылка на кадр: путь к файлу»")
     a2 = s.add_parser("letter"); a2.add_argument("--lang")
     a3 = s.add_parser("html"); a3.add_argument("--out"); a3.add_argument("--lang")
     a3.add_argument("--photos", default="all")
+    a3.add_argument("--photo-map", help="JSON-карта «ссылка на кадр: путь к файлу»")
     a = p.parse_args()
     st = load_state()
     res = compute(st, load_checklist(), load_zones(), load_cfg())
@@ -560,8 +622,15 @@ def main():
             sys.exit("Письмо не собрано: " + "; ".join(bad))
         print(text)
         return
+    src = Photos(load_photo_map(a.photo_map) if a.photo_map else None)
+    html = build_html(res, lang, a.photos, src)
+    # Промах кадра не отменяет отчёта, но обязан быть услышан: в отчёте стоит
+    # видимая отметка, здесь — строка о каждом пропавшем кадре. Молча выкинуть
+    # доказательство нельзя, а решать, отдавать ли такой отчёт партнёру,
+    # вызывающему проще: он знает, закончена ли проверка на точке.
+    for miss in src.misses:
+        print(f"Кадр не найден и в отчёт не попал: {miss or '(пустая ссылка)'}", file=sys.stderr)
     if a.cmd == "html":
-        html = build_html(res, lang, a.photos)
         if a.out:
             with open(a.out, "w", encoding="utf-8") as f:
                 f.write(html)
@@ -570,7 +639,7 @@ def main():
             print(html)
         return
     out = a.out or default_name(st["meta"])
-    html_to_pdf(build_html(res, lang, a.photos), out)
+    html_to_pdf(html, out)
     print(out)
 
 
