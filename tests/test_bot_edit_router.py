@@ -29,6 +29,7 @@ from src.bot import sidecar
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.texts import t
+from src.domain.errors import EngineError
 
 pytestmark = [pytest.mark.asyncio, requires_data]
 
@@ -353,3 +354,55 @@ async def test_command_instead_of_wording_still_runs(domain_env: object) -> None
     state = domain.get_state(CHAT_ID)
     assert state is not None
     assert state.findings[0].text == "прежний текст"
+
+
+async def test_engine_refusing_to_delete_is_reported_not_swallowed(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Отказ движка на удаление уходит аудитору текстом, а не тонет в «удалено».
+
+    Молчаливое «удалено» на неудалённой записи — худший исход: аудитор уходит с
+    точки уверенным, что ошибку убрал, а она едет партнёру в отчёте.
+    """
+    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
+
+    def отказ(*_a: object, **_k: object) -> None:
+        raise EngineError("состояние заблокировано", code=1, command="drop")
+
+    monkeypatch.setattr("src.domain.drop_finding", отказ)
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, text_message("/undo"))
+
+    assert "состояние заблокировано" in session.last_text
+    state = domain.get_state(CHAT_ID)
+    assert state is not None
+    assert len(state.findings) == 1, "запись исчезла, хотя движок отказал"
+
+
+async def test_record_gone_between_the_edit_and_the_answer_is_reported(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Запись исчезла сразу после правки — бот говорит это, а не показывает пустую строку.
+
+    Так бывает при работе с двух устройств: правку приняли, а запись успели
+    снять. Собрать строку подтверждения не из чего, и врать про неё нельзя.
+    """
+    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
+    настоящая_правка = domain.edit_finding
+
+    def правка_и_исчезновение(chat_id: int, n: int, **fields: str) -> object:
+        finding = настоящая_правка(chat_id, n, **fields)
+        domain.drop_finding(chat_id, n)
+        return finding
+
+    monkeypatch.setattr("src.domain.edit_finding", правка_и_исчезновение)
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, callback_query("ez:1:dining"))
+
+    assert session.last_text == t("edit.gone", "ru", n=1)

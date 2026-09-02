@@ -17,8 +17,11 @@
 from __future__ import annotations
 
 import json
+import logging
+from datetime import datetime, timezone
 
 import pytest
+from aiogram.types import Chat, Message
 from bot_harness import (
     AUDITOR_ID,
     CHAT_ID,
@@ -39,10 +42,13 @@ from conftest import requires_data
 from src.bot import sidecar
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
+from src.bot.pending import Offer
+from src.bot.routers.record import _drop_question
 from src.bot.texts import t
 from src.domain import get_state, score, start_inspection
 from src.domain.config import check_environment
 from src.domain.engine import state_file
+from src.domain.errors import EngineError
 from src.recognize.errors import ModelUnavailable
 from src.recognize.models import UNKNOWN_ZONE
 
@@ -474,3 +480,172 @@ async def test_refused_record_keeps_the_other_candidates_on_the_table(
     state = get_state(CHAT_ID)
     assert state is not None
     assert [f.code for f in state.findings] == ["CLN05", "PRD01"]
+
+
+# --- пути отказа: что бот делает, когда что-то пошло не так ---
+
+
+async def test_button_without_an_inspection_does_not_crash_on_the_language(
+    domain_env: object,
+) -> None:
+    """Нажатие в чате без начатой проверки: язык брать неоткуда, но падать нельзя.
+
+    Так бывает после «Начать новую»: кнопки прошлой проверки остаются в
+    переписке, а состояния под ними уже нет.
+    """
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, callback("rec:skip"))
+
+    assert session.last_text == t("record.skipped", "ru")
+
+
+@pytest.mark.parametrize(
+    "data", ["rec:zp:hot_kitchen", "rec:zm:hot_kitchen", "rec:manual", "rec:mp:1", "rec:ml:0:D1"]
+)
+async def test_buttons_without_a_remembered_proposal_say_it_is_stale(
+    domain_env: object, data: str
+) -> None:
+    """Кнопка под предложением, которого бот не помнит, не фиксирует ничего.
+
+    Предложения живут в памяти намеренно (`src/bot/pending.py`), поэтому после
+    перезапуска бота такие нажатия — обычное дело, а не сбой.
+    """
+    started()
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, callback(data))
+
+    assert session.last_text == t("record.stale", "ru")
+    assert findings() == []
+
+
+async def test_undelivered_voice_asks_to_type_instead_of_analyzing_silence(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Голосовое не скачалось — просим текстом, а не разбираем пустоту как комментарий."""
+    started()
+    asked = stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
+
+    async def не_скачалось(*_a: object, **_k: object) -> bytes | None:
+        return None
+
+    monkeypatch.setattr("src.bot.routers.record.fetch_bytes", не_скачалось)
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, photo_message("frame-1"))
+    await feed(dp, bot, voice_message("voice-1"))
+
+    assert session.last_text == t("record.voice_not_downloaded", "ru")
+    assert asked == [], "пустой комментарий ушёл в модель — это разбор молчания"
+
+
+async def test_question_from_the_model_is_shown_above_the_candidates(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Уточняющий вопрос не теряется, когда кандидаты всё-таки есть.
+
+    Правило 7 методики: непонятно — спроси. Кандидаты рядом с вопросом означают
+    «вот на что это похоже», и прятать вопрос за ними нельзя.
+    """
+    started()
+    stub_classify(
+        monkeypatch,
+        suggestion(
+            candidate("CLN05", "D1", "hot_kitchen", "Печь в нагаре"),
+            question="Это подина печи или под конвейером?",
+        ),
+    )
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, photo_message("frame-1", caption="тут нагар"))
+
+    показано = session.last_text
+    assert "Это подина печи или под конвейером?" in показано
+    assert показано.index("подина") < показано.index("CLN05"), "вопрос спрятан под кандидатами"
+
+
+async def test_frame_that_did_not_attach_is_not_lost_silently(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Кадр не прикрепился — запись остаётся, а кадр всплывает при завершении (T068).
+
+    Терять запись из-за одного кадра нельзя: аудитор её уже подтвердил. Но и
+    молчать нельзя — иначе отчёт уйдёт партнёру без доказательства, и никто об
+    этом не узнает.
+    """
+    started()
+    stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen", "Нагар")))
+
+    def не_прикрепился(*_a: object, **_k: object) -> None:
+        raise EngineError("движок отверг кадр", code=1, command="photo")
+
+    monkeypatch.setattr("src.domain.attach_photo", не_прикрепился)
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    with caplog.at_level(logging.ERROR, logger="src.bot.routers.record"):
+        await feed(dp, bot, photo_message("orphan-frame", message_id=811, caption="нагар на печи"))
+        await feed(dp, bot, callback("rec:pick:0"))
+
+    assert any("не прикрепился" in r.message for r in caplog.records)
+    state = get_state(CHAT_ID)
+    assert state is not None
+    assert len(state.findings) == 1, "запись потеряна из-за кадра"
+    assert state.findings[0].photos == []
+
+    session.clear()
+    await feed(dp, bot, text_message("/finish"))
+    assert t("finish.unclaimed_line", "ru", message_id=811) in "\n".join(session.texts)
+
+
+async def test_telegram_refusing_to_remove_the_button_does_not_stop_the_analysis(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Кнопку снять не удалось — это в журнал, но разбор по комментарию идёт дальше.
+
+    Кнопка вторична: ронять из-за неё разбор означало бы потерять комментарий,
+    который аудитор уже произнёс.
+    """
+    started()
+    stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen", "Нагар")))
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, photo_message("frame-1", message_id=822))
+
+    async def телеграм_отказал(*_a: object, **_k: object) -> None:
+        raise RuntimeError("message is not modified")
+
+    monkeypatch.setattr(bot, "edit_message_reply_markup", телеграм_отказал)
+    session.clear()
+    with caplog.at_level(logging.WARNING, logger="src.bot.routers.record"):
+        await feed(dp, bot, text_message("нагар на печи"))
+
+    assert any("снять кнопку" in r.message for r in caplog.records)
+    assert "CLN05" in session.last_text, "разбор не дошёл до аудитора"
+
+
+async def test_question_is_not_removed_when_there_is_nothing_to_remove() -> None:
+    """Защита `_drop_question` от отсутствующих бота и номера сообщения.
+
+    Вызов прямой, а не через диспетчер, и это осознанно: обе величины приходят
+    от телеграма, и заставить настоящий диспетчер отдать их пустыми нельзя —
+    защита существует ровно на случай, когда он всё-таки отдаст.
+    """
+    голое = Message(
+        message_id=1,
+        date=datetime.now(tz=timezone.utc),
+        chat=Chat(id=CHAT_ID, type="private"),
+    )
+    await _drop_question(голое, CHAT_ID, Offer(anchor_id=1, file_ids=("a",), question_id=7))
+
+    bot, session = make_bot()
+    await _drop_question(
+        голое.as_(bot), CHAT_ID, Offer(anchor_id=1, file_ids=("a",), question_id=None)
+    )
+    assert session.calls == [], "бот полез в телеграм, когда снимать было нечего"
