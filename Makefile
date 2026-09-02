@@ -1,4 +1,4 @@
-.PHONY: check test regress demo lint types dead bounds fmt migrate
+.PHONY: check test regress demo lint types dead bounds fmt migrate cov-engine
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -43,3 +43,12 @@ demo:
 # «нечего накатывать» и ничего не меняет.
 migrate:
 	$(VENV)/python -m src.db.migrate
+
+cov-engine:  ## покрытие движка, который вызывается подпроцессом (T037)
+	@rm -f .coverage.engine*
+	@COVERAGE_PROCESS_START=$(CURDIR)/.coveragerc-engine \
+	 COVERAGE_FILE=$(CURDIR)/.coverage.engine \
+	 PYTHONPATH=$(CURDIR) \
+	 $(VENV)/python -m pytest -q --no-cov -p no:cacheprovider tests/ > /dev/null
+	@COVERAGE_FILE=$(CURDIR)/.coverage.engine $(VENV)/python -m coverage combine --rcfile=.coveragerc-engine > /dev/null
+	@COVERAGE_FILE=$(CURDIR)/.coverage.engine $(VENV)/python -m coverage report --rcfile=.coveragerc-engine
