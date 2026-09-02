@@ -587,12 +587,21 @@ def fmt_date(s):
         return str(s or "")
 
 
-def default_name(meta):
-    """Имя файла: Аудит <пиццерия> - <аудитор> - <дд.мм.гггг>.pdf, одинаково для RU и EN."""
+def default_name(meta, lang=None):
+    """Имя файла: <Аудит|Audit> <пиццерия> - <аудитор> - <дд.мм.гггг>.pdf.
+
+    Слово берётся по языку СОБИРАЕМОГО отчёта, а не по языку в шапке проверки:
+    `--lang en` на проверке, заведённой по-русски, обязан дать английское имя,
+    иначе демо, которое обязано быть англоязычным целиком, отдаёт файл с русским
+    словом в имени (задача T100). Русское имя не тронуто: партнёры получают файл
+    ровно с тем именем, что и раньше.
+    """
     def clean(v, fallback):
         v = re.sub(r'[\\/:*?"<>|]', "-", str(v or "")).strip(" .")
         return re.sub(r"\s+", " ", v) or fallback
-    parts = ["Аудит " + clean(meta.get("unit"), "пиццерия")]
+    effective = lang or meta.get("lang") or "ru"
+    word = "Audit" if str(effective).lower().startswith("en") else "Аудит"
+    parts = [word + " " + clean(meta.get("unit"), "пиццерия")]
     if meta.get("auditor"):
         parts.append(clean(meta.get("auditor"), ""))
     if meta.get("date"):
@@ -638,7 +647,7 @@ def main():
         else:
             print(html)
         return
-    out = a.out or default_name(st["meta"])
+    out = a.out or default_name(st["meta"], lang)
     html_to_pdf(html, out)
     print(out)
 

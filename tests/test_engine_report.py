@@ -241,3 +241,37 @@ def test_без_партнёра_строки_в_шапке_нет(
 ) -> None:
     html = html_of(report)
     assert "Партнёр" not in html, "пустая строка партнёра печатается зря"
+
+
+# --- T100: имя файла следует языку собираемого отчёта -------------------------
+
+
+@requires_renderer
+def test_имя_файла_по_умолчанию_русское(
+    started: Callable[..., Run], report: Callable[..., Run], workdir: Path
+) -> None:
+    """Партнёры получают файл ровно с тем именем, что и раньше."""
+    started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen")
+    r = report("pdf")
+    assert r.code == 0, r.text
+    assert r.out.strip().startswith("Аудит Тестовая"), r.out
+    assert (workdir / r.out.strip()).exists()
+
+
+@requires_renderer
+def test_английский_отчёт_называется_по_английски(
+    started: Callable[..., Run], report: Callable[..., Run], workdir: Path
+) -> None:
+    """Демо обязано быть англоязычным целиком, включая имя выданного файла.
+
+    Язык берётся у собираемого отчёта, а не из шапки проверки: `--lang en`
+    на проверке, заведённой по-русски, обязан дать английское имя. До T100
+    слово «Аудит» было прибито в коде, и демо отдавало русское имя.
+    """
+    started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen")
+    r = report("pdf", "--lang", "en")
+    assert r.code == 0, r.text
+    name = r.out.strip()
+    assert name.startswith("Audit Тестовая"), name
+    assert "Аудит" not in name, "русское слово в имени английского отчёта"
+    assert (workdir / name).exists()
