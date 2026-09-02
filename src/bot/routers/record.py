@@ -271,8 +271,9 @@ async def _save(
         try:
             domain.attach_photo(chat_id, finding.n, file_id)
         except DomainError:
-            # Запись уже есть, и терять её из-за кадра нельзя: пропажу кадра
-            # поймает сборка отчёта и спросит аудитора (`report.PhotoMissing`).
+            # Запись уже есть, и терять её из-за одного кадра нельзя. Молчанием
+            # это не станет: не прикрепившийся кадр остаётся в заметках без
+            # записи и попадёт в список кадров без записи при завершении (T068).
             logger.exception("кадр %s не прикрепился к записи #%s", file_id, finding.n)
     sidecar.remember_source(chat_id, finding.n, source)
     sidecar.remember_zone(chat_id, zone)
