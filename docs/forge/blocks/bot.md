@@ -35,12 +35,13 @@ Frame, AlbumBuffer
 
 # src/bot/routers/
 build_start_router(settings) -> Router           # T050, T051, T052, T063
-build_material_router(store, albums, on_material=..., sleep=...) -> Router  # T053, T054, T059
+build_material_router(*, store, albums, on_material=..., album_window=...) -> Router  # T053, T054, T059
 
 # src/bot/app.py
-build_dispatcher(settings) -> Dispatcher
+build_dispatcher(settings, *, album_window=..., on_material=...) -> Dispatcher
 create_bot(settings) -> Bot
-run_bot() -> None                                # long polling, точка входа `python -m src.bot`
+start_polling() -> None                          # long polling; методика проверяется до первого сообщения
+main() -> None                                   # точка входа `python -m src.bot`
 ```
 
 ## Зависимости
@@ -82,3 +83,12 @@ run_bot() -> None                                # long polling, точка вх
 | Задача | Кто делал | Состояние | Заметка |
 |---|---|---|---|
 | — | сам | — | Начало: `feat/bot` отставала от `main` на 20 коммитов (принятый `report`, требования созвона 01.09). Влил `main` в ветку до первой строки кода — иначе блок писался бы под отменённые требования |
+| T050 | сам (первая сессия) | готово | Каркас на aiogram 3.31: `config`, `access` мидлварью на message и callback, `texts` с языком-параметром, `app.build_dispatcher`. Коммит `652c7fe` |
+| T051, T052, T063 | сам (первая сессия) | готово | Мастер начала проверки и продолжение незавершённой, `routers/start.py`. Коммит `652c7fe` |
+| T053 | сам (первая сессия) | готово | Три способа связать комментарий с кадром: `material.py` юнит-тестами, `routers/material.py` через настоящий диспетчер. Коммиты `652c7fe`, `7a4e1ae` |
+| T054 | сам (первая сессия), тесты добиты диспетчером | готово | Склейка альбома по `media_group_id`: `albums.py` плюс `tests/test_bot_album_router.py`. Коммиты `652c7fe`, `7e59061` |
+| T059 | сам (обе сессии) | готово | Последовательная обработка обновлений (`handle_as_tasks=False`) плюс FIFO по чату. Тесты пачки — исполнитель, см. ниже |
+| — | сам (вторая сессия) | готово | Разбор состояния после обрыва по лимиту: гейты (`ruff`, `mypy --strict`, `vulture`, `deptry`, `lint-imports`) зелёные, 289 тестов, покрытие 94 % — базовая точка, от которой шла работа второй сессии |
+| T059 (тесты пачки) | исполнитель | в работе | `tests/test_bot_burst.py` — семь случаев доставки пачкой после потери связи. Отдано исполнителю: контракт готов, случаи перечислены, образец рядом, объём под сотню строк одинаковых по форме тестов |
+| T050–T052 (отказы мастера) | исполнитель | в работе | `tests/test_bot_start_errors.py` — непокрытые ветки отказов: отказ движка, кадр вместо названия, чужие коды кнопок, пропавшая проверка |
+| T050, T059 (точка входа) | сам | в работе | `tests/test_bot_app.py`: `start_polling` проверяет методику до первого сообщения и поднимает polling с `handle_as_tasks=False`. Не отдано исполнителю — это решение T059, а не механика |
