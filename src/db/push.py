@@ -237,8 +237,12 @@ def push_inspection(chat_id: int, *, allow_unknown_version: bool = False) -> str
     except PushError:
         raise
     except (psycopg.Error, DomainError) as exc:
+        # Причина — в тексте, а не только в типе: движок с T106 отказывается
+        # считать проверку с нечитаемой датой раньше, чем сюда дойдёт `_parse_date`,
+        # и без этой подстановки вызывающий видел «не удался (EngineError)» без
+        # единого слова о том, что чинить.
         raise PushError(
-            f"Слив проверки чата {chat_id} в базу не удался ({type(exc).__name__}). "
+            f"Слив проверки чата {chat_id} в базу не удался ({type(exc).__name__}): {exc} "
             f"Файл проверки не тронут, слить можно будет позже — повторный вызов "
             f"не создаст дубль"
         ) from exc

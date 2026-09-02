@@ -287,6 +287,33 @@ def clean_lang(v):
     return v
 
 
+def inspection_date(st):
+    """Дата проверки из шапки. От неё считается КАЖДЫЙ срок устранения.
+
+    Раньше срок считался в `try/except Exception: pass`: нечитаемая дата
+    оставляла `due` пустым по всем нарушениям, и молча. Дальше `report.py`
+    подставлял вместо пропавшего срока «немедленно», а в письме срок плана
+    действий превращался в `___` — партнёр получал предписание устранить
+    рядовую D1 сегодня же. «Сроки устранения напечатаны в PDF» — объявленный
+    пункт готовности MVP, поэтому здесь отказ, а не подстановка (задача T106).
+
+    `init` и `meta` дату валидируют, но состояние — обычный JSON на диске:
+    проверки, начатые до появления валидации шапки (T014), и файлы, поправленные
+    руками, приходят сюда какими есть.
+    """
+    raw = (st.get("meta") or {}).get("date")
+    try:
+        return date.fromisoformat(str(raw))
+    except (ValueError, TypeError):
+        sys.exit(
+            f"Дата проверки в шапке не читается: «{raw}». Нужен ISO-формат "
+            f"ГГГГ-ММ-ДД, например 2026-08-21. Файл: {os.path.abspath(STATE)}. "
+            f"От этой даты считаются все сроки устранения — без неё в предписании "
+            f"партнёру каждое нарушение получит «немедленно». "
+            f"Поправьте шапку: audit.py meta --date ГГГГ-ММ-ДД"
+        )
+
+
 def cmd_init(a):
     st = {"meta": {"unit": clean_unit(a.unit), "city": a.city or "", "partner": a.partner or "",
                    "contact": a.contact or "",
@@ -475,6 +502,7 @@ def cmd_list(a):
 
 
 def compute(st, cl_rows, zones, cfg):
+    inspected = inspection_date(st)
     cl = {r["id"]: r for r in cl_rows}
     zmap = {z["code"]: z for z in zones}
     pen = cfg["penalty"]
@@ -503,11 +531,7 @@ def compute(st, cl_rows, zones, cfg):
             else:
                 cost = float(pen.get(lvl, 0))
         days = min(r.get("days", 0), cfg["deadlines"]["max_days"].get(lvl, 99))
-        due = None
-        try:
-            due = (date.fromisoformat(st["meta"]["date"]) + timedelta(days=days)).isoformat()
-        except Exception:
-            pass
+        due = (inspected + timedelta(days=days)).isoformat()
         items.append({**f, "photos": photos_of(f), "question_ru": r.get("question_ru", ""), "question_en": r.get("question_en", ""),
                       "process_ru": r.get("process_ru", ""), "process_en": r.get("process_en", ""),
                       "zone_name_ru": zmap.get(f["zone"], {}).get("name_ru", f["zone"]),
