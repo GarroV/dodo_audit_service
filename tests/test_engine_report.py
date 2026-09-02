@@ -250,12 +250,17 @@ def test_без_партнёра_строки_в_шапке_нет(
 def test_имя_файла_по_умолчанию_русское(
     started: Callable[..., Run], report: Callable[..., Run], workdir: Path
 ) -> None:
-    """Партнёры получают файл ровно с тем именем, что и раньше."""
+    """Партнёры получают файл ровно с тем именем, что и раньше.
+
+    Проверяется имя, а не путь: с T104 отчёт без `--out` уходит в `reports/`
+    рядом с состоянием, чтобы не затирать соседний файл того же имени.
+    """
     started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen")
     r = report("pdf")
     assert r.code == 0, r.text
-    assert r.out.strip().startswith("Аудит Тестовая"), r.out
-    assert (workdir / r.out.strip()).exists()
+    файл = Path(r.out.strip())
+    assert файл.name.startswith("Аудит Тестовая"), r.out
+    assert (workdir / файл).exists()
 
 
 @requires_renderer
@@ -271,7 +276,7 @@ def test_английский_отчёт_называется_по_англий�
     started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen")
     r = report("pdf", "--lang", "en")
     assert r.code == 0, r.text
-    name = r.out.strip()
-    assert name.startswith("Audit Тестовая"), name
-    assert "Аудит" not in name, "русское слово в имени английского отчёта"
-    assert (workdir / name).exists()
+    файл = Path(r.out.strip())
+    assert файл.name.startswith("Audit Тестовая"), r.out
+    assert "Аудит" not in файл.name, "русское слово в имени английского отчёта"
+    assert (workdir / файл).exists()

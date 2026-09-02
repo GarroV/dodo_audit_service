@@ -42,6 +42,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, os.pardir, "data")
 STATE = os.environ.get("INSPECTION_FILE", "inspection.json")
 
+# Доли зон обязаны давать 100%: на них строится вся разбивка оценки.
+ZONE_SHARE_TOTAL = 100.0
+# Допуск на десятичное округление: равный дележ на 3, 7 или 11 зон не даёт
+# ровно 100 (manage.py пишет 100/N с четырьмя знаками — остаток 0.0001).
+# Половина сотой доли процента — уже не представление числа, а правка данных:
+# сумма 99.99 из задачи T103 обязана быть замеченной, а не прощённой.
+ZONE_SHARE_TOLERANCE = 0.005
+
 
 def active_dir():
     """Где лежит рабочая копия чек-листа. Приоритет: $CHECKLIST_DIR, ./checklist_data, файлы плагина."""
@@ -86,7 +94,16 @@ def load_checklist():
 
 
 def load_zones():
-    with open(data_path("zones.csv"), encoding="utf-8-sig") as f:
+    """Физические зоны и их доли. Сумма долей обязана сходиться к 100%.
+
+    Раньше несходящаяся сумма молча переписывала ВСЕ доли на равные (100/N).
+    Пока десять зон весят по 10%, подмена незаметна; на неравных долях
+    (кухня тяжелее фасада) первое же округление превращало методику в другую,
+    и отчёт уходил партнёру посчитанным не по той. Молчаливой нормализации
+    здесь быть не может: расхождение — отказ с причиной (задача T103).
+    """
+    path = data_path("zones.csv")
+    with open(path, encoding="utf-8-sig") as f:
         rows = [r for r in csv.DictReader(f) if (r.get("code") or "").strip()]
     for r in rows:
         try:
@@ -94,9 +111,12 @@ def load_zones():
         except ValueError:
             r["share_pct"] = 0.0
     total = sum(r["share_pct"] for r in rows)
-    if rows and abs(total - 100.0) > 0.01:
-        for r in rows:
-            r["share_pct"] = 100.0 / len(rows)
+    if rows and abs(total - ZONE_SHARE_TOTAL) > ZONE_SHARE_TOLERANCE:
+        sys.exit(
+            f"Доли зон не сходятся: сумма share_pct = {total:g}%, "
+            f"ожидается {ZONE_SHARE_TOTAL:g}%. Файл: {path}. "
+            f"Поправьте колонку share_pct — считать оценку по такой методике нельзя."
+        )
     return rows
 
 
