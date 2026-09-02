@@ -150,3 +150,46 @@ def test_list_inspections_фильтрует_по_точке_и_отдаёт_с�
     assert строка.findings_count == 2
     assert строка.pushed_at, "время слива не должно быть пустым"
     assert len(list_inspections()) >= 2
+
+
+def _снять_версию(chat_id: int) -> None:
+    """Убрать версию методики из состояния — так выглядят проверки, созданные
+    до того, как версия стала записываться (T025)."""
+    settings = check_environment()
+    path = state_file(chat_id, settings)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw.setdefault("domain", {})["checklist_version"] = ""
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    assert json.loads(path.read_text(encoding="utf-8"))["domain"]["checklist_version"] == "", (
+        "версия не снялась — тест ничего не проверяет"
+    )
+
+
+def test_проверка_без_версии_методики_не_сливается_молча(
+    domain_env: Path, db_env: str
+) -> None:
+    """Пустая версия — отказ, а не тихая пустота в колонке.
+
+    Отчёт заморожен на той версии, по которой посчитан (D033, D050): запись без
+    версии несравнима ни с чем, а положенная молча портит аналитику незаметно.
+    Так это и вскрылось на смоуке приёмки 02.09 — issue #76.
+    """
+    _начать(21)
+    _снять_версию(21)
+
+    with pytest.raises(PushError, match=r"версия методики"):
+        push_inspection(21)
+
+
+def test_старую_проверку_без_версии_можно_слить_явно(domain_env: Path, db_env: str) -> None:
+    """История за прошлые годы заливается программно (D035) — но осознанно,
+    отдельным флагом, а не потому что проверку никто не глядя пропустил."""
+    _начать(22)
+    _снять_версию(22)
+
+    inspection_id = push_inspection(22, allow_unknown_version=True)
+
+    (найдена,) = _строки(
+        db_env, "select checklist_version from inspections where id = %s", (inspection_id,)
+    )
+    assert найдена[0] in ("", None), "версия должна остаться пустой, а не быть придуманной"

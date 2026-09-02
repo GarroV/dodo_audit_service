@@ -198,7 +198,7 @@ def _push(conn: psycopg.Connection[Any], inspection: Inspection, result: Score) 
     return str(inspection_id)
 
 
-def push_inspection(chat_id: int) -> str:
+def push_inspection(chat_id: int, *, allow_unknown_version: bool = False) -> str:
     """Слить завершённую проверку чата в базу и вернуть её `id`.
 
     Повторяемо: второй вызов на той же завершённой проверке находит запись по
@@ -209,12 +209,28 @@ def push_inspection(chat_id: int) -> str:
     независимо от этой функции (`report.build_pdf` его не вызывает и от него
     не зависит); отказ здесь означает только то, что слив нужно повторить
     позже тем же вызовом.
+
+    Проверка без версии методики по умолчанию **не сливается**: отчёт заморожен
+    на той версии, по которой посчитан (D033, D050), и запись без неё несравнима
+    ни с чем — а молча положенная пустота портит будущую аналитику незаметно.
+    Такие проверки бывают: файлы, созданные до того, как версия стала
+    записываться. Чтобы залить их намеренно — историю за прошлые годы (D035), —
+    передаётся `allow_unknown_version=True`, и тогда отсутствие версии
+    становится осознанным решением вызывающего, а не случайностью.
     """
     settings = check_environment()
     try:
         inspection = get_state(chat_id)
         if inspection is None:
             raise PushError(f"В чате {chat_id} нет проверки — сливать нечего")
+        if not (inspection.checklist_version or "").strip() and not allow_unknown_version:
+            raise PushError(
+                f"В проверке чата {chat_id} не записана версия методики. Такая "
+                f"запись несравнима с другими: отчёт заморожен на своей версии и "
+                f"задним числом не пересчитывается. Если проверка старая и версии "
+                f"в ней нет по происхождению — слить можно явно, "
+                f"push_inspection(chat_id, allow_unknown_version=True)"
+            )
         result = domain_score(chat_id)
         with psycopg.connect(settings.dsn) as conn:
             return _push(conn, inspection, result)
