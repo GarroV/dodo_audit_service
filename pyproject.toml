@@ -47,6 +47,10 @@ dev = [
     "mypy==1.19.1",
     "pytest==8.4.2",
     "pytest-cov==7.0.0",
+    # Прямой импорт в sitecustomize.py: подпроцессы движка подхватывают покрытие
+    # через coverage.process_startup(). Транзитивной зависимости pytest-cov тут
+    # мало — deptry прав, импорт явный и версия должна быть объявлена (T037).
+    "coverage==7.15.4",
     "pytest-asyncio==1.4.0",
     "vulture==2.14",
     "deptry==0.23.1",

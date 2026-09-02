@@ -41,8 +41,7 @@ DEMO_STATE_DIR = REPO_ROOT / "demo" / "state"
 os.environ["AUDIT_DATA_DIR"] = str(DEMO_DATA_DIR)
 os.environ["STATE_DIR"] = str(DEMO_STATE_DIR)
 
-from src import domain  # noqa: E402 -- окружение выставляется до импорта
-from src import report  # noqa: E402
+from src import domain, report  # noqa: E402 -- окружение выставляется до импорта
 from src.domain.engine import chat_dir  # noqa: E402
 
 #: Заведомо вымышленный номер чата: реальные Telegram ID им не бывают
