@@ -110,20 +110,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "No inspection started. Tap “New inspection”.",
     },
     "material.photo_taken": {
-        "ru": "Кадр принят. Комментарий — следом сообщением или ответом на этот кадр.",
-        "en": "Photo received. Comment it in the next message or as a reply to this photo.",
+        "ru": "Кадр принят. Разобрать? Или пришлите комментарий — по словам точнее.",
+        "en": "Photo received. Analyze it? Or send a comment — your words are more precise.",
     },
     "material.album_taken": {
-        "ru": "Альбом принят. Кадров: {count}. Комментарий — следом сообщением или ответом.",
-        "en": "Album received. Photos: {count}. Comment in the next message or as a reply.",
-    },
-    "material.linked": {
-        "ru": "Связано. Кадров: {count}. Комментарий: «{comment}».",
-        "en": "Linked. Photos: {count}. Comment: “{comment}”.",
-    },
-    "material.linked_voice": {
-        "ru": "Связано. Кадров: {count}. Комментарий голосовой.",
-        "en": "Linked. Photos: {count}. Voice comment.",
+        "ru": "Альбом принят. Кадров: {count}. Разобрать? Или пришлите комментарий.",
+        "en": "Album received. Photos: {count}. Analyze? Or send a comment.",
     },
     "material.no_photo": {
         "ru": (
@@ -135,6 +127,200 @@ TEXTS: dict[str, dict[str, str]] = {
             "Send a photo, then the comment — next message or as a reply to it."
         ),
     },
+    # --- разбор и фиксация (T055, T057, T067) ---
+    "record.analyze_gone": {
+        "ru": "Этот кадр уже разбирается по вашему комментарию — вопрос снят.",
+        "en": "This photo is already being analyzed from your comment — the question is off.",
+    },
+    "record.thinking": {
+        "ru": "Разбираю…",
+        "en": "Analyzing…",
+    },
+    "record.heard": {
+        "ru": "Услышал: «{note}»",
+        "en": "Heard: “{note}”",
+    },
+    "record.voice_failed": {
+        "ru": "Голосовое не разобрал: {reason} Напишите комментарий текстом.",
+        "en": "Could not transcribe the voice message: {reason} Please type the comment.",
+    },
+    "record.candidates": {
+        "ru": "Что записать? Кадров: {count}.\n\n{lines}",
+        "en": "What should I record? Photos: {count}.\n\n{lines}",
+    },
+    "record.candidate_line": {
+        "ru": "{index}. {code} · {level} · {zone}\n   {wording}",
+        "en": "{index}. {code} · {level} · {zone}\n   {wording}",
+    },
+    "record.candidate_flagged": {
+        "ru": "{index}. {code} · {level} · {zone}  ⚠ проверьте формулировку\n   {wording}",
+        "en": "{index}. {code} · {level} · {zone}  ⚠ check the wording\n   {wording}",
+    },
+    "record.question": {
+        "ru": "Уточните: {question}",
+        "en": "Please clarify: {question}",
+    },
+    "record.nothing_found": {
+        "ru": "По этому материалу пункт не подобрался. Выберите сами или уточните словами.",
+        "en": "No item matched this material. Pick one yourself or clarify in words.",
+    },
+    "record.degraded": {
+        "ru": "Модель недоступна ({reason}) — проверка продолжается, пункт выберите сами.",
+        "en": "The model is unavailable ({reason}) — the inspection goes on, pick the item.",
+    },
+    "record.unavailable": {
+        "ru": "Разбор недоступен: {reason}",
+        "en": "Analysis is unavailable: {reason}",
+    },
+    "record.manual_page": {
+        "ru": "Пункты чек-листа, страница {page} из {pages}:",
+        "en": "Checklist items, page {page} of {pages}:",
+    },
+    "record.ask_level": {
+        "ru": "Какой класс для {code}?",
+        "en": "Which class for {code}?",
+    },
+    "record.ask_zone": {
+        "ru": "В какой зоне это? Из слов зону не видно — назовите её кнопкой.",
+        "en": "Which zone is this? Your words do not name it — pick it with a button.",
+    },
+    "record.stale": {
+        "ru": "Предложение устарело — бот перезапускался. Пришлите кадр заново.",
+        "en": "This suggestion is stale — the bot restarted. Send the photo again.",
+    },
+    "record.skipped": {
+        "ru": "Не записал. Кадр не потеряется — покажу его при завершении проверки.",
+        "en": "Not recorded. The photo is not lost — I will list it when you finish.",
+    },
+    "record.saved": {
+        "ru": "#{n} {code} · {level} · {zone} · {pct}%",
+        "en": "#{n} {code} · {level} · {zone} · {pct}%",
+    },
+    "record.saved_info": {
+        "ru": "#{n} {code} · {level} замер · {zone} · {pct}%",
+        "en": "#{n} {code} · {level} measurement · {zone} · {pct}%",
+    },
+    "record.zone_unknown": {
+        "ru": "зона не названа",
+        "en": "zone not named",
+    },
+    "record.voice_not_downloaded": {
+        "ru": "Голосовое не скачалось. Повторите или напишите комментарий текстом.",
+        "en": "The voice message did not download. Retry or type the comment.",
+    },
+    "record.zone_unusual": {
+        "ru": " ⚠ зона не из списка пункта",
+        "en": " ⚠ zone is not on the item’s list",
+    },
+    "record.failed": {
+        "ru": "Не записал: {reason}",
+        "en": "Not recorded: {reason}",
+    },
+    # --- правки записи прямо в чате (T056) ---
+    "edit.ask_zone": {
+        "ru": "Новая зона для записи #{n}?",
+        "en": "New zone for record #{n}?",
+    },
+    "edit.ask_level": {
+        "ru": "Новый класс для записи #{n}?",
+        "en": "New class for record #{n}?",
+    },
+    "edit.ask_text": {
+        "ru": "Пришлите новую формулировку для записи #{n} одним сообщением.",
+        "en": "Send the new wording for record #{n} in one message.",
+    },
+    "edit.changed": {
+        "ru": "Поправлено. #{n} {code} · {level} · {zone} · {pct}%",
+        "en": "Updated. #{n} {code} · {level} · {zone} · {pct}%",
+    },
+    "edit.dropped": {
+        "ru": "Запись #{n} удалена. Накоплено: {pct}%",
+        "en": "Record #{n} deleted. Score now: {pct}%",
+    },
+    "edit.nothing_to_undo": {
+        "ru": "Удалять нечего: в проверке ни одной записи.",
+        "en": "Nothing to undo: the inspection has no records.",
+    },
+    "edit.gone": {
+        "ru": "Записи #{n} уже нет.",
+        "en": "Record #{n} no longer exists.",
+    },
+    "edit.failed": {
+        "ru": "Не поправил: {reason}",
+        "en": "Not updated: {reason}",
+    },
+    # --- завершение проверки (T058, T068) ---
+    "finish.summary": {
+        "ru": "Итог: {pct}% — {grade}, {label}.\nЗаписей: {total}. {counts}",
+        "en": "Result: {pct}% — {grade}, {label}.\nRecords: {total}. {counts}",
+    },
+    "finish.records": {
+        "ru": "Зафиксировано:\n{lines}",
+        "en": "Recorded:\n{lines}",
+    },
+    "finish.record_line": {
+        "ru": "#{n} {code} · {level} · {zone}{source} — {text}",
+        "en": "#{n} {code} · {level} · {zone}{source} — {text}",
+    },
+    "finish.source_photo": {
+        "ru": " · по кадру",
+        "en": " · from the photo",
+    },
+    "finish.empty": {
+        "ru": "Ни одной записи не зафиксировано.",
+        "en": "No records have been made.",
+    },
+    "finish.unclaimed": {
+        "ru": "Кадры без записи — {count}. Они никуда не пропали, но и в отчёт не войдут:\n{lines}",
+        "en": "Photos with no record — {count}. Not lost, but they will not be in the report:\n"
+        "{lines}",
+    },
+    "finish.unclaimed_line": {
+        "ru": "— кадр из сообщения {message_id}",
+        "en": "— photo from message {message_id}",
+    },
+    "finish.ask": {
+        "ru": "Поправить запись или собирать отчёт?",
+        "en": "Edit a record, or build the report?",
+    },
+    "finish.pick_edit": {
+        "ru": "Какую запись поправить?",
+        "en": "Which record do you want to edit?",
+    },
+    "finish.building": {
+        "ru": "Собираю отчёт…",
+        "en": "Building the report…",
+    },
+    "finish.letter": {
+        "ru": "Письмо партнёру:\n\n{letter}",
+        "en": "Letter to the partner:\n\n{letter}",
+    },
+    "finish.photos_missing": {
+        "ru": "{reason}",
+        "en": "{reason}",
+    },
+    "finish.pdf_failed": {
+        "ru": "Отчёт не собрался: {reason}",
+        "en": "The report was not built: {reason}",
+    },
+    "finish.resumed": {
+        "ru": "Продолжаем проверку. Присылайте кадры.",
+        "en": "Back to the inspection. Send photos.",
+    },
+    # --- надписи на кнопках ---
+    "btn.analyze": {"ru": "Разобрать", "en": "Analyze"},
+    "btn.manual": {"ru": "Выбрать пункт", "en": "Pick an item"},
+    "btn.skip": {"ru": "Не записывать", "en": "Skip"},
+    "btn.more": {"ru": "Дальше", "en": "Next"},
+    "btn.back": {"ru": "Назад", "en": "Back"},
+    "btn.zone": {"ru": "Зона", "en": "Zone"},
+    "btn.level": {"ru": "Класс", "en": "Class"},
+    "btn.text": {"ru": "Формулировка", "en": "Wording"},
+    "btn.drop": {"ru": "Удалить", "en": "Delete"},
+    "btn.build": {"ru": "Собрать отчёт", "en": "Build the report"},
+    "btn.build_without_photos": {"ru": "Собрать без кадров", "en": "Build without photos"},
+    "btn.edit": {"ru": "Поправить запись", "en": "Edit a record"},
+    "btn.resume": {"ru": "Продолжить проверку", "en": "Continue the inspection"},
 }
 
 

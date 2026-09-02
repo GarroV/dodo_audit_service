@@ -5,17 +5,29 @@
 хранилищем автомата и новой очередью материалов, то есть всё, что бот держал в
 памяти, теряется. Уцелеть должно ровно то, что лежит в файле проверки.
 
-Отдельно зафиксировано и то, что перезапуск НЕ переживает: кадр, присланный
-без комментария и не ставший записью, живёт только в памяти. Это не решается
-здесь — очередь ожидания придётся сохранять задаче T068 («кадры без записи
-показываются при завершении проверки»), и тест стоит тут, чтобы это не
-обнаружилось на точке.
+Отдельно зафиксировано и то, что перезапуск НЕ переживает: очередь ожидания
+комментария живёт только в памяти, поэтому комментарий, присланный после
+перезапуска, привязывать уже не к чему — и бот говорит об этом прямо.
+
+Кадр при этом не теряется: задача T068 решена не сохранением очереди, а
+заметками бота (`src/bot/sidecar.py`) — присланные кадры лежат в файле рядом с
+проверкой и показываются при завершении, даже если бот перезапускался.
 """
 
 from __future__ import annotations
 
 import pytest
-from bot_harness import AUDITOR_ID, CHAT_ID, feed, make_bot, photo_message, text_message
+from bot_harness import (
+    AUDITOR_ID,
+    CHAT_ID,
+    candidate,
+    feed,
+    make_bot,
+    photo_message,
+    stub_classify,
+    suggestion,
+    text_message,
+)
 from conftest import requires_data
 
 from src.bot.app import build_dispatcher
@@ -46,9 +58,12 @@ async def test_inspection_survives_restart_and_is_offered_to_continue(
     assert "1" in session.last_text
 
 
-async def test_material_intake_works_after_restart(domain_env: object) -> None:
+async def test_material_intake_works_after_restart(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Фиксация продолжается без дополнительного шага «восстановить»."""
     start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    stub_classify(monkeypatch, suggestion(candidate("PRD01", "D1", "hot_kitchen", "скол на борту")))
 
     bot, session = make_bot()
     first = restart()
@@ -58,7 +73,8 @@ async def test_material_intake_works_after_restart(domain_env: object) -> None:
     session.clear()
     await feed(second, bot, photo_message("photo-2", caption="скол на бортике"))
 
-    assert "скол на бортике" in session.last_text
+    assert "скол на борту" in session.last_text
+    assert any(data.startswith("rec:pick:") for data in session.keyboard_data())
 
 
 async def test_uncommented_frame_does_not_survive_restart(domain_env: object) -> None:

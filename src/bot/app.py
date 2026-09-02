@@ -30,8 +30,16 @@ from .access import AccessMiddleware
 from .albums import ALBUM_WINDOW_SECONDS, AlbumBuffer
 from .config import BotSettings, load_bot_settings
 from .material import MaterialStore
-from .routers import build_material_router, build_start_router
-from .routers.material import MaterialHandler, confirm_link
+from .pending import PendingStore
+from .routers import (
+    build_edit_router,
+    build_finish_router,
+    build_material_router,
+    build_record_router,
+    build_start_router,
+)
+from .routers.material import MaterialHandler
+from .routers.record import make_material_handler, make_waiting_handler
 
 logger = logging.getLogger(__name__)
 
@@ -40,17 +48,21 @@ def build_dispatcher(
     settings: BotSettings,
     *,
     album_window: float = ALBUM_WINDOW_SECONDS,
-    on_material: MaterialHandler = confirm_link,
+    on_material: MaterialHandler | None = None,
 ) -> Dispatcher:
     """Диспетчер со всеми роутерами и мидлварью доступа.
 
-    `on_material` — что делать с готовым материалом. Во второй очереди сюда
-    встанет разбор (задача T055); сейчас это подтверждение связывания, и оно же
-    точка, за которую держатся тесты приёма материала.
+    `on_material` подменяется только тестами связывания: им важно, что с чем
+    связалось, а не что предложила модель. В продукте это разбор из
+    `routers/record.py` — тот самый, который показывает кандидатов кнопками.
+
+    Порядок роутеров не случаен. Мастер начала проверки и правка формулировки
+    ждут обычный текст в состоянии диалога, поэтому идут раньше приёма
+    материала: иначе название пиццерии уедет в разбор как комментарий к кадру.
 
     Хранилище конечного автомата — в памяти намеренно: в нём живут только шаги
-    мастера начала проверки, а сама проверка лежит в файле и переживает
-    перезапуск без него (`src/bot/states.py`).
+    мастера начала проверки и вопрос про новую формулировку, а сама проверка
+    лежит в файле и переживает перезапуск без него (`src/bot/states.py`).
     """
     dispatcher = Dispatcher(storage=MemoryStorage())
 
@@ -58,12 +70,19 @@ def build_dispatcher(
     dispatcher.message.outer_middleware(access)
     dispatcher.callback_query.outer_middleware(access)
 
-    dispatcher.include_router(build_start_router(settings))
+    store = MaterialStore()
+    pending = PendingStore()
+
+    dispatcher.include_router(build_start_router(settings, pending))
+    dispatcher.include_router(build_edit_router())
+    dispatcher.include_router(build_finish_router())
+    dispatcher.include_router(build_record_router(store=store, pending=pending))
     dispatcher.include_router(
         build_material_router(
-            store=MaterialStore(),
+            store=store,
             albums=AlbumBuffer(),
-            on_material=on_material,
+            on_material=on_material or make_material_handler(pending),
+            on_waiting=make_waiting_handler(pending),
             album_window=album_window,
         )
     )
