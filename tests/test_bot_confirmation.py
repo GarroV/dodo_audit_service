@@ -1,9 +1,9 @@
 """Что аудитор видит в ответ на связанный материал, и что бывает при отказе.
 
 Остальные тесты приёма материала подменяют обработчик накопителем `Caught` —
-им важно, что и с чем связалось. Здесь наоборот: работает настоящий
-обработчик первой очереди (`confirm_link`), и проверяется ровно та строка,
-которую аудитор читает на точке после каждого кадра.
+им важно, что и с чем связалось. Здесь наоборот: работает настоящий обработчик
+второй очереди (разбор из `routers/record.py`), и проверяется то, что аудитор
+читает на точке: услышанное голосовое, отказ транскрипции, предложения.
 
 Отдельно — отказ фоновой задачи, закрывающей альбом по окну ожидания.
 Исключение внутри неё никуда не всплывает: аудитор не получит ответа, а в
@@ -20,9 +20,13 @@ import pytest
 from bot_harness import (
     AUDITOR_ID,
     CHAT_ID,
+    candidate,
     feed,
     make_bot,
     photo_message,
+    stub_classify,
+    stub_transcribe,
+    suggestion,
     text_message,
     voice_message,
 )
@@ -31,42 +35,66 @@ from conftest import requires_data
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.material import Material
-from src.bot.routers.material import COMMENT_PREVIEW_LIMIT
 from src.bot.texts import t
 from src.domain import start_inspection
+from src.recognize.errors import TranscriptionFailed
 
 pytestmark = [pytest.mark.asyncio, requires_data]
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 
 
-async def test_voice_comment_confirmation_says_it_was_voice(domain_env: object) -> None:
-    """Голосовой комментарий подтверждается своим текстом: пересказать голос бот не может."""
+async def test_voice_comment_is_transcribed_and_shown_back(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Услышанное показывается аудитору: ошибку распознавания он заметит только так."""
     start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    heard = stub_transcribe(monkeypatch, "пол в горячем цеху грязный")
+    stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
     await feed(dp, bot, photo_message("voice-confirm"))
     await feed(dp, bot, voice_message("voice-file"))
 
-    assert session.last_text == t("material.linked_voice", "ru", count=1)
+    assert len(heard) == 1, "голосовое не ушло в транскрипцию"
+    assert t("record.heard", "ru", note="пол в горячем цеху грязный") in session.texts
 
 
-async def test_long_comment_is_shortened_in_the_confirmation(domain_env: object) -> None:
-    """Длинный комментарий в подтверждении обрезается: аудитору нужна отметка, а не пересказ."""
+async def test_failed_transcription_asks_for_text_and_keeps_inspection_alive(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сбой транскрипции не роняет проверку и не уходит в модель разбором пустоты."""
     start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    stub_transcribe(monkeypatch, TranscriptionFailed("голосовое пустое"))
+    asked = stub_classify(monkeypatch, suggestion())
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
-    long_comment = "грязь под тестомесом " * 20
-    await feed(dp, bot, photo_message("long-comment"))
-    await feed(dp, bot, text_message(long_comment))
+    await feed(dp, bot, photo_message("voice-fail"))
+    await feed(dp, bot, voice_message("voice-file"))
 
-    assert session.last_text.endswith("…».")
-    # Показанное — начало настоящего комментария, а не выдумка и не пустая строка.
-    assert long_comment[:40] in session.last_text
-    assert len(session.last_text) < len(long_comment)
-    assert COMMENT_PREVIEW_LIMIT < len(long_comment)
+    assert "голосовое пустое" in session.last_text
+    assert asked == [], "после сбоя транскрипции разбор звать нельзя — записывать нечего"
+
+
+async def test_long_comment_is_shortened_where_it_is_shown_back(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Длинное услышанное обрезается: аудитору нужна отметка, а не пересказ."""
+    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    long_note = "грязь под тестомесом " * 20
+    stub_transcribe(monkeypatch, long_note)
+    stub_classify(monkeypatch, suggestion())
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, photo_message("long-comment"))
+    await feed(dp, bot, voice_message("voice-file"))
+
+    shown = next(text for text in session.texts if text.startswith("Услышал"))
+    assert "…" in shown
+    assert len(shown) < len(long_note)
 
 
 async def test_album_timer_failure_is_logged_and_does_not_kill_the_bot(

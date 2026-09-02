@@ -18,6 +18,29 @@ on_lang
 on_photo
 on_comment
 
+# Вторая очередь: разбор по кнопке, правки записи, завершение проверки.
+# Те же хендлеры aiogram, только их больше — весь диалог после кадра собран на
+# нажатиях, и статически ни одно из этих имён не читается.
+on_analyze
+on_pick
+on_zone_for_pick
+on_zone_for_manual
+on_manual
+on_manual_page
+on_manual_pick
+on_manual_level
+on_skip
+on_undo
+on_edit
+on_zone
+on_level
+on_new_text
+on_anything_else
+on_finish
+on_build
+on_build_without_photos
+on_resume
+
 # Оснастка тестов реализует абстрактный `BaseSession` из aiogram: имена методов
 # и их параметры заданы базовым классом, убрать неиспользуемый параметр нельзя —
 # оснастка перестанет подходить под интерфейс, ради которого написана.

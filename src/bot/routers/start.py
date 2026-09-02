@@ -22,6 +22,7 @@ from aiogram.types import CallbackQuery, Message
 from src import domain
 from src.domain.errors import DomainError
 
+from .. import sidecar
 from ..auditor import auditor_name
 from ..config import BotSettings
 from ..keyboards import (
@@ -37,6 +38,7 @@ from ..keyboards import (
     new_inspection_keyboard,
     resume_keyboard,
 )
+from ..pending import PendingStore
 from ..states import StartFlow
 from ..texts import t, ui_lang_or_default
 
@@ -73,8 +75,13 @@ async def _ask_unit(message: Message, state: FSMContext, lang: str) -> None:
     await message.answer(t("start.ask_unit", lang))
 
 
-def build_start_router(settings: BotSettings) -> Router:
-    """Роутер мастера начала проверки. `settings` нужен ради карты имён (T063)."""
+def build_start_router(settings: BotSettings, pending: PendingStore | None = None) -> Router:
+    """Роутер мастера начала проверки.
+
+    `settings` нужен ради карты имён (T063). `pending` — чтобы кнопки прошлой
+    проверки не выстрелили в новую: предложение, показанное пять минут назад,
+    зафиксировало бы запись уже в другой пиццерии.
+    """
     router = Router(name="start")
 
     @router.message(Command("start"))
@@ -202,6 +209,12 @@ def build_start_router(settings: BotSettings) -> Router:
             return
         finally:
             await state.clear()
+
+        # Заметки бота — того же возраста, что и проверка: источники записей,
+        # список кадров и последняя зона от прошлой к новой не относятся.
+        sidecar.reset(message.chat.id)
+        if pending is not None:
+            pending.forget(message.chat.id)
 
         await message.answer(
             t(

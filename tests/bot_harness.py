@@ -25,12 +25,16 @@ from aiogram.methods.base import TelegramType
 from aiogram.types import (
     CallbackQuery,
     Chat,
+    File,
     Message,
     PhotoSize,
     Update,
     User,
     Voice,
 )
+
+from src.recognize.manual import ManualCandidate
+from src.recognize.models import Candidate, Suggestion
 
 FAKE_TOKEN = "111111:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 AUDITOR_ID = 4242
@@ -59,6 +63,11 @@ class RecordingSession(BaseSession):
     ) -> Any:
         self.calls.append(method)
         name = type(method).__name__
+        if name == "GetFile":
+            # Скачивание кадра — часть настоящего потока разбора: без ответа на
+            # GetFile каждый тест разбора получал бы «файл не скачался».
+            file_id = str(getattr(method, "file_id", "stub"))
+            return File(file_id=file_id, file_unique_id=f"{file_id}-u", file_path="stub/photo.jpg")
         if name in {"SendMessage", "SendPhoto", "SendDocument", "EditMessageText"}:
             return Message(
                 message_id=next(self._ids),
@@ -100,6 +109,11 @@ class RecordingSession(BaseSession):
             if buttons:
                 return [b.callback_data or "" for row in buttons for b in row]
         return []
+
+    @property
+    def documents(self) -> list[Any]:
+        """Отправленные файлы — по ним проверяется, что отчёт дошёл до аудитора."""
+        return [c for c in self.calls if type(c).__name__ == "SendDocument"]
 
     def clear(self) -> None:
         self.calls.clear()
@@ -213,3 +227,79 @@ async def feed(dp: Dispatcher, bot: Bot, event: Message | CallbackQuery) -> None
         await dp.feed_update(bot, Update(update_id=update_id, message=event))
     else:
         await dp.feed_update(bot, Update(update_id=update_id, callback_query=event))
+
+
+# --- подмена разбора: до модели тесты не ходят ---
+
+
+def candidate(
+    code: str,
+    level: str,
+    zone: str,
+    wording: str = "формулировка",
+    *,
+    confidence: float = 0.9,
+    flags: tuple[str, ...] = (),
+) -> Candidate:
+    return Candidate(
+        code=code, level=level, zone=zone, wording=wording, confidence=confidence, flags=flags
+    )
+
+
+def suggestion(*candidates: Candidate, question: str = "", used_photo: bool = False) -> Suggestion:
+    return Suggestion(
+        candidates=candidates,
+        needs_human=not candidates,
+        question=question,
+        used_photo=used_photo,
+    )
+
+
+def manual(code: str, levels: tuple[str, ...], title: str = "пункт") -> ManualCandidate:
+    return ManualCandidate(code=code, levels=levels, title=title)
+
+
+class Calls(list[tuple[Any, ...]]):
+    """Список вызовов подменённой функции — чтобы проверить, звали ли её вообще."""
+
+
+def stub_classify(monkeypatch: Any, result: Suggestion | Exception) -> Calls:
+    """Подменить разбор. Возвращает список вызовов: пустой — модель не звали.
+
+    Пустой список и есть проверка требования D046: без нажатия «Разобрать» ни
+    один кадр в модель не уходит.
+    """
+    calls = Calls()
+
+    def fake(note: str, photo: object = None, zone_hint: object = None, **kw: object) -> Suggestion:
+        calls.append((note, photo, zone_hint, kw.get("lang")))
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr("src.bot.routers.record.classify", fake)
+    return calls
+
+
+def stub_transcribe(monkeypatch: Any, result: str | Exception) -> Calls:
+    calls = Calls()
+
+    def fake(audio: bytes, **kw: object) -> str:
+        calls.append((audio,))
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr("src.bot.routers.record.transcribe", fake)
+    return calls
+
+
+def stub_manual(monkeypatch: Any, items: tuple[ManualCandidate, ...]) -> Calls:
+    calls = Calls()
+
+    def fake(zone_hint: object, **kw: object) -> tuple[ManualCandidate, ...]:
+        calls.append((zone_hint,))
+        return items
+
+    monkeypatch.setattr("src.bot.routers.record.manual_candidates", fake)
+    return calls

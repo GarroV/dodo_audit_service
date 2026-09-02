@@ -1,11 +1,21 @@
 """Роутеры диалога: по одному на кусок сценария.
 
-Порядок регистрации в диспетчере важен и задан в `src/bot/app.py`: мастер
-начала проверки идёт первым, потому что его шаги ждут обычный текст, и приём
-материала не должен перехватывать название пиццерии.
+Порядок регистрации в диспетчере важен и задан в `src/bot/app.py`. Правило одно:
+всё, что ждёт обычный текст в состоянии диалога, идёт раньше приёма материала,
+иначе название пиццерии или новая формулировка записи будут перехвачены как
+комментарий к кадру.
 """
 
+from .edit import build_edit_router
+from .finish import build_finish_router
 from .material import build_material_router
+from .record import build_record_router
 from .start import build_start_router
 
-__all__ = ["build_material_router", "build_start_router"]
+__all__ = [
+    "build_edit_router",
+    "build_finish_router",
+    "build_material_router",
+    "build_record_router",
+    "build_start_router",
+]
