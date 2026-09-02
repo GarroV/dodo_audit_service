@@ -12,7 +12,8 @@ import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
+import uuid
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -157,3 +158,60 @@ def data_copy(tmp_path: Path) -> Path:
     dst = tmp_path / "data-copy"
     shutil.copytree(DATA, dst)
     return dst
+
+
+# --- Оснастка блока `db` (T091, T093) ----------------------------------------
+#
+# `psycopg` — зависимость этого блока (добавлена в pyproject.toml), а не
+# всего проекта, поэтому ниже он импортируется только внутри тела фикстуры, а
+# не на уровне модуля: голый `import psycopg` здесь означал бы, что сбор
+# ВСЕГО `tests/` падает целиком, пока зависимость не поставлена в текущее
+# окружение прогона (проверено: без этого приёма `pytest tests` не собирает
+# ни одного теста, включая те, что к `db` отношения не имеют).
+
+DATABASE_URL_VAR = "DATABASE_URL"
+
+requires_db = pytest.mark.skipif(
+    not os.environ.get(DATABASE_URL_VAR),
+    reason=f"нет {DATABASE_URL_VAR} — тесты блока db идут только с настоящим Postgres рядом",
+)
+
+
+@pytest.fixture
+def pg_dsn() -> Iterator[str]:
+    """DSN одноразовой базы данных со свежо накатанной схемой блока `db`.
+
+    Имя — случайное (`dodo_audit_test_<hex>`), поэтому параллельный тестовый
+    прогон не топчет чужую базу того же имени. Обслуживающее подключение идёт
+    к базе `postgres` — из своей же базы `DROP DATABASE` не выполнить. Ни
+    настоящие данные проекта, ни база любого другого блока не трогаются:
+    каждый тест поднимает и удаляет полностью свою.
+    """
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+
+    from src.db.migrate import apply_migrations
+
+    base = os.environ[DATABASE_URL_VAR]
+    maintenance_dsn = make_conninfo(base, dbname="postgres")
+    dbname = f"dodo_audit_test_{uuid.uuid4().hex[:12]}"
+    create = sql.SQL("create database {}").format(sql.Identifier(dbname))
+    drop = sql.SQL("drop database if exists {} with (force)").format(sql.Identifier(dbname))
+
+    with psycopg.connect(maintenance_dsn, autocommit=True) as conn:
+        conn.execute(create)
+    try:
+        dsn = make_conninfo(base, dbname=dbname)
+        apply_migrations(dsn)
+        yield dsn
+    finally:
+        with psycopg.connect(maintenance_dsn, autocommit=True) as conn:
+            conn.execute(drop)
+
+
+@pytest.fixture
+def db_env(pg_dsn: str, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Тот же DSN, но ещё и в `DATABASE_URL` — так, как его читает `db.config.check_environment`."""
+    monkeypatch.setenv(DATABASE_URL_VAR, pg_dsn)
+    return pg_dsn
