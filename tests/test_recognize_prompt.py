@@ -113,6 +113,27 @@ def test_question_text_пустой_комментарий_помечен_явн
     assert "(пусто)" in text
 
 
+def test_question_text_кадр_без_комментария_просит_короткие_пункты() -> None:
+    # T064/D043: разбор по кнопке «Разобрать» — тон другой, чем при разборе
+    # слов аудитора, и требование к формулировке другое: коротко, пунктами,
+    # без воды, чтобы аудитор успел подтвердить в моменте
+    text = question_text("", [], [], "hot_kitchen", "ru", with_photo=True)
+
+    assert "нажал «Разобрать»" in text
+    assert "коротко" in text
+    assert "отдельными записями" in text
+
+
+def test_question_text_кадр_с_комментарием_не_путается_с_кадром_без_него() -> None:
+    # Ветки не должны пересекаться текстом: «нашёл сам» — только когда
+    # комментария действительно нет
+    без_комментария = question_text("", [], [], "hot_kitchen", "ru", with_photo=True)
+    с_комментарием = question_text("печь грязная", [], [], "hot_kitchen", "ru", with_photo=True)
+
+    assert "нажал «Разобрать»" not in с_комментарием
+    assert "приложен кадр" not in без_комментария
+
+
 def test_question_text_подсказка_зоны_и_её_отсутствие() -> None:
     с_подсказкой = question_text("грязно", [], [], "hot_kitchen", "ru", with_photo=False)
     без_подсказки = question_text("грязно", [], [], None, "ru", with_photo=False)
