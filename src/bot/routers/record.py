@@ -250,8 +250,13 @@ async def _save(
     file_ids: Sequence[str],
     source: str,
     lang: str,
-) -> None:
+) -> bool:
     """Зафиксировать подтверждённое и ответить одной строкой (T055).
+
+    Возвращает, получилось ли. Отказ движка — не редкость и не ошибка бота: тот
+    же пункт в той же зоне аудитор снимает дважды за обход. Поэтому предложение
+    после отказа не выбрасывается, и человек выбирает другого кандидата, а не
+    пересылает кадр.
 
     Комментарий аудитора в запись не пишется намеренно: поле `comment` движок
     печатает в отчёте партнёру, а сказанное вслух на точке для партнёра не
@@ -261,7 +266,7 @@ async def _save(
         finding = domain.add_finding(chat_id, code, level, zone, text)
     except DomainError as exc:
         await message.answer(t("record.failed", lang, reason=exc))
-        return
+        return False
     for file_id in file_ids:
         try:
             domain.attach_photo(chat_id, finding.n, file_id)
@@ -277,6 +282,7 @@ async def _save(
         view.confirm_line(current or finding, domain.score(chat_id).pct, lang),
         reply_markup=edit_keyboard(finding.n, lang),
     )
+    return True
 
 
 def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Router:
@@ -340,8 +346,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             pending.propose(chat_id, replace(proposal, picked=index))
             await _ask_zone(message, ZONE_FOR_PICK_PREFIX, lang)
             return
-        pending.take_proposal(chat_id)
-        await _save(
+        if await _save(
             message,
             chat_id,
             code=candidate.code,
@@ -351,7 +356,8 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             file_ids=proposal.file_ids,
             source=proposal.source,
             lang=lang,
-        )
+        ):
+            pending.take_proposal(chat_id)
 
     @router.callback_query(F.data.startswith(ZONE_FOR_PICK_PREFIX))
     async def on_zone_for_pick(callback: CallbackQuery) -> None:
@@ -366,8 +372,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             await stale(message, lang)
             return
         candidate = proposal.candidates[proposal.picked]
-        pending.take_proposal(chat_id)
-        await _save(
+        if await _save(
             message,
             chat_id,
             code=candidate.code,
@@ -377,7 +382,8 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             file_ids=proposal.file_ids,
             source=proposal.source,
             lang=lang,
-        )
+        ):
+            pending.take_proposal(chat_id)
 
     @router.callback_query(F.data.startswith(ZONE_FOR_MANUAL_PREFIX))
     async def on_zone_for_manual(callback: CallbackQuery) -> None:
@@ -433,8 +439,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
         уходит в отчёт с чужим текстом молча.
         """
         item = proposal.manual[index]
-        pending.take_proposal(chat_id)
-        await _save(
+        if await _save(
             message,
             chat_id,
             code=item.code,
@@ -444,7 +449,8 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             file_ids=proposal.file_ids,
             source=proposal.source,
             lang=lang,
-        )
+        ):
+            pending.take_proposal(chat_id)
 
     @router.callback_query(F.data.startswith(MANUAL_PICK_PREFIX))
     async def on_manual_pick(callback: CallbackQuery) -> None:

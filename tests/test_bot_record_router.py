@@ -438,3 +438,39 @@ async def test_measurement_stays_a_measurement_after_an_edit(
     await feed(dp, bot, callback("ez:1:freezer"))
 
     assert "замер" in session.last_text
+
+
+async def test_refused_record_keeps_the_other_candidates_on_the_table(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Отказ движка не выбрасывает предложение: аудитор выбирает другого кандидата.
+
+    Тот же пункт в той же зоне аудитор снимает дважды за обход — движок вторую
+    запись справедливо отвергает. Если бы предложение при этом пропадало, кадр
+    пришлось бы присылать заново, стоя на точке.
+    """
+    started()
+    stub_classify(
+        monkeypatch,
+        suggestion(
+            candidate("CLN05", "D1", "hot_kitchen", "Печь в нагаре"),
+            candidate("PRD01", "D1", "fridge", "Продукт без маркировки"),
+        ),
+    )
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    # Пункт уже занят: этот же пункт в этой же зоне зафиксирован раньше.
+    await feed(dp, bot, photo_message("frame-0", caption="печь грязная"))
+    await feed(dp, bot, callback("rec:pick:0"))
+
+    await feed(dp, bot, photo_message("frame-1", caption="печь всё ещё грязная"))
+    session.clear()
+    await feed(dp, bot, callback("rec:pick:0"))
+    assert session.last_text.startswith("Не записал")
+
+    # Второй кандидат по-прежнему жив.
+    await feed(dp, bot, callback("rec:pick:1"))
+    state = get_state(CHAT_ID)
+    assert state is not None
+    assert [f.code for f in state.findings] == ["CLN05", "PRD01"]

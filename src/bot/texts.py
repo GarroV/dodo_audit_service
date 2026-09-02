@@ -128,9 +128,12 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
     },
     # --- разбор и фиксация (T055, T057, T067) ---
+    # Текст покрывает оба случая: кадр забрал комментарий (D046) и второе
+    # нажатие той же кнопки. Называть причину «комментарий» нельзя — при
+    # двойном нажатии это была бы неправда.
     "record.analyze_gone": {
-        "ru": "Этот кадр уже разбирается по вашему комментарию — вопрос снят.",
-        "en": "This photo is already being analyzed from your comment — the question is off.",
+        "ru": "Этот кадр уже разбирается — вопрос по нему снят.",
+        "en": "This photo is already being analyzed — the question is off.",
     },
     "record.thinking": {
         "ru": "Разбираю…",
