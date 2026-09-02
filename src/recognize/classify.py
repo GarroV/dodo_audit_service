@@ -13,18 +13,13 @@ from typing import Any
 from src.domain import list_zones
 
 from .client import ask_model
-from .config import RecognizeSettings, load_recognize_settings
+from .config import DEFAULT_LANG, RecognizeSettings, load_recognize_settings
 from .cues import class_thresholds
 from .models import NONE_CODE, UNKNOWN_ZONE, Candidate, Suggestion
 from .prompt import instructions, question_text
+from .rules_check import check_wording
 from .schema import picks_for, response_schema, split_pick
 from .shortlist import shortlist
-
-#: Язык формулировок и текста пунктов по умолчанию. Это параметр, а не
-#: константа: у проверки язык отчёта хранится отдельно от языка интерфейса и
-#: языка речи, и бот передаёт сюда именно язык отчёта — формулировка уходит в
-#: отчёт партнёру.
-DEFAULT_LANG = "ru"
 
 
 def _clamp(value: Any) -> float:
@@ -59,13 +54,19 @@ def _candidate(record: dict[str, Any], zone_hint: str | None) -> Candidate | Non
     zone = str(record.get("zone", UNKNOWN_ZONE))
     if zone == UNKNOWN_ZONE and zone_hint:
         zone = zone_hint
+    wording = str(record.get("wording", "")).strip()
+    reason = str(record.get("reason", "")).strip()
     return Candidate(
         code=code,
         level=level,
         zone=zone,
-        wording=str(record.get("wording", "")).strip(),
+        wording=wording,
         confidence=_clamp(record.get("confidence")),
-        reason=str(record.get("reason", "")).strip(),
+        reason=reason,
+        # Промпт запрещает додумывать масштаб, повреждение и похвалу (правила
+        # 2-4), но у текста нет enum — соблюдение проверяется здесь, вторым
+        # слоем, а не только просьбой в инструкции.
+        flags=check_wording(wording, reason),
     )
 
 

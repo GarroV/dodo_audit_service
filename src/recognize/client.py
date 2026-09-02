@@ -14,9 +14,19 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from openai import OpenAI, OpenAIError
+from openai.types.responses import (
+    EasyInputMessageParam,
+    ResponseInputImageParam,
+    ResponseInputMessageContentListParam,
+    ResponseInputTextParam,
+    ResponseTextConfigParam,
+)
+from openai.types.responses.response_format_text_json_schema_config_param import (
+    ResponseFormatTextJSONSchemaConfigParam,
+)
 
 from .config import RecognizeSettings
 from .errors import ModelUnavailable
@@ -28,7 +38,7 @@ SCHEMA_NAME = "audit_suggestions"
 #: боевом кадре: `detail=low` на флагмане стоит 315 токенов входа против 1463 у
 #: `auto`, но срезает ровно ту мелочь, ради которой кадр и смотрят, — нагар под
 #: лентой печи от целого металла отличается на увеличении.
-IMAGE_DETAIL = "auto"
+IMAGE_DETAIL: Literal["auto"] = "auto"
 
 
 @dataclass(frozen=True)
@@ -49,16 +59,18 @@ def _new_client(settings: RecognizeSettings) -> OpenAI:
     return OpenAI(api_key=settings.api_key, timeout=settings.timeout)
 
 
-def _content(question: str, photo: bytes | None) -> list[dict[str, Any]]:
-    content: list[dict[str, Any]] = [{"type": "input_text", "text": question}]
+def _content(question: str, photo: bytes | None) -> ResponseInputMessageContentListParam:
+    content: ResponseInputMessageContentListParam = [
+        ResponseInputTextParam(type="input_text", text=question)
+    ]
     if photo is not None:
         encoded = base64.b64encode(photo).decode("ascii")
         content.append(
-            {
-                "type": "input_image",
-                "image_url": f"data:image/jpeg;base64,{encoded}",
-                "detail": IMAGE_DETAIL,
-            }
+            ResponseInputImageParam(
+                type="input_image",
+                image_url=f"data:image/jpeg;base64,{encoded}",
+                detail=IMAGE_DETAIL,
+            )
         )
     return content
 
@@ -79,19 +91,23 @@ def ask_model(
     имя берётся из конфига и никогда из кода.
     """
     client = _new_client(settings)
+    text_format = ResponseFormatTextJSONSchemaConfigParam(
+        type="json_schema",
+        name=SCHEMA_NAME,
+        schema=schema,
+        strict=True,
+    )
+    text_config: ResponseTextConfigParam = {"format": text_format}
+    message: EasyInputMessageParam = {
+        "role": "user",
+        "content": _content(question, photo),
+    }
     try:
         response = client.responses.create(
             model=model or settings.model,
             instructions=instructions,
-            input=[{"role": "user", "content": _content(question, photo)}],
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": SCHEMA_NAME,
-                    "schema": schema,
-                    "strict": True,
-                }
-            },
+            input=[message],
+            text=text_config,
         )
     except OpenAIError as exc:
         raise ModelUnavailable(f"Модель не ответила: {exc}") from exc
@@ -110,8 +126,6 @@ def ask_model(
     return ModelAnswer(
         payload=payload,
         usage=(
-            {}
-            if usage is None
-            else {"input": usage.input_tokens, "output": usage.output_tokens}
+            {} if usage is None else {"input": usage.input_tokens, "output": usage.output_tokens}
         ),
     )
