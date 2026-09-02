@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Собирает итоговый PDF-отчёт и черновик письма партнёру из inspection.json.
 
-  report.py pdf  [--out отчёт.pdf] [--lang ru|en] [--photos all|d2d3|none]
+  report.py pdf  [--out отчёт.pdf | --out-dir КАТАЛОГ] [--lang ru|en] [--photos all|d2d3|none]
+        без --out отчёт уходит в reports/ рядом с состоянием проверки
   report.py letter [--lang ru|en]      печатает текст письма в stdout
   report.py html [--out отчёт.html] [--lang ru|en] [--photos ...]
         тот же HTML, из которого собирается PDF — для сверки вида и тестов
@@ -16,7 +17,11 @@ from urllib.parse import quote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from audit import load_checklist, load_zones, load_cfg, load_state, compute  # noqa: E402
+from audit import load_checklist, load_zones, load_cfg, load_state, state_dir, compute  # noqa: E402
+
+# Каталог вывода по умолчанию — рядом с состоянием проверки, но не в соседи
+# ему: там же лежат эталонные отчёты (examples/), и сборка их затирала (T104).
+REPORT_DIR_NAME = "reports"
 
 T = {
     "ru": {
@@ -609,10 +614,31 @@ def default_name(meta, lang=None):
     return " - ".join(p for p in parts if p) + ".pdf"
 
 
+def report_path(out, out_dir, meta, lang):
+    """Куда класть собранный отчёт.
+
+    Раньше отчёт без `--out` ложился в рабочий каталог — то есть рядом с
+    состоянием проверки, а в `examples/` ещё и рядом с эталонным отчётом того
+    же имени. Ручной смоук сборки затирал эталон молча, и 02.09.2026 именно
+    это и произошло: восстановить его неоткуда, `examples/` вне git (D002).
+    Поэтому по умолчанию отчёт уходит в отдельный каталог `reports/` рядом с
+    состоянием. Явный `--out` сильнее: человек назвал путь сам.
+    """
+    if out and out_dir:
+        sys.exit("--out и --out-dir указаны вместе — не понять, куда класть отчёт. "
+                 "--out задаёт путь целиком, --out-dir только каталог; оставьте один")
+    if out:
+        return out
+    d = out_dir or os.path.join(state_dir(), REPORT_DIR_NAME)
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, default_name(meta, lang))
+
+
 def main():
     p = argparse.ArgumentParser()
     s = p.add_subparsers(dest="cmd", required=True)
     a1 = s.add_parser("pdf"); a1.add_argument("--out"); a1.add_argument("--lang"); a1.add_argument("--photos", default="all")
+    a1.add_argument("--out-dir", help="каталог для собранного отчёта; по умолчанию reports/ рядом с состоянием")
     a1.add_argument("--photo-map", help="JSON-карта «ссылка на кадр: путь к файлу»")
     a2 = s.add_parser("letter"); a2.add_argument("--lang")
     a3 = s.add_parser("html"); a3.add_argument("--out"); a3.add_argument("--lang")
@@ -647,7 +673,7 @@ def main():
         else:
             print(html)
         return
-    out = a.out or default_name(st["meta"], lang)
+    out = report_path(a.out, getattr(a, "out_dir", None), st["meta"], lang)
     html_to_pdf(html, out)
     print(out)
 
