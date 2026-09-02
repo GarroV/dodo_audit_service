@@ -16,7 +16,10 @@ def test_loads_settings_from_mapping() -> None:
     }
     settings = load_bot_settings(env)
     assert settings == BotSettings(
-        token="123:abc", allowed_ids=frozenset({111, 222, 333}), mode="polling"
+        token="123:abc",
+        allowed_ids=frozenset({111, 222, 333}),
+        mode="polling",
+        auditor_names={},
     )
 
 
@@ -55,7 +58,11 @@ def test_default_mode_is_polling() -> None:
 
 
 def test_unknown_mode_is_config_error() -> None:
-    env = {"TELEGRAM_BOT_TOKEN": "123:abc", "ALLOWED_TELEGRAM_IDS": "111", "BOT_MODE": "carrier-pigeon"}
+    env = {
+        "TELEGRAM_BOT_TOKEN": "123:abc",
+        "ALLOWED_TELEGRAM_IDS": "111",
+        "BOT_MODE": "carrier-pigeon",
+    }
     with pytest.raises(BotConfigError, match="carrier-pigeon"):
         load_bot_settings(env)
 
@@ -79,3 +86,51 @@ def test_reads_from_real_os_environ_by_default(monkeypatch: pytest.MonkeyPatch) 
     settings = load_bot_settings()
     assert settings.token == "999:zzz"
     assert settings.allowed_ids == frozenset({42})
+
+
+def test_auditor_names_are_parsed_into_map() -> None:
+    """Имя проверяющего берётся по Telegram ID (T063): карта «ID:имя» через запятую."""
+    env = {
+        "TELEGRAM_BOT_TOKEN": "123:abc",
+        "ALLOWED_TELEGRAM_IDS": "111,222",
+        "AUDITOR_NAMES": "111:Владимир Гарро, 222 : Пётр Петров ",
+    }
+    assert load_bot_settings(env).auditor_names == {111: "Владимир Гарро", 222: "Пётр Петров"}
+
+
+def test_auditor_names_absent_is_empty_map_not_failure() -> None:
+    """Переменная необязательна: без неё имя берётся из профиля Telegram."""
+    env = {"TELEGRAM_BOT_TOKEN": "123:abc", "ALLOWED_TELEGRAM_IDS": "111"}
+    assert load_bot_settings(env).auditor_names == {}
+
+
+def test_auditor_names_without_colon_is_config_error() -> None:
+    """Молча пропустить кривую запись нельзя: имя молча уедет из профиля, а не из карты."""
+    env = {
+        "TELEGRAM_BOT_TOKEN": "123:abc",
+        "ALLOWED_TELEGRAM_IDS": "111",
+        "AUDITOR_NAMES": "Владимир Гарро",
+    }
+    with pytest.raises(BotConfigError, match="AUDITOR_NAMES"):
+        load_bot_settings(env)
+
+
+def test_auditor_names_with_non_numeric_id_is_config_error() -> None:
+    env = {
+        "TELEGRAM_BOT_TOKEN": "123:abc",
+        "ALLOWED_TELEGRAM_IDS": "111",
+        "AUDITOR_NAMES": "garro:Владимир Гарро",
+    }
+    with pytest.raises(BotConfigError, match="AUDITOR_NAMES"):
+        load_bot_settings(env)
+
+
+def test_auditor_name_for_id_outside_allowed_list_is_config_error() -> None:
+    """Две разъезжающиеся копии списка ID — источник тихой ошибки: имя есть, доступа нет."""
+    env = {
+        "TELEGRAM_BOT_TOKEN": "123:abc",
+        "ALLOWED_TELEGRAM_IDS": "111",
+        "AUDITOR_NAMES": "999:Чужой",
+    }
+    with pytest.raises(BotConfigError, match="999"):
+        load_bot_settings(env)
