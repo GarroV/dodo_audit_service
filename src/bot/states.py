@@ -26,5 +26,3 @@ class StartFlow(StatesGroup):
     waiting_kind = State()
     #: Ждём тап по одной из кнопок языка отчёта.
     waiting_lang = State()
-    #: Есть незавершённая проверка — ждём «Продолжить» или «Начать новую» (T052).
-    confirm_resume = State()

@@ -18,7 +18,6 @@ dependencies = [
     "openpyxl==3.1.5",
     # Блок bot: диалог с аудитором (docs/forge/plan.md, раздел «Стек»).
     "aiogram==3.31.0",
-    "aiogram-media-group==0.5.1",
 ]
 
 [project.optional-dependencies]
@@ -63,12 +62,6 @@ strict = true
 files = ["src"]
 exclude = ["engine", "\\.venv"]
 
-# aiogram-media-group не публикует типы (нет py.typed) — единственная причина
-# исключения, не связано со строгостью проверки остального кода блока bot.
-[[tool.mypy.overrides]]
-module = "aiogram_media_group.*"
-ignore_missing_imports = true
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
@@ -91,7 +84,7 @@ source = ["src"]
 # проверка сводилась бы к списку исключений на весь контракт и перестала бы
 # что-либо ловить. Так она осталась живой: на этом наборе она нашла настоящий
 # мёртвый код (`Finding.is_violation`), и он удалён, а не занесён в исключения.
-paths = ["src", "tests"]
+paths = ["src", "tests", ".vulture-ignore"]
 min_confidence = 60  # 80 не ловит неиспользуемые функции — проверено порчей
 # `pytestmark` читает pytest при сборе тестов, в коде на него никто не ссылается.
 ignore_names = ["pytestmark"]
@@ -107,7 +100,17 @@ extend_exclude = ["^\\.venv/", "^tests/"]
 
 # Инструменты проверок не импортируются кодом — они запускаются командами.
 [tool.deptry.per_rule_ignores]
-DEP002 = ["ruff", "mypy", "pytest", "pytest-cov", "vulture", "deptry", "import-linter"]
+DEP002 = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-cov",
+    # Плагин pytest: подключается самим pytest по entry point, в коде не импортируется.
+    "pytest-asyncio",
+    "vulture",
+    "deptry",
+    "import-linter",
+]
 
 [tool.importlinter]
 root_packages = [

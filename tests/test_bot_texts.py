@@ -43,3 +43,18 @@ def test_parameters_are_substituted() -> None:
 def test_missing_parameter_is_refused_not_printed_as_brace() -> None:
     with pytest.raises(BotTextError, match="unit"):
         t("start.resumed", "ru", date="2026-09-02", findings=3)
+
+
+def test_parameter_named_lang_does_not_collide_with_interface_language() -> None:
+    """У подтверждения старта есть параметр «язык отчёта» — он не должен спорить с языком текста."""
+    text = t(
+        "start.started",
+        "ru",
+        unit="Белград 2",
+        kind="Плановая",
+        lang="English",
+        auditor="Владимир Гарро",
+        date="2026-09-02",
+    )
+    assert "English" in text
+    assert "Плановая" in text
