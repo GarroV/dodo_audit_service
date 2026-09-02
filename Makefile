@@ -35,8 +35,15 @@ regress:
 	@cd examples/belgrade-1 && $(CURDIR)/$(VENV)/python $(CURDIR)/engine/audit.py score | head -2
 	@cd examples/belgrade-2 && $(CURDIR)/$(VENV)/python $(CURDIR)/engine/audit.py score | head -2
 
+# Демо-набор на английском (T074, T100): вымышленная точка, синтетический
+# чек-лист demo/data, отчёт и письмо партнёру. Идемпотентно — повторный
+# запуск возвращает демо к чистому виду, а не накапливает мусор.
+#
+# Состояние ложится в demo/state (каталог в .gitignore) или в DEMO_STATE_DIR,
+# если он задан. Боевой STATE_DIR не трогается: сид его не читает намеренно —
+# иначе эта цель, запущенная на сервере, писала бы в настоящие проверки.
 demo:
-	@echo "демо-набор поднимается блоком infra (задача T074)"
+	$(VENV)/python tools/seed_demo.py
 
 # Накат схемы блока db (T091). DATABASE_URL берётся из .env — так же, как
 # AUDIT_DATA_DIR для DATA выше. Идемпотентно: на уже накатанной базе печатает

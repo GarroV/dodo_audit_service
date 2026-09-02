@@ -41,6 +41,12 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY engine ./engine
 COPY src ./src
+# Сид демо-набора (`tools/seed_demo.py`, задача T074) — тоже код продукта:
+# демо-стенд из `docker-compose.yml` (профиль `demo`) запускает его этим же
+# образом, а не отдельным. Синтетический чек-лист рядом не копируется: он
+# монтируется снаружи, как и боевая методика, — тогда правка данных в `main`
+# доезжает до демо без пересборки образа (задача T102).
+COPY tools ./tools
 
 # Editable-установка, а не обычная: обычный `pip install .` копирует пакет в
 # site-packages, и `Path(__file__).resolve().parents[2]` из site-packages
