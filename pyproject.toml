@@ -19,6 +19,8 @@ dependencies = [
     # recognize: единственный провайдер LLM — OpenAI (решение D010). Один
     # клиент закрывает и разбор комментариев, и транскрипцию голоса.
     "openai==2.9.0",
+    # Блок bot: диалог с аудитором (docs/forge/plan.md, раздел «Стек»).
+    "aiogram==3.31.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +29,7 @@ dev = [
     "mypy==1.19.1",
     "pytest==8.4.2",
     "pytest-cov==7.0.0",
+    "pytest-asyncio==1.4.0",
     "vulture==2.14",
     "deptry==0.23.1",
     "import-linter==2.3",
@@ -52,7 +55,9 @@ select = ["E", "F", "I", "B", "S", "ASYNC", "RUF"]
 ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]  # assert в тестах — это их работа
+# assert в тестах — это их работа; S105/S106 в них срабатывают на выдуманных
+# токенах вида "123:abc", без которых тест окружения бота не написать.
+"tests/*" = ["S101", "S105", "S106"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -63,6 +68,9 @@ exclude = ["engine", "\\.venv"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Хендлеры и мидлвари бота — корутины (aiogram); markers, а не auto-режим, чтобы
+# синхронные тесты domain и движка не проверялись случайно как асинхронные.
+asyncio_mode = "strict"
 # Покрытие считается по src/. Движок в метрику не входит осознанно: тесты
 # запускают его подпроцессом через CLI, и построчное покрытие дочернего процесса
 # не видно без отдельной настройки (задача T037). Проверен он при этом хорошо —
@@ -79,7 +87,7 @@ source = ["src"]
 # проверка сводилась бы к списку исключений на весь контракт и перестала бы
 # что-либо ловить. Так она осталась живой: на этом наборе она нашла настоящий
 # мёртвый код (`Finding.is_violation`), и он удалён, а не занесён в исключения.
-paths = ["src", "tests"]
+paths = ["src", "tests", ".vulture-ignore"]
 min_confidence = 60  # 80 не ловит неиспользуемые функции — проверено порчей
 # `pytestmark` читает pytest при сборе тестов, в коде на него никто не ссылается.
 ignore_names = ["pytestmark"]
@@ -95,7 +103,17 @@ extend_exclude = ["^\\.venv/", "^tests/"]
 
 # Инструменты проверок не импортируются кодом — они запускаются командами.
 [tool.deptry.per_rule_ignores]
-DEP002 = ["ruff", "mypy", "pytest", "pytest-cov", "vulture", "deptry", "import-linter"]
+DEP002 = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-cov",
+    # Плагин pytest: подключается самим pytest по entry point, в коде не импортируется.
+    "pytest-asyncio",
+    "vulture",
+    "deptry",
+    "import-linter",
+]
 
 [tool.importlinter]
 root_packages = [

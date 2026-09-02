@@ -1,0 +1,97 @@
+"""Что переживает перезапуск бота, а что нет.
+
+Пункт готовности блока — «прерванная проверка продолжается после перезапуска».
+Перезапуск здесь моделируется честно: строится новый диспетчер с новым
+хранилищем автомата и новой очередью материалов, то есть всё, что бот держал в
+памяти, теряется. Уцелеть должно ровно то, что лежит в файле проверки.
+
+Отдельно зафиксировано и то, что перезапуск НЕ переживает: кадр, присланный
+без комментария и не ставший записью, живёт только в памяти. Это не решается
+здесь — очередь ожидания придётся сохранять задаче T068 («кадры без записи
+показываются при завершении проверки»), и тест стоит тут, чтобы это не
+обнаружилось на точке.
+"""
+
+from __future__ import annotations
+
+import pytest
+from bot_harness import AUDITOR_ID, CHAT_ID, feed, make_bot, photo_message, text_message
+from conftest import requires_data
+
+from src.bot.app import build_dispatcher
+from src.bot.config import BotSettings
+from src.domain import add_finding, get_state, start_inspection
+
+pytestmark = [pytest.mark.asyncio, requires_data]
+
+SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
+
+
+def restart() -> object:
+    """Новый диспетчер — всё, что бот держал в памяти, начинается с чистого листа."""
+    return build_dispatcher(SETTINGS, album_window=5.0)
+
+
+async def test_inspection_survives_restart_and_is_offered_to_continue(
+    domain_env: object,
+) -> None:
+    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru", auditor="Владимир Гарро")
+    add_finding(CHAT_ID, "PRD01", "D1", "hot_kitchen", "Пол в горячем цеху загрязнён")
+
+    bot, session = make_bot()
+    await feed(restart(), bot, text_message("/start"))
+
+    assert "Белград 2" in session.last_text
+    assert "Владимир Гарро" in session.last_text
+    assert "1" in session.last_text
+
+
+async def test_material_intake_works_after_restart(domain_env: object) -> None:
+    """Фиксация продолжается без дополнительного шага «восстановить»."""
+    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+
+    bot, session = make_bot()
+    first = restart()
+    await feed(first, bot, photo_message("photo-1"))
+
+    second = restart()
+    session.clear()
+    await feed(second, bot, photo_message("photo-2", caption="скол на бортике"))
+
+    assert "скол на бортике" in session.last_text
+
+
+async def test_uncommented_frame_does_not_survive_restart(domain_env: object) -> None:
+    """Кадр без комментария живёт в памяти: после перезапуска связывать нечего.
+
+    Записью он не стал, поэтому проверка от этого ничего не теряет, но
+    комментарий, присланный уже после перезапуска, привязать не к чему — и бот
+    говорит об этом прямо, а не молчит.
+    """
+    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+
+    bot, session = make_bot()
+    await feed(restart(), bot, photo_message("photo-1"))
+
+    session.clear()
+    await feed(restart(), bot, text_message("грязный пол"))
+
+    assert "не вижу кадра" in session.last_text.lower()
+
+
+async def test_wizard_step_does_not_survive_restart_and_start_is_offered_again(
+    domain_env: object,
+) -> None:
+    """Шаг мастера — в памяти, и это осознанно: проверка ещё не начата, терять нечего."""
+    bot, session = make_bot()
+    first = restart()
+    await feed(first, bot, text_message("/start"))
+    await feed(first, bot, text_message("/start"))
+
+    session.clear()
+    await feed(restart(), bot, text_message("Белград 2"))
+
+    assert get_state(CHAT_ID) is None
+    assert "не вижу кадра" in session.last_text.lower() or "проверка не начата" in (
+        session.last_text.lower()
+    )
