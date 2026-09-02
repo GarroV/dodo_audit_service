@@ -32,6 +32,13 @@ dependencies = [
     # файлы и раннер на полсотни строк (src/db/migrate.py) дают то же самое
     # без лишней зависимости.
     "psycopg[binary]==3.2.13",
+    # infra: подставляет переменные из `.env` в окружение процесса при
+    # локальном запуске `python -m src.bot` без Docker (issue #75) — точка
+    # входа читала только `os.environ`, а класть туда файл было некому.
+    # Внутри контейнера переменные уже приходят через `docker compose`
+    # (`env_file`/`environment`), и там `load_dotenv()` просто не находит
+    # файла — вызов безопасен в обоих случаях (docs/forge/blocks/infra.md).
+    "python-dotenv==1.2.3",
 ]
 
 [project.optional-dependencies]
