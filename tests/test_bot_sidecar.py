@@ -214,3 +214,92 @@ def test_заметки_разных_чатов_не_смешиваются(doma
     assert read(CHAT).zone == "hot_kitchen"
     assert read(other).sources == {1: SOURCE_PHOTO}
     assert read(other).zone == "bar"
+
+
+# --- пути отказа записи и чтения ---
+
+
+def test_старый_файл_без_ключа_кадров_читается(domain_env: Path) -> None:
+    """Заметки прежней версии кадров ещё не знали — читаться они обязаны.
+
+    Отказ здесь означал бы, что после обновления бота проверка, начатая до него,
+    перестала завершаться: список кадров пуст, а не «файл испорчен».
+    """
+    remember_zone(CHAT, "hot_kitchen")
+    path = notes_path(CHAT)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["frames"]
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+    notes = read(CHAT)
+    assert notes.frames == ()
+    assert notes.zone == "hot_kitchen"
+
+
+@pytest.mark.parametrize(
+    "битые_кадры",
+    [
+        [{"file_id": "нет номера сообщения"}],
+        [{"message_id": "не число", "file_id": "x"}],
+        ["строка вместо кадра"],
+        [None],
+    ],
+)
+def test_испорченный_список_кадров_это_отказ(domain_env: Path, битые_кадры: object) -> None:
+    """Кадры не «читаются как получится»: половина списка хуже отказа.
+
+    Молча потерянный кадр — то, ради чего заведена задача T068; вернуть тут
+    пустоту значило бы обойти её же защиту через испорченный файл.
+    """
+    remember_zone(CHAT, "hot_kitchen")
+    path = notes_path(CHAT)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["frames"] = битые_кадры
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(BotNotesError, match="кадр"):
+        read(CHAT)
+
+
+def test_сорванная_запись_не_оставляет_мусора(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Отказ посреди записи не оставляет временный файл рядом с проверкой.
+
+    Мусор `.bot-notes-*.tmp` копился бы в папке проверки каждым сбоем и уехал бы
+    вместе с ней; хуже того, читатель принял бы его за состояние.
+    """
+    remember_zone(CHAT, "hot_kitchen")
+    папка = notes_path(CHAT).parent
+
+    def сорвать(*_a: object, **_k: object) -> None:
+        raise OSError("на диске нет места")
+
+    monkeypatch.setattr("src.bot.sidecar.json.dump", сорвать)
+    with pytest.raises(OSError, match="нет места"):
+        remember_zone(CHAT, "dining")
+
+    assert list(папка.glob(".bot-notes-*.tmp")) == []
+    # Прежние заметки целы: сорванная запись не тронула файл.
+    assert read(CHAT).zone == "hot_kitchen"
+
+
+def test_повтор_тех_же_кадров_не_переписывает_файл(domain_env: Path) -> None:
+    """Один и тот же кадр в пачке после потери связи не заставляет писать на диск.
+
+    Пачка приходит десятками сообщений разом; лишняя запись файла на каждое из
+    них — это работа на ровном месте в самый занятый момент проверки.
+    """
+    remember_frames(CHAT, [кадр(1, "a"), кадр(2, "b")])
+    было = notes_path(CHAT).stat().st_mtime_ns
+
+    remember_frames(CHAT, [кадр(1, "a"), кадр(2, "b")])
+
+    assert notes_path(CHAT).stat().st_mtime_ns == было
+    assert [f.file_id for f in read(CHAT).frames] == ["a", "b"]
+
+
+def test_пустая_пачка_кадров_не_заводит_файл(domain_env: Path) -> None:
+    """Пустой вызов не создаёт заметок: файл появляется только когда есть что помнить."""
+    remember_frames(CHAT, [])
+    assert not notes_path(CHAT).exists()

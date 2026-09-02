@@ -203,7 +203,14 @@ def callback_query(
     user_id: int = AUDITOR_ID,
     chat_id: int = CHAT_ID,
     full_name: str = "Владимир Гарро",
+    with_message: bool = True,
 ) -> CallbackQuery:
+    """Нажатие на кнопку.
+
+    `with_message=False` — настоящий случай телеграма, а не выдумка теста: у
+    нажатия нет сообщения, если оно старше 48 часов или пришло из инлайн-режима.
+    Бот тогда не знает, в какой чат отвечать, и обязан промолчать, а не упасть.
+    """
     return CallbackQuery(
         id=f"cb-{next_message_id()}",
         from_user=_user(user_id, full_name),
@@ -213,7 +220,9 @@ def callback_query(
             message_id=next_message_id(),
             date=datetime.now(tz=timezone.utc),
             chat=Chat(id=chat_id, type="private"),
-        ),
+        )
+        if with_message
+        else None,
     )
 
 

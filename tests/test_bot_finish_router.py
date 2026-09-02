@@ -27,7 +27,7 @@ from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.texts import t
 from src.domain import add_finding, attach_photo, score, start_inspection
-from src.report.errors import PdfNotBuilt
+from src.report.errors import PdfNotBuilt, ReportError
 
 pytestmark = [pytest.mark.asyncio, requires_data]
 
@@ -239,3 +239,42 @@ async def test_resume_returns_to_the_inspection(domain_env: object) -> None:
     await feed(dp, bot, callback("fin:resume"))
 
     assert session.last_text == t("finish.resumed", "ru")
+
+
+async def test_build_without_an_inspection_says_so_instead_of_calling_the_engine(
+    domain_env: object,
+) -> None:
+    """Кнопка «Собрать отчёт» из старой переписки: проверки уже нет, собирать нечего."""
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, callback("fin:build"))
+
+    assert session.documents == []
+    assert session.last_text == t("material.no_inspection", "ru")
+
+
+async def test_failed_letter_is_reported_after_the_pdf_was_already_sent(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Письмо не собралось — сказать об этом, хотя отчёт уже уехал.
+
+    Промолчать тут хуже всего: аудитор видит PDF, считает завершение удавшимся и
+    уходит с точки без текста письма партнёру.
+    """
+    started()
+    add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар на подине печи")
+
+    def отказ(*_a: object, **_k: object) -> str:
+        raise ReportError("шаблон письма не прочитался")
+
+    monkeypatch.setattr("src.bot.routers.finish.build_letter", отказ)
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, text_message("/finish"))
+    session.clear()
+    await feed(dp, bot, callback("fin:build"))
+
+    assert len(session.documents) == 1, "отчёт обязан был доехать: он собрался"
+    assert "шаблон письма не прочитался" in session.last_text
