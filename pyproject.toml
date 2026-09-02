@@ -21,6 +21,17 @@ dependencies = [
     "openai==2.9.0",
     # Блок bot: диалог с аудитором (docs/forge/plan.md, раздел «Стек»).
     "aiogram==3.31.0",
+    # db: слив завершённой проверки в Postgres (D027, D053). Синхронный
+    # драйвер — блок звонит в базу так же прямолинейно, как domain вызывает
+    # движок подпроцессом; асинхронный стек здесь не по адресу, потому что
+    # весь остальной код блоков синхронный (см. `openai.OpenAI`, не
+    # `AsyncOpenAI`, в src/recognize/client.py). Миграции — не Alembic:
+    # добавлять SQLAlchemy ради восьми таблиц и тянуть следом psycopg2
+    # (postgres-экстра yoyo-migrations на нём, не на psycopg3) означало бы
+    # два драйвера Postgres в одном проекте. Простые пронумерованные .sql
+    # файлы и раннер на полсотни строк (src/db/migrate.py) дают то же самое
+    # без лишней зависимости.
+    "psycopg[binary]==3.2.13",
 ]
 
 [project.optional-dependencies]
@@ -90,7 +101,9 @@ source = ["src"]
 paths = ["src", "tests", ".vulture-ignore"]
 min_confidence = 60  # 80 не ловит неиспользуемые функции — проверено порчей
 # `pytestmark` читает pytest при сборе тестов, в коде на него никто не ссылается.
-ignore_names = ["pytestmark"]
+# `__getattr__` (src/db/__init__.py) — хук PEP 562, интерпретатор вызывает его
+# сам на `from src.db import push_inspection`; в коде по имени не зовётся.
+ignore_names = ["pytestmark", "__getattr__"]
 exclude = [".venv"]
 
 [tool.deptry]
@@ -127,7 +140,10 @@ name = "Блоки идут слоями, обратный импорт запр
 type = "layers"
 layers = [
     "src.bot",
-    "src.recognize : src.report",
+    # db — пир recognize/report: тоже читает состояние и оценку только через
+    # официальный контракт domain (get_state, score), сам движок не вызывает
+    # и не импортируется другими блоками этого яруса.
+    "src.recognize : src.report : src.db",
     "src.domain",
 ]
 
@@ -138,6 +154,7 @@ source_modules = [
     "src.bot",
     "src.recognize",
     "src.report",
+    "src.db",
 ]
 forbidden_modules = [
     "engine",

@@ -1,4 +1,4 @@
-.PHONY: check test regress demo lint types dead bounds fmt
+.PHONY: check test regress demo lint types dead bounds fmt migrate
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -37,3 +37,9 @@ regress:
 
 demo:
 	@echo "демо-набор поднимается блоком infra (задача T074)"
+
+# Накат схемы блока db (T091). DATABASE_URL берётся из .env — так же, как
+# AUDIT_DATA_DIR для DATA выше. Идемпотентно: на уже накатанной базе печатает
+# «нечего накатывать» и ничего не меняет.
+migrate:
+	$(VENV)/python -m src.db.migrate
