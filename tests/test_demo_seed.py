@@ -206,9 +206,19 @@ def test_seed_score_is_the_demo_anchor(seeded: dict[str, object]) -> None:
 
 
 def test_seed_report_name_is_english(seeded: dict[str, object]) -> None:
+    """Отчёт лежит в `reports/` рядом с состоянием — задача T104.
+
+    Изначально тест искал PDF рядом с `inspection.json`, и это было верно на
+    момент его написания: блок infra рос от ветки, где сборка ещё клала отчёт
+    туда. Пока блоки шли параллельно, расхождение было невидимо — вылезло оно
+    при слиянии, у того, кто его не вносил.
+    """
     chat = _dir(seeded, "demo_state") / DEMO_CHAT_DIR
-    pdfs = sorted(p.name for p in chat.glob("*.pdf"))
+    pdfs = sorted(p.name for p in (chat / "reports").glob("*.pdf"))
     assert len(pdfs) == 1, f"ожидался ровно один отчёт демо, найдено: {pdfs}"
+    assert not list(chat.glob("*.pdf")), (
+        "отчёт лёг рядом с состоянием, а не в reports/ — T104 отменён незаметно"
+    )
     name = pdfs[0]
     assert name.startswith("Audit "), f"имя отчёта демо не английское: {name}"
     assert not CYRILLIC.search(name), f"в имени отчёта демо кириллица: {name}"
