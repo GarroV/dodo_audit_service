@@ -151,6 +151,29 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Что записать? Кадров: {count}.\n\n{lines}",
         "en": "What should I record? Photos: {count}.\n\n{lines}",
     },
+    # Быстрый путь (T117, D063). Слова аудитора и сработавшая строка карты
+    # стоят здесь не для красоты: механизм отвечает по ОДНОЙ строке, а в одной
+    # фразе бывает два нарушения (правило 11). Увидев свои слова целиком,
+    # аудитор замечает, что ответ не на всё; последняя строка называет это
+    # прямо, потому что молчаливая потеря второго нарушения — главный риск
+    # быстрого пути. Причину отказа (`FastPath.reason`) здесь не показывают
+    # никогда: она для замера, а не для экрана.
+    "record.fast": {
+        "ru": (
+            "Нашёл по словам, без модели.\n\n"
+            "Ваши слова: «{note}»\n"
+            "Строка карты: «{cue}»\n\n"
+            "{code} · {level} · {zone}\n{title}\n\n"
+            "Если в словах есть ещё нарушение, здесь его нет — «Разобрать моделью»."
+        ),
+        "en": (
+            "Matched from your words, no model.\n\n"
+            "Your words: “{note}”\n"
+            "Map line: “{cue}”\n\n"
+            "{code} · {level} · {zone}\n{title}\n\n"
+            "If your words name another violation, it is not here — “Analyze with the model”."
+        ),
+    },
     "record.candidate_line": {
         "ru": "{index}. {code} · {level} · {zone}\n   {wording}",
         "en": "{index}. {code} · {level} · {zone}\n   {wording}",
@@ -322,6 +345,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "btn.analyze": {"ru": "Разобрать", "en": "Analyze"},
     "btn.manual": {"ru": "Выбрать пункт", "en": "Pick an item"},
     "btn.skip": {"ru": "Не записывать", "en": "Skip"},
+    "btn.model": {"ru": "Разобрать моделью", "en": "Analyze with the model"},
     "btn.more": {"ru": "Дальше", "en": "Next"},
     "btn.back": {"ru": "Назад", "en": "Back"},
     "btn.zone": {"ru": "Зона", "en": "Zone"},

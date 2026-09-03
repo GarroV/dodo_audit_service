@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from src.recognize.fastpath import FastItem
 from src.recognize.manual import ManualCandidate
 from src.recognize.models import Candidate
 
@@ -65,6 +66,10 @@ class Proposal:
     #: назвала зону, и её спрашивают кнопкой. Хранится здесь, потому что в
     #: `callback_data` кнопки зоны едет зона, а не выбор.
     picked: int | None = None
+    #: Пункт, найденный без модели по словам аудитора (T117, D063). Не пуст —
+    #: значит, показано быстрое предложение, и модель по этому материалу ещё не
+    #: звали: кнопка «Разобрать моделью» разбирает те же слова и тот же кадр.
+    fast: FastItem | None = None
 
 
 @dataclass

@@ -87,6 +87,11 @@ ANALYZE_PREFIX = "rec:analyze:"
 #: Кандидат модели по его месту в показанном списке.
 PICK_PREFIX = "rec:pick:"
 SKIP_CALLBACK = "rec:skip"
+#: Пункт, найденный без модели по словам аудитора (T117, D063), и выход к
+#: модели рядом с ним. Место в списке в коде кнопки не едет: у быстрого пути
+#: вариант ровно один — он лежит в предложении чата.
+FAST_CALLBACK = "rec:fast"
+MODEL_CALLBACK = "rec:model"
 #: Открыть перечень пунктов для ручного выбора (T034 со стороны бота).
 MANUAL_CALLBACK = "rec:manual"
 #: Страница ручного перечня.
@@ -154,6 +159,26 @@ def candidates_keyboard(count: int, lang: str) -> InlineKeyboardMarkup:
     builder.adjust(min(count, 5) or 1)
     builder.row(InlineKeyboardButton(text=t("btn.manual", lang), callback_data=MANUAL_CALLBACK))
     builder.row(InlineKeyboardButton(text=t("btn.skip", lang), callback_data=SKIP_CALLBACK))
+    return builder.as_markup()
+
+
+def fast_keyboard(code: str, title: str, lang: str) -> InlineKeyboardMarkup:
+    """Пункт, найденный без модели: записать, разобрать моделью, не записывать (T117).
+
+    Вторая кнопка обязательна, и не для симметрии. Быстрый путь отвечает по
+    одной сработавшей строке карты, а в одной фразе аудитора бывает два
+    нарушения (правило 11 `docs/03-recording-rules.md`): «Печь в нагаре, пол
+    грязный» покроет строку «Печь» и покажет один пункт из двух. Без выхода к
+    модели аудитор с неполным ответом зажат в угол.
+
+    На первой кнопке стоит вопрос чек-листа, как в ручном перечне: быстрый путь
+    формулировок не сочиняет, и предлагать ему нечего, кроме самого пункта.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"{code} · {_short(title)}", callback_data=FAST_CALLBACK)
+    builder.button(text=t("btn.model", lang), callback_data=MODEL_CALLBACK)
+    builder.button(text=t("btn.skip", lang), callback_data=SKIP_CALLBACK)
+    builder.adjust(1)
     return builder.as_markup()
 
 

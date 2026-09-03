@@ -7,10 +7,17 @@
 
 from __future__ import annotations
 
+from string import Formatter
+
 import pytest
 
 from src.bot.errors import BotTextError
 from src.bot.texts import TEXTS, UI_LANGS, t
+
+
+def _params(template: str) -> set[str]:
+    """Имена параметров строки каталога: `{note}` и `{cue}` из шаблона."""
+    return {field for _, field, _, _ in Formatter().parse(template) if field}
 
 
 def test_known_key_returns_text_in_asked_language() -> None:
@@ -21,6 +28,23 @@ def test_known_key_returns_text_in_asked_language() -> None:
 def test_every_key_is_filled_in_every_language(lang: str) -> None:
     missing = [key for key, langs in TEXTS.items() if not (langs.get(lang) or "").strip()]
     assert missing == [], f"нет перевода на «{lang}»: {missing}"
+
+
+def test_every_language_of_a_key_takes_the_same_parameters() -> None:
+    """Расхождение параметров между локалями — отказ у второго языка, и только у него.
+
+    Хендлер подставляет один и тот же набор на любом языке. Появись в
+    английской строке параметр, которого нет в русской (или наоборот), русский
+    аудитор ничего не заметит, а английский получит отказ каталога вместо
+    ответа — и найдётся это на точке, а не здесь. Проверка тем нужнее, чем
+    длиннее строка: у быстрого пути (T117) их шесть в одном сообщении.
+    """
+    mismatched = {
+        key: {lang: sorted(_params(text)) for lang, text in langs.items()}
+        for key, langs in TEXTS.items()
+        if len({frozenset(_params(text)) for text in langs.values()}) > 1
+    }
+    assert mismatched == {}, f"наборы параметров разошлись между языками: {mismatched}"
 
 
 def test_unknown_language_is_refused_not_silently_russian() -> None:
