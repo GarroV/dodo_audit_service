@@ -10,10 +10,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
+from src.mcp.catalogue import _BY_NAME, find
 from src.mcp.cli import main
 from src.mcp.config import MCP_TOKENS_VAR, MIN_TOKEN_LENGTH, Settings
 from src.mcp.rpc import (
@@ -296,10 +298,23 @@ def _текст_отказа(ответ: Any) -> str:
 
 
 def test_сбой_чтения_говорит_про_чтение(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Подменяется обработчик В КАТАЛОГЕ, а не функция в модуле.
+
+    Каталог держит прямую ссылку на функцию, взятую при импорте, поэтому
+    подмена `src.mcp.tools.list_inspections` до него не доходит вовсе. Тест с
+    такой подменой был зелёным по неверной причине: без базы падало настоящее
+    чтение, а в его тексте случайно есть слово «проверки». С живым Postgres он
+    краснел. Найдено сверкой со спекой 03.09.
+    """
+
     def падает(**_: Any) -> Any:
         raise OSError("диск отвалился")
 
-    monkeypatch.setattr("src.mcp.tools.list_inspections", падает)
+    spec = find("list_inspections")
+    assert spec is not None
+    # `ToolSpec` заморожен, а `find` смотрит в словарь, собранный при импорте,
+    # — поэтому подменяется запись именно в нём.
+    monkeypatch.setitem(_BY_NAME, "list_inspections", replace(spec, handler=падает))
     ответ = handle(_запрос("list_inspections", {}), tenant=АРЕНДАТОР)
 
     текст = _текст_отказа(ответ)
