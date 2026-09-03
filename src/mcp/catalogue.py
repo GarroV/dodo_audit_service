@@ -1,14 +1,20 @@
-"""Каталог инструментов MCP: чем агент партнёра может спросить у базы проверок.
+"""Каталог инструментов MCP: чем агент партнёра может спросить у базы проверок и чем поправить.
 
 Декларация, а не логика: имя, текст для агента, JSON Schema аргументов и
-ссылка на обработчик из `src.mcp.tools`. Сам разбор аргументов, чтение и
-отказы остаются там — этот файл только описывает, что наружу видно.
+ссылка на обработчик. Читающие проверки инструменты (`kind=KIND_INSPECTIONS`)
+ссылаются на `src.mcp.tools`, инструменты методики (`kind=KIND_CHECKLIST`) —
+на `src.mcp.checklist_tools`. Сам разбор аргументов, чтение, правка и отказы
+остаются там — этот файл только описывает, что наружу видно.
 
 **У инструментов нет аргумента `tenant`.** Арендатора называет не собеседник,
 а личный токен запроса (`src/mcp/config.py`): схема, объявившая `tenant`,
 позволила бы агенту назвать код соседа и прочитать чужую историю проверок —
 то самое свойство, которое `src/mcp/tools.py` и `src/db/queries.py` держат на
 своей стороне (T110). Здесь оно проверяется тестами, а не комментарием.
+
+**У инструментов методики нет и аргумента `store`.** Хранилище версий
+подставляет точка входа сервера, а не собеседник: агент называет коды
+пунктов и зон, а не путь к хранилищу на диске.
 
 Импорта `src.db` в этом файле нет и не будет: обработчики читает
 `src.mcp.tools`, а он сам тянет `src.db.queries` (и с ним `psycopg`) лениво,
@@ -21,7 +27,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import tools
+from . import checklist_tools, tools
+
+#: Инструменты проверок: обработчику нужен только код арендатора.
+KIND_INSPECTIONS = "inspections"
+
+#: Инструменты методики: обработчику нужно ещё и хранилище версий, а сам
+#: доступ к ним открывается отдельной настройкой (`MCP_CHECKLIST_TENANTS`).
+#: Вид объявлен здесь, а не угадывается по имени: угадывание по имени однажды
+#: открыло бы правку методики новому инструменту, которого никто не проверял.
+KIND_CHECKLIST = "checklist"
 
 
 @dataclass(frozen=True)
@@ -32,6 +47,7 @@ class ToolSpec:
     description: str
     input_schema: dict[str, object]
     handler: Callable[..., dict[str, object]]
+    kind: str = KIND_INSPECTIONS
 
 
 def _date_property(*, meaning: str) -> dict[str, object]:
@@ -86,6 +102,88 @@ _INSPECTION_ID_PROPERTY: dict[str, object] = {
 _FINDINGS_UNIT_PROPERTY: dict[str, object] = {
     "type": "string",
     "description": "Name of the unit (pizzeria) whose recorded findings to read.",
+}
+
+
+def _code_property(*, meaning: str) -> dict[str, object]:
+    """Свойство-код: единый тип для кодов пунктов чек-листа и зон, разный смысл текста.
+
+    Коды связывают сущности, формулировки — никогда: у каждого места
+    использования свой смысл (какой пункт читать, какой пункт править, какую
+    зону завести), и общий текст стёр бы это различие.
+    """
+    return {
+        "type": "string",
+        "description": meaning,
+    }
+
+
+#: Версия методики для чтения — одна и та же в checklist_items и
+#: checklist_item: по умолчанию читается та версия, по которой движок сегодня
+#: считает проверки, а не последняя записанная (для неё есть tip в
+#: checklist_versions).
+_CHECKLIST_VERSION_PROPERTY: dict[str, object] = {
+    "type": "string",
+    "description": (
+        "Checklist version to read from, as returned by checklist_versions "
+        "('version' field). Omit to read the version the audit engine "
+        "currently scores inspections by (checklist_versions calls that one "
+        "'current'; it may differ from 'latest', the most recently stored "
+        "one)."
+    ),
+}
+
+#: Имя набора методики — общее для всех шести правящих инструментов: назвать
+#: один раз, дальше оно наследуется от предыдущей версии.
+_VERSION_NAME_PROPERTY: dict[str, object] = {
+    "type": "string",
+    "description": (
+        "Name of the checklist set this change belongs to (lowercase Latin "
+        "letters, digits, hyphen and underscore only, no trailing date — the "
+        "system stamps the publication date itself, e.g. 'imf'). Name it "
+        "once; every later change inherits the name from the version it "
+        "builds on, so it only needs to be repeated to start a new named "
+        "set."
+    ),
+}
+
+#: Пояснение к правке — общее для всех шести правящих инструментов: одна
+#: фраза для человека, читающего журнал, а не место для данных.
+_NOTE_PROPERTY: dict[str, object] = {
+    "type": "string",
+    "description": (
+        "Reason for this change, in one short phrase. Recorded in the "
+        "checklist audit journal for a human to read later; it is not part "
+        "of the checklist itself."
+    ),
+}
+
+#: Список зон — общий для add_checklist_item и edit_checklist_item: один и
+#: тот же формат кодов, один и тот же смысл `*`.
+_ZONES_PROPERTY: dict[str, object] = {
+    "type": "string",
+    "description": (
+        "Comma-separated zone codes this item applies to (e.g. "
+        "'fridge,freezer'), or '*' for all zones."
+    ),
+}
+
+#: Срок устранения — общий для add_checklist_item и edit_checklist_item.
+_DAYS_PROPERTY: dict[str, object] = {
+    "type": "integer",
+    "description": "Deadline to fix a violation of this item, in days.",
+}
+
+#: Классы критичности — общие для add_checklist_item и edit_checklist_item;
+#: обязательность в схеме решает `required`, а не эта строка.
+_LEVELS_PROPERTY: dict[str, object] = {
+    "type": "string",
+    "description": (
+        "Semicolon-separated severity classes this item may be scored at, "
+        "e.g. 'D1;D2'. These are the managing company's own criticality "
+        "classes (from its own audit criteria), not a general severity "
+        "scale."
+    ),
 }
 
 TOOLS: tuple[ToolSpec, ...] = (
@@ -202,10 +300,434 @@ TOOLS: tuple[ToolSpec, ...] = (
         },
         handler=tools.findings_by_unit,
     ),
+    # --- методика: чтение --------------------------------------------------
+    ToolSpec(
+        name="checklist_versions",
+        description=(
+            "List every stored checklist version, newest first. Versions are "
+            "never deleted: a report scored a year ago must stay explainable, "
+            "so a version stays listed forever once it has been used. "
+            "'current' is the version the audit engine scores inspections by "
+            "today; 'latest' is the most recently stored version, which a "
+            "checklist-editing tool builds on by default unless told "
+            "otherwise — the two differ whenever a stored change has not "
+            "been published yet."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.checklist_versions,
+        kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="checklist_items",
+        description=(
+            "List the checklist items of one methodology version, in file "
+            "order, together with the version's zones. Items are returned "
+            "without their D1/D2/D3 criteria text, which can run to a full "
+            "page — read one item's criteria with checklist_item. Rows carry "
+            "the managing company's own columns exactly as the audit engine "
+            "reads them; nothing here is derived or renamed. Optionally "
+            "filter by version and by a case-insensitive substring match on "
+            "the process name."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "version": _CHECKLIST_VERSION_PROPERTY,
+                "process": {
+                    "type": "string",
+                    "description": (
+                        "Case-insensitive substring filter on the process "
+                        "name (matches either the Russian or the English "
+                        "text). Omit to include every process."
+                    ),
+                },
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.checklist_items,
+        kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="checklist_item",
+        description=(
+            "Read one checklist item together with its D1/D2/D3 criteria — "
+            "the only source of what makes a finding D1 versus D2 versus D3 "
+            "for this item; the class is never guessed from a photo, it is "
+            "read off these written criteria. Fails with an explicit error "
+            "if the code does not exist in the given version."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "code": _code_property(
+                    meaning=(
+                        "Code of the checklist item to read (e.g. 'CLN05'), "
+                        "as it appears in checklist_items."
+                    )
+                ),
+                "version": _CHECKLIST_VERSION_PROPERTY,
+            },
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.checklist_item,
+        kind=KIND_CHECKLIST,
+    ),
+    # --- методика: правка пунктов -------------------------------------------
+    ToolSpec(
+        name="add_checklist_item",
+        description=(
+            "Add a checklist item. The change is stored as a NEW checklist "
+            "version next to the current one — the live methodology the "
+            "engine scores by is never modified in place. The new version is "
+            "not published automatically: the engine keeps scoring by the "
+            "current version until publish_checklist_version is called on "
+            "it. The version is only stored if the audit engine itself "
+            "accepts the resulting checklist (it re-validates it and "
+            "re-scores a probe inspection with it); if the engine refuses, "
+            "the call returns a refusal and no version is created. Passing "
+            "criteria matters in practice: without it the engine refuses the "
+            "checklist outright, because judging a violation's class from a "
+            "photo without written criteria is exactly the guesswork this "
+            "checklist exists to rule out."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "process": {
+                    "type": "string",
+                    "description": ("Process (technological step) this item checks, in Russian."),
+                },
+                "question_ru": {
+                    "type": "string",
+                    "description": ("Checklist question text shown to the auditor, in Russian."),
+                },
+                "levels": _LEVELS_PROPERTY,
+                "code": _code_property(
+                    meaning=(
+                        "Item code (Latin letters, digits and underscore, "
+                        "e.g. 'CLN05'). Omit to have the engine assign one "
+                        "automatically from the process name."
+                    )
+                ),
+                "process_en": {
+                    "type": "string",
+                    "description": (
+                        "Process name in English. Omit to leave the English text blank."
+                    ),
+                },
+                "question_en": {
+                    "type": "string",
+                    "description": (
+                        "Checklist question text in English. Omit to leave the English text blank."
+                    ),
+                },
+                "zones": _ZONES_PROPERTY,
+                "days": _DAYS_PROPERTY,
+                "criteria": {
+                    "type": "string",
+                    "description": (
+                        "D1/D2/D3 criteria text for this item — what makes a "
+                        "finding D1 versus D2 versus D3. Without it the "
+                        "engine refuses the checklist outright: a violation "
+                        "class judged from a photo with no written criteria "
+                        "would be guessed, not derived from the managing "
+                        "company's own rules."
+                    ),
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": list(checklist_tools.ITEM_KINDS),
+                    "description": (
+                        "Kind of item: 'violation' (a checkable violation "
+                        "found during an inspection), 'info' (informational, "
+                        "not scored), or 'aggregate' (rolls up other items). "
+                        "There is no 'off' here on purpose — disabling an "
+                        "item is remove_checklist_item, not a kind, so a "
+                        "disabled item shows up in the journal as one clear "
+                        "action instead of two different ways to reach the "
+                        "same state."
+                    ),
+                },
+                "version_name": _VERSION_NAME_PROPERTY,
+                "note": _NOTE_PROPERTY,
+            },
+            "required": ["process", "question_ru", "levels"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.add_checklist_item,
+        kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="edit_checklist_item",
+        description=(
+            "Edit fields of an existing checklist item. Only the fields "
+            "named in the call change; every other field is carried over "
+            "unchanged from the version this edit builds on. As with every "
+            "checklist-editing tool, the change is stored as a NEW checklist "
+            "version — the live methodology is never modified in place, the "
+            "new version is not published automatically (publish_checklist_"
+            "version does that), and it is only stored once the audit "
+            "engine accepts the resulting checklist; otherwise the call "
+            "returns a refusal and no version is created. There is no "
+            "'kind' or enable/disable argument here on purpose: switching an "
+            "item off or on is remove_checklist_item / restore_checklist_"
+            "item, so those stay visible in the journal by their own name "
+            "instead of as a field edit."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "code": _code_property(meaning="Code of the checklist item to edit."),
+                "process": {
+                    "type": "string",
+                    "description": (
+                        "New process (technological step) name in Russian. "
+                        "Omit to keep the current value."
+                    ),
+                },
+                "process_en": {
+                    "type": "string",
+                    "description": ("New process name in English. Omit to keep the current value."),
+                },
+                "question_ru": {
+                    "type": "string",
+                    "description": (
+                        "New checklist question text in Russian. Omit to keep the current value."
+                    ),
+                },
+                "question_en": {
+                    "type": "string",
+                    "description": (
+                        "New checklist question text in English. Omit to keep the current value."
+                    ),
+                },
+                "levels": _LEVELS_PROPERTY,
+                "zones": _ZONES_PROPERTY,
+                "days": _DAYS_PROPERTY,
+                "criteria": {
+                    "type": "string",
+                    "description": (
+                        "New D1/D2/D3 criteria text for this item. Omit to keep the current value."
+                    ),
+                },
+                "version_name": _VERSION_NAME_PROPERTY,
+                "note": _NOTE_PROPERTY,
+            },
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.edit_checklist_item,
+        kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="remove_checklist_item",
+        description=(
+            "Disable a checklist item. By default the item stays in the "
+            "file, marked disabled: it is no longer offered during "
+            "inspections, but it stays visible and can be brought back with "
+            "restore_checklist_item. hard removes the row entirely instead — "
+            "no trace of the edit remains in the file, and bringing the item "
+            "back means restoring it from an earlier version. As with every "
+            "checklist-editing tool, the change is stored as a NEW checklist "
+            "version, is not published automatically (publish_checklist_"
+            "version does that), and is only stored once the audit engine "
+            "accepts the resulting checklist."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "code": _code_property(meaning="Code of the checklist item to disable."),
+                "hard": {
+                    "type": "boolean",
+                    "description": (
+                        "Delete the item's row outright instead of disabling "
+                        "it. Default: false — the item stays in the file, "
+                        "disabled, and restore_checklist_item can bring it "
+                        "back; hard removal leaves no trace, and undoing it "
+                        "means restoring an earlier version instead."
+                    ),
+                },
+                "version_name": _VERSION_NAME_PROPERTY,
+                "note": _NOTE_PROPERTY,
+            },
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.remove_checklist_item,
+        kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="restore_checklist_item",
+        description=(
+            "Re-enable a checklist item previously disabled by "
+            "remove_checklist_item. Does not apply to an item removed with "
+            "hard=true — that row no longer exists and can only be "
+            "recovered by reading it from an earlier version. As with every "
+            "checklist-editing tool, the change is stored as a NEW checklist "
+            "version, is not published automatically (publish_checklist_"
+            "version does that), and is only stored once the audit engine "
+            "accepts the resulting checklist."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "code": _code_property(meaning="Code of the checklist item to re-enable."),
+                "version_name": _VERSION_NAME_PROPERTY,
+                "note": _NOTE_PROPERTY,
+            },
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.restore_checklist_item,
+        kind=KIND_CHECKLIST,
+    ),
+    # --- методика: правка зон -----------------------------------------------
+    ToolSpec(
+        name="add_zone",
+        description=(
+            "Add a physical zone (e.g. a fridge or a freezer). Zone shares "
+            "weight the score, sum to 100%, and are the managing company's "
+            "own decision — the engine will not silently redistribute them, "
+            "so this call must say explicitly what to do with them: "
+            "equal_shares rebalances every zone's share equally; share sets "
+            "only the new zone's weight and leaves the others untouched, "
+            "which means the shares no longer sum to 100% afterwards, and a "
+            "checklist whose zone shares do not add up is one the engine "
+            "refuses — no version is stored in that case. Uneven shares are "
+            "set by editing zones.csv by hand instead. As with every "
+            "checklist-editing tool, the change is stored as a NEW checklist "
+            "version and is not published automatically (publish_checklist_"
+            "version does that)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "code": _code_property(
+                    meaning=(
+                        "Code of the new zone (Latin letters, digits and "
+                        "underscore, e.g. 'fridge')."
+                    )
+                ),
+                "name_ru": {
+                    "type": "string",
+                    "description": "Zone name in Russian.",
+                },
+                "name_en": {
+                    "type": "string",
+                    "description": ("Zone name in English. Omit to leave the English name blank."),
+                },
+                "share": {
+                    "type": "number",
+                    "description": (
+                        "Weight to assign to the new zone, as a percentage. "
+                        "Leaves every other zone's share untouched, so the "
+                        "shares will not sum to 100% afterwards — use "
+                        "equal_shares instead unless the remaining shares "
+                        "are about to be fixed by hand; a checklist whose "
+                        "zone shares do not sum to 100% is refused by the "
+                        "engine."
+                    ),
+                },
+                "equal_shares": {
+                    "type": "boolean",
+                    "description": (
+                        "Rebalance every zone, including the new one, to an "
+                        "equal share of 100%. Use this instead of share to "
+                        "keep the shares summing to 100% automatically."
+                    ),
+                },
+                "version_name": _VERSION_NAME_PROPERTY,
+                "note": _NOTE_PROPERTY,
+            },
+            "required": ["code", "name_ru"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.add_zone,
+        kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="remove_zone",
+        description=(
+            "Remove a physical zone. The removed zone's share must go "
+            "somewhere, and the engine will not decide that on the managing "
+            "company's behalf: equal_shares rebalances the remaining zones' "
+            "shares equally; keep_shares leaves the remaining shares as they "
+            "are, which means they no longer sum to 100% — and a checklist "
+            "whose zone shares do not add up is refused, so no version is "
+            "stored in that case. The zone is also dropped from every "
+            "checklist item's zone list. As with every checklist-editing "
+            "tool, the change is stored as a NEW checklist version and is "
+            "not published automatically (publish_checklist_version does "
+            "that)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "code": _code_property(meaning="Code of the zone to remove."),
+                "keep_shares": {
+                    "type": "boolean",
+                    "description": (
+                        "Leave the remaining zones' shares unchanged after "
+                        "removal. The shares will then no longer sum to "
+                        "100%, and the engine refuses such a checklist — use "
+                        "this only together with a follow-up hand edit of "
+                        "zones.csv, or use equal_shares instead."
+                    ),
+                },
+                "equal_shares": {
+                    "type": "boolean",
+                    "description": (
+                        "Rebalance the remaining zones to an equal share of 100% after removal."
+                    ),
+                },
+                "version_name": _VERSION_NAME_PROPERTY,
+                "note": _NOTE_PROPERTY,
+            },
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.remove_zone,
+        kind=KIND_CHECKLIST,
+    ),
+    # --- методика: публикация ------------------------------------------------
+    ToolSpec(
+        name="publish_checklist_version",
+        description=(
+            "Make a stored checklist version the one the audit engine "
+            "scores inspections by. Inspections already scored stay on "
+            "their own version and are not recalculated — a report already "
+            "sent to a partner does not change retroactively. Rolling back "
+            "is publishing an earlier version again; versions themselves "
+            "are never deleted."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "version": _code_property(
+                    meaning=(
+                        "Checklist version to publish, as returned by "
+                        "checklist_versions (e.g. "
+                        "'imf-2026-09-03-3f5a91b2c7d0')."
+                    )
+                ),
+            },
+            "required": ["version"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.publish_checklist_version,
+        kind=KIND_CHECKLIST,
+    ),
 )
 
 #: Индекс по имени — `find()` вызывается на каждый запрос `tools/call`,
-#: а линейный проход по пяти записям пересчитывать незачем.
+#: а линейный проход по всем записям каталога пересчитывать незачем.
 _BY_NAME: dict[str, ToolSpec] = {spec.name: spec for spec in TOOLS}
 
 

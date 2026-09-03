@@ -26,6 +26,7 @@ from typing import Any
 import pytest
 from conftest import requires_data, requires_db
 
+from src.mcp.catalogue import KIND_CHECKLIST, TOOLS
 from src.mcp.config import MIN_TOKEN_LENGTH, Settings
 from src.mcp.rpc import (
     CODE_INVALID_PARAMS,
@@ -263,16 +264,35 @@ def test_рукопожатие_называет_сервер_и_версию_п
 
 
 def test_перечень_инструментов_отдаётся_целиком(сервер: str) -> None:
+    """Перечень един для всех и от настроек не зависит.
+
+    Инструменты методики видны и тому, кому она не открыта, а отказ приходит
+    при вызове и объясняет себя (`test_mcp_checklist_access.py`). Перечень,
+    зависящий от прав, сказал бы агенту «такого инструмента нет», и человек
+    пошёл бы искать причину в коде вместо `.env`.
+    """
     ответ = _rpc(сервер, "tools/list")
 
     имена = {инструмент["name"] for инструмент in ответ["result"]["tools"]}
     assert имена == {
+        # проверки — только чтение (T095, T119)
         "list_inspections",
         "unit_history",
         "network_summary",
         "get_inspection",
         "findings_by_unit",
-    }, "пять инструментов чтения контракта блока (T119)"
+        # методика — чтение версий и правка (T098), закрыта отдельной настройкой
+        "checklist_versions",
+        "checklist_items",
+        "checklist_item",
+        "add_checklist_item",
+        "edit_checklist_item",
+        "remove_checklist_item",
+        "restore_checklist_item",
+        "add_zone",
+        "remove_zone",
+        "publish_checklist_version",
+    }
     assert all("inputSchema" in инструмент for инструмент in ответ["result"]["tools"])
 
 
@@ -323,13 +343,28 @@ def test_неизвестный_инструмент_это_отказ(серв�
     assert "delete_everything" in json.dumps(ответ, ensure_ascii=False)
 
 
-def test_пишущего_инструмента_среди_объявленных_нет(сервер: str) -> None:
-    """Блок только читает (T095); пишущие инструменты — отдельная задача T098."""
-    ответ = _rpc(сервер, "tools/list")
+def test_проверки_остаются_только_на_чтение(сервер: str) -> None:
+    """Запись появилась (T098), но ровно в методику — и ни в одну проверку.
 
-    имена = " ".join(инструмент["name"] for инструмент in ответ["result"]["tools"])
-    for запрещённое in ("create", "update", "delete", "insert", "push", "set_", "edit"):
-        assert запрещённое not in имена
+    Проверку заводит и завершает аудитор через бота, а в базу её кладёт слив
+    (T093). Инструмент MCP, который писал бы проверки или находки, означал бы
+    запись в отчёт партнёру мимо человека, — а «модель предлагает, фиксирует
+    человек» держится не обещанием.
+
+    Проверяется не по списку имён, а по виду инструмента: у всего, что не
+    объявлено методикой, обработчик обязан лежать в модуле чтения проверок,
+    где записи нет вовсе.
+    """
+    ответ = _rpc(сервер, "tools/list")
+    объявленные = {инструмент["name"] for инструмент in ответ["result"]["tools"]}
+
+    for spec in TOOLS:
+        assert spec.name in объявленные
+        if spec.kind == KIND_CHECKLIST:
+            continue
+        assert spec.handler.__module__ == "src.mcp.tools", spec.name
+        for запрещённое in ("create", "update", "delete", "insert", "push", "set_", "edit"):
+            assert запрещённое not in spec.name
 
 
 # --- отказ инструмента виден спрашивающему -----------------------------------

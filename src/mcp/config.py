@@ -21,6 +21,7 @@ import re
 import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .errors import AuthError, McpConfigError
 
@@ -28,6 +29,21 @@ from .errors import AuthError, McpConfigError
 MCP_TOKENS_VAR = "MCP_TOKENS"
 MCP_HOST_VAR = "MCP_HOST"
 MCP_PORT_VAR = "MCP_PORT"
+
+#: Где хранилище версий методики. Пусто — инструменты методики выключены
+#: целиком: до задачи T098 весь MCP был только чтением проверок, и запись в
+#: методику управляющей компании включается явно, а не оказывается включённой.
+MCP_CHECKLIST_STORE_VAR = "MCP_CHECKLIST_STORE"
+
+#: Кому открыта методика — чтение версий и правка. Пусто — никому.
+#: Отдельно от токенов доступа намеренно: токен партнёра открывает ЕГО
+#: проверки, а методика одна на всех, и правит её управляющая компания.
+MCP_CHECKLIST_TENANTS_VAR = "MCP_CHECKLIST_TENANTS"
+
+#: Каталог боевой методики — тот же, из которого читает движок. Своей
+#: переменной блок не заводит: второй путь к одной методике разошёлся бы с
+#: первым, и агент правил бы не то, по чему считается оценка.
+DATA_DIR_VAR = "AUDIT_DATA_DIR"
 
 #: Короче этого токен не принимается. Токен, который человек набирает с
 #: памяти, дверью не является: сервер отдаёт историю проверок партнёра, и
@@ -78,6 +94,21 @@ class Settings:
     tenants: tuple[str, ...]
     host: str
     port: int
+    #: Хранилище версий методики. `None` — инструменты методики выключены.
+    checklist_store: Path | None = None
+    #: Арендаторы, которым методика открыта. Пусто — никому.
+    checklist_tenants: tuple[str, ...] = ()
+    #: Боевая методика, из которой читает движок.
+    data_dir: Path | None = None
+
+    def may_manage_checklist(self, tenant: str) -> bool:
+        """Открыта ли методика этому арендатору.
+
+        Проверяется по коду арендатора, а тот приходит из токена и ниоткуда
+        больше, — то есть право на правку методики держится на той же двери,
+        что и граница арендаторов, и отдельного способа его получить нет.
+        """
+        return self.checklist_store is not None and tenant in self.checklist_tenants
 
     def tenant_for(self, token: str) -> str | None:
         """Арендатор этого токена или `None`, если токен незнакомый.
@@ -183,15 +214,72 @@ def _parse_port(raw: str) -> int:
     return port
 
 
+def _parse_checklist(
+    src: Mapping[str, str], tenants: tuple[str, ...]
+) -> tuple[Path | None, tuple[str, ...], Path | None]:
+    """Настройки методики: хранилище версий, кому открыто, где боевой набор.
+
+    Обе половины настройки обязаны быть названы вместе. Названная наполовину
+    настройка — самый неприятный исход: человек считает правку методики
+    включённой, а инструменты молча отказывают всем — и разбираться он идёт в
+    код, а не в `.env`.
+
+    Арендатор, которому открыта методика, обязан существовать среди токенов:
+    опечатка в коде иначе означала бы доступ, выданный никому, — и выглядела бы
+    ровно как работающая настройка.
+    """
+    store_raw = (src.get(MCP_CHECKLIST_STORE_VAR) or "").strip()
+    сказано = _SEPARATORS.split(src.get(MCP_CHECKLIST_TENANTS_VAR) or "")
+    named = tuple(sorted({x.strip() for x in сказано if x.strip()}))
+    if not store_raw and not named:
+        return None, (), None
+    if not store_raw:
+        raise McpConfigError(
+            f"Сказано, кому открыта методика ({MCP_CHECKLIST_TENANTS_VAR}), но не сказано, где "
+            f"держать её версии ({MCP_CHECKLIST_STORE_VAR}). Правка методики без хранилища "
+            f"версий невозможна: она обязана давать новую версию, а не переписывать боевую"
+        )
+    if not named:
+        raise McpConfigError(
+            f"Задано хранилище версий методики ({MCP_CHECKLIST_STORE_VAR}), но не сказано, кому "
+            f"методика открыта ({MCP_CHECKLIST_TENANTS_VAR}). Инструменты методики отказывали бы "
+            f"всем, а выглядело бы это как включённая правка"
+        )
+    чужие = [code for code in named if code not in tenants]
+    if чужие:
+        raise McpConfigError(
+            f"В {MCP_CHECKLIST_TENANTS_VAR} названы арендаторы, которых нет среди токенов: "
+            f"{', '.join(чужие)}. Опечатка в коде означала бы доступ, выданный никому, — и "
+            f"выглядела бы как работающая настройка"
+        )
+    data_raw = (src.get(DATA_DIR_VAR) or "").strip()
+    if not data_raw:
+        raise McpConfigError(
+            f"Правка методики включена, но не задан {DATA_DIR_VAR} — каталог методики, из "
+            f"которого читает движок. С него начинается хранилище версий, и по нему же "
+            f"проверяется, увидит ли движок публикацию"
+        )
+    return (
+        Path(os.path.abspath(os.path.expanduser(store_raw))),
+        named,
+        Path(os.path.abspath(os.path.expanduser(data_raw))),
+    )
+
+
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     """Прочитать окружение сервера. Связи с базой здесь не проверяется."""
     src = os.environ if env is None else env
     tokens = _parse_tokens(src.get(MCP_TOKENS_VAR) or "")
+    tenants = tuple(sorted(set(tokens.values())))
+    store, checklist_tenants, data_dir = _parse_checklist(src, tenants)
     return Settings(
         tokens=tokens,
-        tenants=tuple(sorted(set(tokens.values()))),
+        tenants=tenants,
         host=_parse_host(src.get(MCP_HOST_VAR) or ""),
         port=_parse_port(src.get(MCP_PORT_VAR) or ""),
+        checklist_store=store,
+        checklist_tenants=checklist_tenants,
+        data_dir=data_dir,
     )
 
 
