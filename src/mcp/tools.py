@@ -48,7 +48,14 @@ class _Page:
     truncated: bool
 
 
-def _read(*, tenant: str, unit: str | None = None, limit: int | None = None) -> _Page:
+def _read(
+    *,
+    tenant: str,
+    unit: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: int | None = None,
+) -> _Page:
     """Страница проверок арендатора через официальный контракт блока `db`.
 
     Импорт внутри функции, а не наверху модуля: `src.db.queries` тянет
@@ -58,36 +65,44 @@ def _read(*, tenant: str, unit: str | None = None, limit: int | None = None) -> 
 
     Предел и его потолок не переписываются здесь: и значение по умолчанию, и
     проверка границ живут в одном месте — в самом слое чтения.
+
+    Период уходит туда же (T119). Отбирать его здесь, поверх прочитанной
+    страницы, значило бы терять проверки молча: страница набирается по самым
+    свежим, а спрашивают про период, которого в ней может не быть вовсе.
     """
     from ..db.queries import DEFAULT_LIMIT, list_inspections
 
     rows_limit = DEFAULT_LIMIT if limit is None else limit
-    rows = tuple(list_inspections(tenant=tenant, unit=unit, limit=rows_limit))
+    rows = tuple(
+        list_inspections(
+            tenant=tenant, unit=unit, date_from=date_from, date_to=date_to, limit=rows_limit
+        )
+    )
     return _Page(rows=rows, limit=rows_limit, truncated=len(rows) >= rows_limit)
 
 
-def _read_all(*, tenant: str, unit: str | None = None) -> _Page:
-    """Страница по потолку чтения — для ответов, которым нужна вся история.
+def _read_everything(*, tenant: str, date_from: date | None, date_to: date | None) -> _Page:
+    """Чтение по потолку — для ответа, которому нужен весь период целиком.
 
-    Фильтр по датам слой чтения пока не умеет (см. `docs/forge/blocks/mcp.md`,
-    «Чего не хватило в слое чтения»), поэтому период отбирается уже здесь, по
-    прочитанной странице. Страница берётся по потолку, а упёршееся в него
-    чтение честно помечается `truncated`: ответ, молча посчитанный по первой
-    сотне строк, выглядел бы полной сводкой по сети.
+    Сводке по сети предел не задают: её считают по всему, что попало в период.
+    Потолок при этом остаётся — без него один вопрос агента вычитывал бы всю
+    историю сети, — и упёршееся в него чтение помечается `truncated`, а не
+    выдаёт себя за полную сводку.
     """
     from ..db.queries import MAX_LIMIT
 
-    return _read(tenant=tenant, unit=unit, limit=MAX_LIMIT)
+    return _read(tenant=tenant, date_from=date_from, date_to=date_to, limit=MAX_LIMIT)
 
 
 def _require_limit(limit: int | None) -> int | None:
     """Предел выдачи в границах слоя чтения — или явный отказ.
 
-    Проверять приходится здесь, а не только в базе: с периодом чтение идёт по
-    потолку, и негодный предел до базы просто не доезжает — `limit=0` тихо
-    обрезал бы уже прочитанное в пустой список, и ответ читался бы как «за
-    этот период проверок нет». Само число потолка не переписывается: оно
-    берётся из слоя чтения, где и живёт.
+    Проверяется здесь, а не только в базе, ради ответа спрашивающему: негодный
+    аргумент обязан вернуться как отказ по аргументу («предел вне
+    допустимого»), а не как «не удалось прочитать проверки» — именно так
+    выглядел бы отказ слоя чтения, дошедший до агента через общий перехват.
+    Само число потолка не переписывается: оно берётся из слоя чтения, где и
+    живёт.
     """
     if limit is None:
         return None
@@ -143,22 +158,6 @@ def _require_unit(unit: str) -> str:
             "историю вместо отказа — а это ошибка, которую никто не замечает"
         )
     return name
-
-
-def _in_window(row: InspectionRow, since: date | None, until: date | None) -> bool:
-    """Попадает ли проверка в период — по дате ПРОВЕРКИ, не по дате слива.
-
-    Историю за три года зальют одним заходом (D035): дата слива у всех строк
-    будет одинаковой и сегодняшней, а спрашивают всегда про дату обхода.
-    Обе границы включительно: «с 1 по 31 августа» человек понимает именно так.
-    """
-    if since is not None and row.inspection_date < since:
-        return False
-    return not (until is not None and row.inspection_date > until)
-
-
-def _select(page: _Page, since: date | None, until: date | None) -> tuple[InspectionRow, ...]:
-    return tuple(row for row in page.rows if _in_window(row, since, until))
 
 
 def _inspection(row: InspectionRow) -> dict[str, object]:
@@ -235,8 +234,11 @@ def _grades(rows: Iterable[InspectionRow]) -> dict[str, int]:
 def _by_unit(rows: Sequence[InspectionRow]) -> list[dict[str, object]]:
     """Свод по точкам: сколько проверок и какая из них последняя.
 
-    Строки приходят свежими вперёд, поэтому первая встреченная точка и есть её
-    последняя проверка — досортировывать нечего.
+    Строки приходят свежими вперёд по дате ОБХОДА точки, поэтому первая
+    встреченная строка точки и есть её последняя проверка — досортировывать
+    нечего. До T114 порядок шёл по дате слива, и у истории, залитой одним
+    заходом (D035), «последней» оказывалась случайная проверка: допущение было
+    неверным, а выглядело обычным полем ответа.
     """
     counts: dict[str, int] = {}
     latest: dict[str, InspectionRow] = {}
@@ -262,41 +264,26 @@ def list_inspections(
 ) -> dict[str, object]:
     """Проверки арендатора, новые сначала.
 
-    Без периода выдача ограничена пределом и читается ровно на него. С
-    периодом читается страница по потолку, а отбор идёт по дате проверки уже
-    здесь — фильтра по датам в слое чтения пока нет, и ответ честно помечает,
-    когда чтение упёрлось в предел.
+    И период, и предел применяет слой чтения (T119): период первым, предел
+    после него. Обратный порядок — предел по свежим строкам, а период поверх
+    прочитанного — терял бы проверки молча, ответом «за этот период проверок
+    нет». Упёршееся в предел чтение ответ помечает само.
     """
     rows_limit = _require_limit(limit)
     since, until = _parse_window(date_from, date_to)
-    windowed = since is not None or until is not None
-    # Без периода предел отдаётся самой базе — она и читает ровно столько.
-    # С периодом читается страница по потолку: отобрать по дате можно только
-    # после чтения, и предел, применённый до отбора, дал бы неверный ответ.
-    page = (
-        _read_all(tenant=tenant, unit=unit)
-        if windowed
-        else _read(tenant=tenant, unit=unit, limit=rows_limit)
-    )
-    selected = _select(page, since, until)
-    shown = selected[:rows_limit] if (windowed and rows_limit is not None) else selected
-    truncated = page.truncated or len(shown) < len(selected)
-    note = _limit_note(page)
-    if not note and truncated:
-        note = f"; more inspections match the period than the limit of {rows_limit} shown"
+    page = _read(tenant=tenant, unit=unit, date_from=since, date_to=until, limit=rows_limit)
     return {
         "tenant": tenant,
         "filters": {
             "unit": unit,
             "date_from": since.isoformat() if since else None,
             "date_to": until.isoformat() if until else None,
-            "limit": rows_limit if rows_limit is not None else page.limit,
+            "limit": page.limit,
         },
-        "count": len(shown),
-        "read_rows": len(page.rows),
-        "truncated": truncated,
-        "status": _found(len(shown)) + note,
-        "inspections": [_inspection(row) for row in shown],
+        "count": len(page.rows),
+        "truncated": page.truncated,
+        "status": _found(len(page.rows)) + _limit_note(page),
+        "inspections": [_inspection(row) for row in page.rows],
     }
 
 
@@ -312,7 +299,6 @@ def unit_history(*, tenant: str, unit: str, limit: int | None = None) -> dict[st
         "tenant": tenant,
         "unit": name,
         "count": len(page.rows),
-        "read_rows": len(page.rows),
         "truncated": page.truncated,
         "status": _found(len(page.rows)) + _limit_note(page),
         "history": [_history_entry(row) for row in page.rows],
@@ -333,8 +319,8 @@ def network_summary(
     лучшая и худшая проверки — это ссылки на конкретные записанные строки.
     """
     since, until = _parse_window(date_from, date_to)
-    page = _read_all(tenant=tenant)
-    rows = _select(page, since, until)
+    page = _read_everything(tenant=tenant, date_from=since, date_to=until)
+    rows = page.rows
     best = max(rows, key=lambda row: row.pct, default=None)
     worst = min(rows, key=lambda row: row.pct, default=None)
     return {
@@ -350,7 +336,6 @@ def network_summary(
         "best": _brief(best) if best is not None else None,
         "worst": _brief(worst) if worst is not None else None,
         "by_unit": _by_unit(rows),
-        "read_rows": len(page.rows),
         "truncated": page.truncated,
         "status": _found(len(rows)) + _limit_note(page),
     }
