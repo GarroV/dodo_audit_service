@@ -72,7 +72,10 @@ cov-engine:  ## покрытие движка, который вызываетс
 	@rm -f .coverage.engine*
 	@COVERAGE_PROCESS_START=$(CURDIR)/.coveragerc-engine \
 	 COVERAGE_FILE=$(CURDIR)/.coverage.engine \
+	 COVERAGE_ENGINE_ROOT=$(CURDIR) \
 	 PYTHONPATH=$(CURDIR) \
 	 $(VENV)/python -m pytest -q --no-cov -p no:cacheprovider tests/ > /dev/null
-	@COVERAGE_FILE=$(CURDIR)/.coverage.engine $(VENV)/python -m coverage combine --rcfile=.coveragerc-engine > /dev/null
-	@COVERAGE_FILE=$(CURDIR)/.coverage.engine $(VENV)/python -m coverage report --rcfile=.coveragerc-engine
+	@COVERAGE_ENGINE_ROOT=$(CURDIR) COVERAGE_FILE=$(CURDIR)/.coverage.engine \
+	 $(VENV)/python -m coverage combine --rcfile=.coveragerc-engine > /dev/null
+	@COVERAGE_ENGINE_ROOT=$(CURDIR) COVERAGE_FILE=$(CURDIR)/.coverage.engine \
+	 $(VENV)/python -m coverage report --rcfile=.coveragerc-engine
