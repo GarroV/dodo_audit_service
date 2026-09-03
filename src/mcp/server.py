@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -32,6 +33,23 @@ MAX_BODY_BYTES = 1 << 20
 #: Ответ на уведомление JSON-RPC: принято, тела нет.
 _ACCEPTED = HTTPStatus.ACCEPTED
 
+#: Сколько секунд ждём от клиента, который замолчал посреди запроса.
+#:
+#: Без этого предела соединение, открытое и брошенное, держит поток сервера
+#: вечно — и держит его ДО проверки токена, потому что заголовки разбираются
+#: раньше. Площадка общая: любой процесс на машине мог открыть сколько угодно
+#: таких соединений без единого валидного токена и оставить без ответа всех
+#: арендаторов сразу. Найдено разбором безопасности 03.09 живым запуском:
+#: незавершённый заголовок держал поток бесконечно, `Content-Length` на пять
+#: мегабайт при теле в два байта — тоже.
+SOCKET_TIMEOUT_SEC = 15.0
+
+#: Сколько соединений обслуживаем одновременно. Потоки `ThreadingHTTPServer`
+#: ничем не ограничены, и таймаут выше сужает окно, но не число: сотня
+#: одновременных подключений всё ещё создала бы сотню потоков. Читающему
+#: серверу на одного человека столько не нужно.
+MAX_CONNECTIONS = 16
+
 
 class _Server(ThreadingHTTPServer):
     """`ThreadingHTTPServer`, знающий свои настройки.
@@ -46,11 +64,34 @@ class _Server(ThreadingHTTPServer):
 
     def __init__(self, address: tuple[str, int], settings: Settings) -> None:
         self.settings = settings
+        self._slots = threading.Semaphore(MAX_CONNECTIONS)
         super().__init__(address, _Handler)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        """Обслужить соединение, не давая их числу расти без предела.
+
+        Ждать освободившийся слот нельзя: ожидание — это та же очередь, только
+        невидимая. Свободных нет — закрываем сразу, и следующий клиент получит
+        отказ соединения, а не молчание.
+        """
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def shutdown_request(self, request: Any) -> None:
+        super().shutdown_request(request)
+
+    def close_request(self, request: Any) -> None:
+        super().close_request(request)
+        self._slots.release()
 
 
 class _Handler(BaseHTTPRequestHandler):
     """Один POST — одно сообщение JSON-RPC."""
+
+    #: Клиент, замолчавший посреди запроса, отпускает поток через это время.
+    timeout = SOCKET_TIMEOUT_SEC
 
     server_version = "dodo-audit-mcp"
     #: Своя версия питона в заголовке ответа не печатается: подсказывать

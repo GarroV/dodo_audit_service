@@ -15,9 +15,24 @@
 #
 # Токен в этот файл не вписывается никогда: файл лежит в публичном
 # репозитории, значения живут только в .env и в окружении (конституция).
+#
+# И в аргументы curl он тоже не попадает. Аргументы процесса видны на машине
+# всем через `ps` — а площадка общая, рядом живут чужие проекты. Мост
+# перезапускает curl на КАЖДУЮ строку от Claude, то есть окно, в котором токен
+# виден в списке процессов, повторялось бы десятки раз за сессию. Поэтому
+# заголовок уходит файлом конфигурации curl с правами только для владельца.
+# Найдено разбором безопасности 03.09 живым запуском: `ps -eo command` печатал
+# «Authorization: Bearer <токен>» открытым текстом.
 set -u
 URL="${DODO_MCP_URL:?не задан DODO_MCP_URL — адрес поднятого MCP-сервера}"
 TOKEN="${DODO_MCP_TOKEN:?не задан DODO_MCP_TOKEN — личный токен доступа}"
+
+# Заголовок с секретом — в файл, а не в argv. `mktemp` создаёт файл с правами
+# 600 по умолчанию, но проверять это на слово нельзя: ставим явно.
+AUTH_FILE="$(mktemp "${TMPDIR:-/tmp}/mcp-auth.XXXXXX")"
+chmod 600 "$AUTH_FILE"
+trap 'rm -f "$AUTH_FILE"' EXIT HUP INT TERM
+printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" > "$AUTH_FILE"
 
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -29,7 +44,7 @@ while IFS= read -r line; do
   esac
   resp="$(printf '%s' "$line" | curl -sS --max-time 120 -X POST "$URL" \
       -H "Content-Type: application/json" \
-      -H "Authorization: Bearer $TOKEN" \
+      --config "$AUTH_FILE" \
       --data-binary @- 2>/dev/null)"
   if [ "$want_reply" = "1" ] && [ -n "$resp" ]; then
     printf '%s\n' "$resp"
