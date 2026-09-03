@@ -189,8 +189,11 @@ def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> 
     """
     if zone_hint is None:
         return FastPath(None, NO_ZONE)
-    words = stems(note)
-    covered = _covered(words)
+    # Зона проверяется до слов: иначе отказ методики на неизвестную зону
+    # зависел бы от того, задел ли комментарий строку карты, и опечатка в коде
+    # зоны нашлась бы через месяц на первом же совпавшем слове.
+    zone_codes = {i.code for i in list_items(zone=zone_hint)}
+    covered = _covered(stems(note))
     if not covered:
         return FastPath(None, NO_CUE)
 
@@ -213,7 +216,7 @@ def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> 
     levels = allowed_levels(code)
     if len(levels) != 1:
         return FastPath(None, SEVERAL_LEVELS)
-    if code not in {i.code for i in list_items(zone=zone_hint)}:
+    if code not in zone_codes:
         return FastPath(None, WRONG_ZONE)
     return FastPath(
         FastItem(

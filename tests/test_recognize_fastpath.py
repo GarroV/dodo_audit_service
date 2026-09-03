@@ -23,6 +23,7 @@ import pytest
 from conftest import requires_data
 
 from src.domain import allowed_levels, get_item, list_items
+from src.domain.errors import ValidationError
 from src.recognize.cues import load_cues, stems
 from src.recognize.fastpath import (
     BREAKAGE_WORDS,
@@ -264,3 +265,16 @@ def test_отрицание_не_мешает_настоящему_срабат�
 
     assert итог.item is not None, итог.reason
     assert итог.item.code == "CLN13"
+
+
+def test_неизвестная_зона_отвергается_всегда(domain_env: Path) -> None:
+    """Зона проверяется до слов, а не после.
+
+    Иначе отказ методики зависел бы от того, задел ли комментарий строку карты:
+    на «печь в нагаре» вызов падал бы, а на «всё хорошо» тихо возвращал «не
+    однозначно» — и опечатка в коде зоны нашлась бы через месяц.
+    """
+    with pytest.raises(ValidationError):
+        fast_path("всё хорошо", "кухня")
+    with pytest.raises(ValidationError):
+        fast_path("печь в нагаре", "кухня")
