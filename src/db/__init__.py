@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .errors import ConfigError, DbError, PushError, StorageError
-from .models import InspectionRow
+from .models import FindingRow, InspectionDetail, InspectionRow
 
 # `apply_migrations` (src.db.migrate) и `check_environment` (src.db.config)
 # сюда намеренно не попадают: это операционные функции наката и диагностики
@@ -18,8 +18,9 @@ from .models import InspectionRow
 # `python -m src.db.migrate` их и так найдёт напрямую; тащить их в пакетный
 # `__init__` означало бы каждому импорту `src.db` тянуть psycopg заранее.
 #
-# `push_inspection` и `list_inspections`, наоборот, — часть контракта, но
-# импортируются лениво через `__getattr__` (PEP 562), а не сразу здесь: любой
+# Слив и чтение (`push_inspection`, `list_inspections`, `get_inspection`,
+# `findings_by_unit`), наоборот, — часть контракта, но импортируются лениво
+# через `__getattr__` (PEP 562), а не сразу здесь: любой
 # импорт `src.db.<что угодно>` сперва выполняет этот файл целиком, а жадный
 # `from .push import push_inspection` тянул бы `psycopg` даже для теста
 # `units.py`/`fingerprint.py`, которому база не нужна вовсе. Проверено: без
@@ -32,15 +33,21 @@ if TYPE_CHECKING:
     from .directory import upsert_unit as upsert_unit
     from .photos import upload_photos as upload_photos
     from .push import push_inspection as push_inspection
+    from .queries import findings_by_unit as findings_by_unit
+    from .queries import get_inspection as get_inspection
     from .queries import list_inspections as list_inspections
 
 __all__ = [
     "ConfigError",
     "DbError",
+    "FindingRow",
+    "InspectionDetail",
     "InspectionRow",
     "PushError",
     "StorageError",
     "Unit",
+    "findings_by_unit",
+    "get_inspection",
     "list_inspections",
     "list_units",
     "push_inspection",
@@ -57,6 +64,8 @@ _LAZY = {
     "upload_photos": (".photos", "upload_photos"),
     "push_inspection": (".push", "push_inspection"),
     "list_inspections": (".queries", "list_inspections"),
+    "get_inspection": (".queries", "get_inspection"),
+    "findings_by_unit": (".queries", "findings_by_unit"),
 }
 
 

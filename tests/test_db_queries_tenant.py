@@ -22,7 +22,12 @@ psycopg = pytest.importorskip("psycopg")
 
 from src.db.errors import DbError  # noqa: E402 — после importorskip намеренно
 from src.db.push import push_inspection  # noqa: E402
-from src.db.queries import DEFAULT_LIMIT, MAX_LIMIT, list_inspections  # noqa: E402
+from src.db.queries import (  # noqa: E402
+    _LIST_ALL_SQL,
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    list_inspections,
+)
 from src.domain import add_finding, start_inspection  # noqa: E402
 
 pytestmark = [requires_data, requires_db]
@@ -160,9 +165,11 @@ def _насыпать(dsn: str, *, арендатор: str, сколько: int)
 def test_выборка_идёт_по_индексу_а_не_полным_проходом(pg_dsn: str) -> None:
     """План строит настоящий планировщик на настоящем объёме, а не догадка.
 
-    Без составного индекса `(tenant_code, pushed_at desc)` этот запрос читает
-    таблицу целиком и сортирует всё прочитанное ради первой сотни строк — то
-    есть предел выдачи экономит трафик и не экономит базу.
+    Без составного индекса `(tenant_code, inspection_date desc)` этот запрос
+    читает таблицу целиком и сортирует всё прочитанное ради первой сотни строк
+    — то есть предел выдачи экономит трафик и не экономит базу. Разбирается
+    тот же текст запроса, который выполняет код: план, закреплённый по
+    переписанной от руки копии, обещает не то, что происходит на самом деле.
 
     Наполнение идёт под привилегированной ролью, а не под ролью приложения:
     `analyze` требует владения таблицей, а без свежей статистики планировщик
@@ -173,15 +180,19 @@ def test_выборка_идёт_по_индексу_а_не_полным_про
 
     with psycopg.connect(pg_dsn) as conn, conn.cursor() as cur:
         cur.execute(
-            "explain select i.id from inspections i "
-            "where i.tenant_code = %s order by i.pushed_at desc limit %s",
-            (АРЕНДАТОР_А, DEFAULT_LIMIT),
+            "explain " + _LIST_ALL_SQL,
+            {
+                "tenant": АРЕНДАТОР_А,
+                "limit": DEFAULT_LIMIT,
+                "date_from": None,
+                "date_to": None,
+            },
         )
         план = "\n".join(строка[0] for строка in cur.fetchall())
 
     assert "Seq Scan on inspections" not in план, (
         f"выборка проверок арендатора читает таблицу целиком:\n{план}"
     )
-    assert "inspections_tenant_pushed_at_idx" in план, (
-        f"выборка не пользуется составным индексом по арендатору и времени слива:\n{план}"
+    assert "inspections_tenant_date_idx" in план, (
+        f"выборка не пользуется составным индексом по арендатору и дате обхода:\n{план}"
     )
