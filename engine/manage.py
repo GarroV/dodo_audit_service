@@ -13,12 +13,17 @@
   manage.py zone-add --code terrace --name-ru "Терраса" --name-en "Terrace"
   manage.py zone-remove terrace
   manage.py validate                       проверить целостность файлов
-  manage.py import-xlsx файл.xlsx [--keep-zones]
+  manage.py import-xlsx файл.xlsx [--keep-zones] [--drop-extra-columns]
         пересобрать чек-лист из выгрузки шаблона IMF (Template_CL). --keep-zones
         сохраняет уже расставленные зоны для вопросов с совпадающей формулировкой.
+        --drop-extra-columns — согласие потерять колонки, которых нет в шаблоне.
 
 Выключенный вопрос (kind=off) остаётся в файле, но не предлагается при проверке и не
 участвует в расчёте — так историю правок видно, а вернуть пункт можно одной командой.
+
+Колонки, которых движок не знает, при правке методики сохраняются: чек-лист и зоны —
+данные управляющей компании, и `manage.py` не вправе выбрасывать из них то, чего не
+читает сам. Исключение одно — `import-xlsx`, см. выше.
 """
 import argparse, csv, json, os, re, shutil, sys
 
@@ -30,6 +35,7 @@ from audit import (  # noqa: E402
 
 PLUGIN_DATA = os.path.normpath(os.path.join(HERE, os.pardir, "data"))
 FIELDS = ["id", "kind", "process_ru", "process_en", "question_ru", "question_en", "levels", "zones", "days"]
+ZONE_FIELDS = ["code", "name_ru", "name_en", "share_pct"]
 # D0 — не класс нарушения, а приём: информационная запись живёт среди findings
 # с нулевым вычетом (docs/02-domain.md). Уровня не знала только эта проверка, и
 # три боевых пункта (INF09-INF11) делали `validate` красным всегда. Проверка,
@@ -62,12 +68,57 @@ def read_rows(d=None):
         return list(csv.DictReader(f))
 
 
-def write_rows(rows, d):
-    with open(os.path.join(d, "checklist.csv"), "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS)
+def foreign_columns(path, known, rows=()):
+    """Колонки файла методики, которых движок не знает, — в порядке появления.
+
+    Всё, что не перечислено в `known`, — данные управляющей компании: движок их
+    не читает, но и распоряжаться ими не вправе. Смотрим и в заголовок файла на
+    диске, и в сами строки: заголовок нужен, когда строк не осталось (файл с
+    одной шапкой), строки — когда пишем не в тот файл, из которого читали.
+
+    Ключ `None` пропускается намеренно: так `csv.DictReader` складывает хвост
+    строки, в которой значений больше, чем колонок в шапке. Имени у такого
+    хвоста нет, колонкой он не является, и записать его некуда.
+    """
+    seen = []
+
+    def подобрать(имена):
+        for k in имена:
+            if k is not None and k not in known and k not in seen:
+                seen.append(k)
+
+    if os.path.exists(path):
+        with open(path, encoding="utf-8-sig") as f:
+            подобрать(next(csv.reader(f), []))
+    for r in rows:
+        подобрать(r)
+    return seen
+
+
+def write_csv_rows(path, rows, known, keep_foreign=True):
+    """Перезаписать файл методики, не потеряв чужие колонки.
+
+    Раньше здесь стоял фиксированный список колонок, и любая колонка, заведённая
+    управляющей компанией сверх него, исчезала при первой же правке методики —
+    молча и безвозвратно (методика лежит вне git, D002). Настолько не теория,
+    что порядок обхода точки (T061) пришлось делать отдельным файлом
+    `data/route.csv`: колонкой в чек-листе он не пережил бы первую же правку.
+
+    Известные движку колонки идут первыми и в прежнем порядке — формат файла от
+    сохранения чужого не перетасовывается. `keep_foreign=False` оставляет только
+    известные: это `import-xlsx`, где чек-лист пересобирается из чужой выгрузки
+    целиком и значений для чужих колонок взять неоткуда (задача T109).
+    """
+    fields = [*known, *(foreign_columns(path, known, rows) if keep_foreign else [])]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         for r in rows:
-            w.writerow({k: r.get(k, "") for k in FIELDS})
+            w.writerow({k: r.get(k, "") for k in fields})
+
+
+def write_rows(rows, d, keep_foreign=True):
+    write_csv_rows(os.path.join(d, "checklist.csv"), rows, FIELDS, keep_foreign=keep_foreign)
 
 
 def set_criteria(d, qid, text):
@@ -195,9 +246,7 @@ def cmd_zone_add(a):
     share = round(100 / len(rows), 4)
     for r in rows:
         r["share_pct"] = share
-    with open(p, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=["code", "name_ru", "name_en", "share_pct"])
-        w.writeheader(); w.writerows(rows)
+    write_csv_rows(p, rows, ZONE_FIELDS)
     print(f"зон стало {len(rows)}, доля каждой {share:g}%")
 
 
@@ -208,9 +257,7 @@ def cmd_zone_remove(a):
     share = round(100 / len(rows), 4)
     for r in rows:
         r["share_pct"] = share
-    with open(p, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=["code", "name_ru", "name_en", "share_pct"])
-        w.writeheader(); w.writerows(rows)
+    write_csv_rows(p, rows, ZONE_FIELDS)
     cl = read_rows()
     touched = []
     for r in cl:
@@ -329,6 +376,20 @@ def cmd_import(a):
     except ImportError:
         sys.exit("Нужен openpyxl: pip install openpyxl --break-system-packages")
     d = target_dir(create=True)
+    # Единственная команда, которая пересобирает чек-лист целиком из чужой
+    # выгрузки: значений для колонок управляющей компании в шаблоне IMF нет и
+    # взяться им неоткуда. Сохранить их здесь нельзя — можно только не потерять
+    # молча, поэтому отказ с именами колонок и явный флаг для того, кто согласен
+    # их потерять (T109).
+    cl_path = os.path.join(d, "checklist.csv")
+    foreign = foreign_columns(cl_path, FIELDS)
+    if foreign and not a.drop_extra_columns:
+        sys.exit(
+            f"В чек-листе есть колонки, которых нет в шаблоне IMF: {', '.join(foreign)}. "
+            f"Файл: {cl_path}. Импорт пересобирает чек-лист целиком из выгрузки, значений "
+            f"для этих колонок в ней нет, а методика лежит вне git — восстановить их будет "
+            f"неоткуда. Сохраните копию файла, затем повторите с --drop-extra-columns."
+        )
     old = {}
     if a.keep_zones:
         for r in read_rows():
@@ -423,7 +484,7 @@ def cmd_import(a):
                      "days": int(float(e["days"])) if str(e["days"] or "").replace(".", "").isdigit() else 10})
         if e["hint"] and kind == "violation":
             crit.append((qid, e["hint"].strip().strip('"')))
-    write_rows(rows, d)
+    write_rows(rows, d, keep_foreign=False)
     with open(os.path.join(d, "criteria.md"), "w", encoding="utf-8") as f:
         f.write("# Критерии нарушений по вопросам\n")
         for qid, h in crit:
@@ -454,7 +515,8 @@ def main():
     za = s.add_parser("zone-add"); za.add_argument("--code", required=True); za.add_argument("--name-ru", required=True); za.add_argument("--name-en"); za.set_defaults(fn=cmd_zone_add)
     zr = s.add_parser("zone-remove"); zr.add_argument("code"); zr.set_defaults(fn=cmd_zone_remove)
     s.add_parser("validate").set_defaults(fn=cmd_validate)
-    im = s.add_parser("import-xlsx"); im.add_argument("path"); im.add_argument("--keep-zones", action="store_true"); im.set_defaults(fn=cmd_import)
+    im = s.add_parser("import-xlsx"); im.add_argument("path"); im.add_argument("--keep-zones", action="store_true")
+    im.add_argument("--drop-extra-columns", action="store_true"); im.set_defaults(fn=cmd_import)
     a = p.parse_args()
     a.fn(a)
 
