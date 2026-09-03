@@ -267,7 +267,9 @@ async def _save(
     # аудиторов, ни таймеры альбомов (замер T101: подтверждение записи стоило
     # 47 мс, и очередь росла линейно — двадцать аудиторов, секунда последнему).
     try:
-        finding = await asyncio.to_thread(domain.add_finding, chat_id, code, level, zone, text)
+        finding = await asyncio.to_thread(
+            domain.add_finding, chat_id, code, level, zone, text, source=source
+        )
     except DomainError as exc:
         await message.answer(t("record.failed", lang, reason=exc))
         return False
@@ -279,7 +281,6 @@ async def _save(
             # это не станет: не прикрепившийся кадр остаётся в заметках без
             # записи и попадёт в список кадров без записи при завершении (T068).
             logger.exception("кадр %s не прикрепился к записи #%s", file_id, finding.n)
-    sidecar.remember_source(chat_id, finding.n, source)
     sidecar.remember_zone(chat_id, zone)
     # `get_state` — чтение файла, 0.1 мс: в поток не выносится, обёртка стоила
     # бы дороже самой операции. `score` — подпроцесс, выносится.
@@ -332,7 +333,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             chat_id,
             note="",
             file_ids=offer.file_ids,
-            source=sidecar.SOURCE_PHOTO,
+            source=domain.SOURCE_PHOTO,
             pending=pending,
         )
 
@@ -536,7 +537,7 @@ def make_material_handler(
             chat_id,
             note=note,
             file_ids=material.photo_file_ids,
-            source=sidecar.SOURCE_COMMENT,
+            source=domain.SOURCE_COMMENT,
             pending=pending,
         )
 

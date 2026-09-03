@@ -26,7 +26,7 @@ from src.bot import sidecar
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.texts import t
-from src.domain import add_finding, attach_photo, score, start_inspection
+from src.domain import SOURCE_PHOTO, add_finding, attach_photo, score, start_inspection
 from src.report.errors import PdfNotBuilt, ReportError
 
 pytestmark = [pytest.mark.asyncio, requires_data]
@@ -75,20 +75,64 @@ async def test_summary_shows_score_and_the_recorded_list(domain_env: object) -> 
     assert session.last_text == t("finish.ask", "ru")
 
 
+def пометка_догадки() -> str:
+    return t("finish.source_photo", "ru").strip()
+
+
+def строки_записей(текст: str) -> list[str]:
+    return [s for s in текст.splitlines() if s.startswith("#")]
+
+
 async def test_records_recognized_from_the_photo_are_marked(domain_env: object) -> None:
     """Решение D044: догадка по картинке подсвечивается при предвычитке отчёта."""
     started()
     add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар на подине печи")
-    add_finding(CHAT_ID, "PRD01", "D1", "fridge", "Продукт без маркировки")
-    sidecar.remember_source(CHAT_ID, 2, sidecar.SOURCE_PHOTO)
+    add_finding(CHAT_ID, "PRD01", "D1", "fridge", "Продукт без маркировки", source=SOURCE_PHOTO)
     bot, session = make_bot()
 
     await feed(build_dispatcher(SETTINGS), bot, text_message("/finish"))
 
-    пометка = t("finish.source_photo", "ru").strip()
-    строки = [s for s in session.texts[1].splitlines() if s.startswith("#")]
-    assert пометка not in строки[0], "запись со слов аудитора помечена как догадка"
-    assert пометка in строки[1], "догадка по кадру не отличима от слов аудитора"
+    строки = строки_записей(session.texts[1])
+    assert пометка_догадки() not in строки[0], "запись со слов аудитора помечена как догадка"
+    assert пометка_догадки() in строки[1], "догадка по кадру не отличима от слов аудитора"
+
+
+async def test_the_photo_mark_outlives_the_bot_notes(domain_env: object) -> None:
+    """T108: пометка держится на источнике из проверки, а не на заметках бота.
+
+    Заметки бота стираются с началом новой проверки этого чата
+    (`sidecar.reset`), и пока источник лежал там, аудитор терял подсветку
+    догадок ровно там, где она нужна, — при предвычитке отчёта.
+    """
+    started()
+    add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар на подине печи", source=SOURCE_PHOTO)
+    sidecar.reset(CHAT_ID)
+    bot, session = make_bot()
+
+    await feed(build_dispatcher(SETTINGS), bot, text_message("/finish"))
+
+    строки = строки_записей(session.texts[1])
+    assert пометка_догадки() in строки[0], (
+        "пометка догадки пропала вместе с заметками бота — источник читается не из проверки"
+    )
+
+
+async def test_a_record_from_before_the_source_existed_is_not_marked(domain_env: object) -> None:
+    """У записей старых проверок источника нет вовсе: ни отказа, ни выдуманной пометки.
+
+    Пустой источник — это «неизвестно», а не «со слов аудитора» и не «догадка».
+    Показать такую запись догадкой значит оболгать аудитора, показать словами —
+    спрятать от него то, что он обязан перечитать.
+    """
+    started()
+    add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар на подине печи")
+    bot, session = make_bot()
+
+    await feed(build_dispatcher(SETTINGS), bot, text_message("/finish"))
+
+    строки = строки_записей(session.texts[1])
+    assert len(строки) == 1, "запись без источника выпала из предвычитки"
+    assert пометка_догадки() not in строки[0], "источника нет, а пометка догадки взялась"
 
 
 async def test_empty_inspection_says_nothing_was_recorded(domain_env: object) -> None:

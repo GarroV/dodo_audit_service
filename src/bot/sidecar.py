@@ -1,14 +1,18 @@
 """Заметки бота рядом с проверкой: то, чего нет ни у движка, ни в отчёте.
 
-Три вещи, которые бот обязан помнить о проверке, а движок никогда не узнает:
+Две вещи, которые бот обязан помнить о проверке, а движок никогда не узнает:
 
-* источник каждой записи (решение D044) — со слов аудитора или распознано по
-  кадру после «Разобрать». В поле `comment` записи это класть нельзя: оно
-  печатается в отчёте партнёру, а источник — внутренняя кухня бота;
 * все кадры, присланные за проверку (задача T068) — в конце проверки нужно
   показать те, что не попали ни в одну запись, иначе они бесследно исчезают;
 * последняя названная зона (решение D048) — подставляется догадкой к
   следующему кадру.
+
+Источник записи (решение D044) здесь когда-то тоже лежал и уехал отсюда
+задачей T108: он оказался нужен не одному боту, а всем — в базу источник
+доезжает вместе с записью. Теперь его хранит сама проверка
+(`domain.add_finding(..., source=...)`, `Finding.source`), и заметки бота о
+нём ничего не знают. Второй копии здесь заводить нельзя: разошедшись, две
+копии спорили бы о том, за какую формулировку отвечает аудитор.
 
 Заметки обязаны пережить перезапуск бота, поэтому лежат файлом `bot.json` в
 той же папке проверки, что и `inspection.json` (см. `src/report/photos.py` —
@@ -36,11 +40,6 @@ from src.domain.engine import chat_dir
 
 from .errors import BotNotesError
 
-#: Источник записи: со слов аудитора или распознан моделью по кадру.
-SOURCE_COMMENT = "comment"
-SOURCE_PHOTO = "photo"
-SOURCES = (SOURCE_COMMENT, SOURCE_PHOTO)
-
 NOTES_FILE_NAME = "bot.json"
 SCHEMA = 1
 
@@ -55,10 +54,8 @@ class SeenFrame:
 
 @dataclass(frozen=True)
 class Notes:
-    """Заметки одной проверки: источники записей, все присланные кадры, зона."""
+    """Заметки одной проверки: все присланные кадры и последняя названная зона."""
 
-    #: Номер записи → источник (`SOURCES`).
-    sources: dict[int, str]
     #: Все присланные кадры в порядке прихода. Не только те, что стали записью.
     frames: tuple[SeenFrame, ...]
     #: Последняя названная зона; пустая строка — её не было или её забыли.
@@ -68,27 +65,6 @@ class Notes:
 def notes_path(chat_id: int) -> Path:
     """Файл заметок этого чата: та же папка проверки, что и у `inspection.json`."""
     return chat_dir(chat_id, check_environment()) / NOTES_FILE_NAME
-
-
-def _sources_from_raw(raw: Any, path: Path) -> dict[int, str]:
-    """Ключи файла — строки, наружу отдаём `int`; источник обязан быть из `SOURCES`.
-
-    Оба условия проверяются здесь, а не у вызывающего: расползшийся по коду
-    файл заметок, который никто не потрудился провалидировать при чтении,
-    рано или поздно читается как валидный с чужим значением источника.
-    """
-    result: dict[int, str] = {}
-    for key, value in dict(raw or {}).items():
-        try:
-            n = int(key)
-        except (TypeError, ValueError):
-            raise BotNotesError(
-                f"Номер записи «{key}» в заметках {path} не похож на число"
-            ) from None
-        if value not in SOURCES:
-            raise BotNotesError(f"Источник «{value}» записи №{n} в заметках {path} не из {SOURCES}")
-        result[n] = str(value)
-    return result
 
 
 def _frames_from_raw(raw: Any, path: Path) -> tuple[SeenFrame, ...]:
@@ -114,8 +90,10 @@ def _decode(path: Path) -> dict[str, Any]:
 
 
 def _parse(raw: dict[str, Any], path: Path) -> Notes:
+    # Ключ `sources` заметок, написанных до T108, просто не читается: проверки,
+    # начатые тогда, ещё в работе, и отказ на незнакомом ключе означал бы, что
+    # после обновления бота их стало нечем завершить.
     return Notes(
-        sources=_sources_from_raw(raw.get("sources"), path),
         frames=_frames_from_raw(raw.get("frames"), path),
         zone=str(raw.get("zone") or ""),
     )
@@ -125,10 +103,7 @@ def read(chat_id: int) -> Notes:
     """Заметки чата. Файла нет — пустые, а не отказ: до первой записи это норма."""
     path = notes_path(chat_id)
     if not path.is_file():
-        # Новый объект на каждое чтение, а не общая пустышка: `Notes`
-        # неизменяемая, но словарь источников внутри неё — нет, и правка у
-        # одного вызывающего проросла бы во все чаты сразу.
-        return Notes(sources={}, frames=(), zone="")
+        return Notes(frames=(), zone="")
     return _parse(_decode(path), path)
 
 
@@ -144,7 +119,6 @@ def _write(chat_id: int, notes: Notes) -> None:
     raw: dict[str, Any] = {
         "schema": SCHEMA,
         "zone": notes.zone,
-        "sources": {str(n): source for n, source in notes.sources.items()},
         "frames": [{"message_id": f.message_id, "file_id": f.file_id} for f in notes.frames],
     }
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".bot-notes-", suffix=".tmp")
@@ -179,26 +153,6 @@ def remember_frames(chat_id: int, frames: Iterable[SeenFrame]) -> None:
     if not additions:
         return
     _write(chat_id, replace(notes, frames=notes.frames + tuple(additions)))
-
-
-def remember_source(chat_id: int, n: int, source: str) -> None:
-    """Запомнить источник записи №`n`. `source` не из `SOURCES` — отказ до всякой записи."""
-    if source not in SOURCES:
-        raise BotNotesError(f"Источник «{source}» не из {SOURCES} — записать для №{n} нельзя")
-    notes = read(chat_id)
-    sources = dict(notes.sources)
-    sources[n] = source
-    _write(chat_id, replace(notes, sources=sources))
-
-
-def forget_source(chat_id: int, n: int) -> None:
-    """Запись №`n` удалили — источник больше не нужен. Неизвестный номер — не отказ."""
-    notes = read(chat_id)
-    if n not in notes.sources:
-        return
-    sources = dict(notes.sources)
-    del sources[n]
-    _write(chat_id, replace(notes, sources=sources))
 
 
 def remember_zone(chat_id: int, zone: str) -> None:

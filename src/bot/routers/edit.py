@@ -118,7 +118,8 @@ def build_edit_router() -> Router:
         except DomainError as exc:
             await message.answer(t("edit.failed", lang, reason=exc))
             return
-        sidecar.forget_source(chat_id, n)
+        # Источник записи чистить не надо: он лежит в самой записи (T108), и
+        # `domain.drop_finding` уносит его вместе с ней.
         pct = (await asyncio.to_thread(domain.score, chat_id)).pct
         await message.answer(t("edit.dropped", lang, n=n, pct=view.percent(pct)))
 

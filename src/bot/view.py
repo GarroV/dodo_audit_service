@@ -127,19 +127,21 @@ def counts_line(counts: Mapping[str, int]) -> str:
     return ", ".join(f"{level} — {count}" for level, count in sorted(counts.items()) if count)
 
 
-def record_lines(findings: Sequence[domain.Finding], sources: Mapping[int, str], lang: str) -> str:
+def record_lines(findings: Sequence[domain.Finding], lang: str) -> str:
     """Список зафиксированного для предвычитки отчёта (T058).
 
     Записи, которые бот распознал по кадру сам, помечены (решение D044): за
     формулировку со слов аудитора отвечает аудитор, за догадку по картинке —
     нет, и перед отправкой партнёру это должно быть видно.
+
+    Пометку несёт сама запись (`Finding.source`, задача T108). Пустой источник
+    — это «неизвестно», а не «со слов аудитора»: так выглядят проверки,
+    начатые до D044, и выдавать их за чьи-то слова нельзя.
     """
     titles = zone_titles(lang)
     lines = []
     for finding in findings:
-        mark = (
-            t("finish.source_photo", lang) if sources.get(finding.n) == sidecar.SOURCE_PHOTO else ""
-        )
+        mark = t("finish.source_photo", lang) if finding.source == domain.SOURCE_PHOTO else ""
         lines.append(
             t(
                 "finish.record_line",
