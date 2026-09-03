@@ -168,22 +168,31 @@ def test_пустое_название_точки_это_отказ(domain_env: 
 
 # --- план запроса ------------------------------------------------------------
 
-_ТОЧКА_SQL = """
+#: Сколько точек у арендатора в нагрузочных данных. Не одна намеренно: у сети
+#: сотни пиццерий, а на единственной точке планировщик выбирает не тот план,
+#: что на настоящих данных, — и проверка плана на такой заливке проверяет не то.
+ТОЧЕК = 40
+
+_ТОЧКИ_SQL = """
 insert into units (tenant_code, name, name_normalized)
-values (%(tenant)s, 'Нагрузочная', 'нагрузочная')
-returning id
+select %(tenant)s, 'Точка ' || g, 'точка ' || g
+from generate_series(1, %(точек)s) g
 """
 
 _ПРОВЕРКИ_SQL = """
+with точки as (
+    select id, row_number() over (order by name_normalized) - 1 as ном
+    from units where tenant_code = %(tenant)s
+)
 insert into inspections (
     tenant_code, unit_id, chat_id, kind, inspection_date, report_lang,
     ui_lang, speech_lang, checklist_version, pct, grade, source_fingerprint
 )
 select
-    %(tenant)s, %(unit_id)s, 1, 'Плановая', date '2026-01-01' + g, 'ru',
+    %(tenant)s, т.id, 1, 'Плановая', date '2026-01-01' + g, 'ru',
     'ru', 'ru', 'v1', 97.5, 'A', %(tenant)s || '-' || g
 from generate_series(1, %(сколько)s) g
-returning id
+join точки т on т.ном = g %% %(точек)s
 """
 
 _НАХОДКИ_SQL = """
@@ -204,10 +213,8 @@ def _насыпать(dsn: str, *, арендатор: str, сколько: int)
             "insert into tenants (code) values (%(tenant)s) on conflict (code) do nothing",
             {"tenant": арендатор},
         )
-        cur.execute(_ТОЧКА_SQL, {"tenant": арендатор})
-        строка = cur.fetchone()
-        assert строка is not None
-        cur.execute(_ПРОВЕРКИ_SQL, {"tenant": арендатор, "unit_id": строка[0], "сколько": сколько})
+        cur.execute(_ТОЧКИ_SQL, {"tenant": арендатор, "точек": ТОЧЕК})
+        cur.execute(_ПРОВЕРКИ_SQL, {"tenant": арендатор, "сколько": сколько, "точек": ТОЧЕК})
         cur.execute(_НАХОДКИ_SQL, {"tenant": арендатор})
         cur.execute("analyze inspections")
         cur.execute("analyze findings")
@@ -228,11 +235,15 @@ def test_находки_точки_идут_по_индексу_а_не_полн
     with psycopg.connect(pg_dsn) as conn, conn.cursor() as cur:
         cur.execute(
             "explain " + _FINDINGS_BY_UNIT_SQL,
-            {"tenant": АРЕНДАТОР_А, "unit": "нагрузочная", "limit": 100},
+            {"tenant": АРЕНДАТОР_А, "unit": "точка 7", "limit": 100},
         )
         план = "\n".join(строка[0] for строка in cur.fetchall())
 
     assert "Seq Scan on findings" not in план, f"находки точки читаются полным проходом:\n{план}"
     assert "Seq Scan on inspections" not in план, (
         f"находки точки тянут за собой полный проход по проверкам:\n{план}"
+    )
+    assert "inspections_tenant_unit_date_idx" in план, (
+        f"находки точки идут мимо индекса «арендатор + точка + дата» (миграция 0005): "
+        f"без него отбор по точке идёт поверх всей истории арендатора\n{план}"
     )
