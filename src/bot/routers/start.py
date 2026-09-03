@@ -46,6 +46,16 @@ from ..texts import t, ui_lang_or_default
 
 logger = logging.getLogger(__name__)
 
+#: Сколько знаков в названии точки бот принимает.
+#:
+#: Число замерено, а не выбрано на вкус. Имя файла отчёта движок собирает как
+#: «Аудит <точка> - <аудитор> - <дата>.pdf»; кириллица в UTF-8 — два байта на
+#: знак, а предел имени файла на ext4 (площадка продукта, D053) — 255 байт.
+#: С аудитором в 40 знаков на название остаётся около шестидесяти. Проверено
+#: фактическим прогоном: на 300 знаках сборка отчёта падает с «File name too
+#: long», и узнаёт об этом аудитор в конце проверки, когда переснимать поздно.
+UNIT_NAME_LIMIT = 60
+
 
 async def _offer_resume(message: Message, inspection: domain.Inspection, lang: str) -> None:
     """Показать незавершённую проверку и дать выбор — продолжить или начать новую."""
@@ -165,6 +175,11 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         if not unit:
             await message.answer(t("start.unit_empty", lang))
             return
+        if len(unit) > UNIT_NAME_LIMIT:
+            # Отказ здесь, а не отказом сборки отчёта в конце проверки: там
+            # аудитор уже уехал с точки, и переименовать пиццерию ему нечем.
+            await message.answer(t("start.unit_too_long", lang, limit=UNIT_NAME_LIMIT))
+            return
         await state.update_data(unit=unit)
         await state.set_state(StartFlow.waiting_kind)
         await message.answer(t("start.ask_kind", lang), reply_markup=kind_keyboard())
@@ -219,6 +234,14 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
                 unit=unit,
                 kind=KIND_LABELS[kind_code],
                 report_lang=report_lang,
+                # Языка в проверке три, и до T128 из бота не задавался ни один
+                # из двух остальных: аудитор выбирал английский отчёт, а
+                # разговор оставался русским — язык был константой, а не
+                # параметром. Вопрос в мастере один, поэтому его ответ ложится
+                # во все три поля; полями они остаются разными, и разъехаться
+                # им ничто не мешает, когда вопросов станет больше.
+                ui_lang=report_lang,
+                speech_lang=report_lang,
                 auditor=auditor,
             )
         except DomainError as exc:

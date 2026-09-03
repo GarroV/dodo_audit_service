@@ -41,6 +41,21 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Название пиццерии пустое. Введите текстом, как оно должно стоять в отчёте.",
         "en": "The name is empty. Type it as it should appear in the report.",
     },
+    # Предел не вкусовой, а замеренный (T128): имя файла отчёта собирается как
+    # «Аудит <точка> - <аудитор> - <дата>.pdf», кириллица в UTF-8 стоит два
+    # байта на знак, а имя файла на ext4 (площадка продукта, D053) — 255 байт.
+    # На 100 знаках названия имя уже 258 байт, и сборка отчёта падает с «File
+    # name too long» в самом конце проверки, когда исправлять поздно.
+    "start.unit_too_long": {
+        "ru": (
+            "Название длиннее {limit} знаков не влезет ни в шапку отчёта, ни в имя файла. "
+            "Пришлите короче — так, как оно должно стоять в отчёте."
+        ),
+        "en": (
+            "A name longer than {limit} characters fits neither the report header nor the "
+            "file name. Send a shorter one — as it should appear in the report."
+        ),
+    },
     "start.unit_expected": {
         "ru": "Жду название пиццерии текстом.",
         "en": "Waiting for the pizzeria name as text.",
@@ -49,9 +64,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Вид проверки?",
         "en": "Inspection type?",
     },
+    # Вопрос один, а языков в проверке три (`docs/06-mvp-bot.md`). Ответ
+    # ложится во все три, и сказать об этом надо здесь: аудитор выбирает не
+    # только язык документа для партнёра, но и язык, на котором с ним говорят.
     "start.ask_lang": {
-        "ru": "Язык отчёта?",
-        "en": "Report language?",
+        "ru": "Язык проверки? На нём будут и отчёт, и наш разговор.",
+        "en": "Inspection language? Both the report and this chat will use it.",
     },
     "start.started": {
         "ru": (
@@ -244,9 +262,18 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "В какой зоне это? Из слов зону не видно — назовите её кнопкой.",
         "en": "Which zone is this? Your words do not name it — pick it with a button.",
     },
+    # Причина не называется: их несколько, и выбрать одну наугад — соврать
+    # (T128). Предложение забирается сразу после фиксации, гасится началом новой
+    # проверки, исчезает вместе с перезапуском и не переживает нажатие на кнопку
+    # из старого сообщения. «Бот перезапускался» посылало человека искать
+    # поломку, которой обычно не было.
     "record.stale": {
-        "ru": "Предложение устарело — бот перезапускался. Пришлите кадр заново.",
-        "en": "This suggestion is stale — the bot restarted. Send the photo again.",
+        "ru": (
+            "Это предложение уже неактуально — выбирать по нему нечего. Пришлите материал заново."
+        ),
+        "en": (
+            "This suggestion is no longer live — there is nothing to pick. Send the material again."
+        ),
     },
     "record.skipped": {
         "ru": "Не записал. Кадр не потеряется — покажу его при завершении проверки.",
