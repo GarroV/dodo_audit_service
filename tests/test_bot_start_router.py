@@ -24,10 +24,11 @@ from conftest import requires_data
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.keyboards import (
-    KIND_LABELS,
+    KIND_TITLES,
     NEW_INSPECTION_CALLBACK,
     RESUME_CONTINUE_CALLBACK,
     RESUME_NEW_CALLBACK,
+    kind_title,
 )
 from src.domain import get_state, start_inspection
 
@@ -83,7 +84,7 @@ async def test_wizard_asks_unit_then_kind_then_language(domain_env: object) -> N
     assert "пиццерии" in session.last_text.lower()
 
     await feed(dp, bot, text_message("Белград 2"))
-    assert set(session.keyboard_data()) == {f"start:kind:{code}" for code in KIND_LABELS}
+    assert set(session.keyboard_data()) == {f"start:kind:{code}" for code in KIND_TITLES}
 
     await feed(dp, bot, callback_query("start:kind:planned"))
     assert session.keyboard_data() == ["start:lang:ru", "start:lang:en"]
@@ -96,7 +97,8 @@ async def test_wizard_creates_inspection_with_typed_unit(domain_env: object) -> 
     inspection = get_state(CHAT_ID)
     assert inspection is not None
     assert inspection.unit == "Белград 2"
-    assert inspection.kind == KIND_LABELS["planned"]
+    # Вид проверки записан на языке отчёта (T131): мастер прошли с русским.
+    assert inspection.kind == kind_title("planned", "ru")
     assert inspection.report_lang == "ru"
 
 
@@ -135,7 +137,7 @@ async def test_empty_unit_is_asked_again_not_accepted(domain_env: object) -> Non
 
     assert "пуст" in session.last_text.lower()
     await feed(dp, bot, text_message("Белград 2"))
-    assert set(session.keyboard_data()) == {f"start:kind:{code}" for code in KIND_LABELS}
+    assert set(session.keyboard_data()) == {f"start:kind:{code}" for code in KIND_TITLES}
 
 
 async def test_unfinished_inspection_is_shown_not_overwritten(domain_env: object) -> None:

@@ -27,14 +27,15 @@ from .. import sidecar
 from ..auditor import auditor_name
 from ..config import BotSettings
 from ..keyboards import (
-    KIND_LABELS,
     KIND_PREFIX,
+    KIND_TITLES,
     LANG_LABELS,
     LANG_PREFIX,
     NEW_INSPECTION_CALLBACK,
     RESUME_CONTINUE_CALLBACK,
     RESUME_NEW_CALLBACK,
     kind_keyboard,
+    kind_title,
     lang_keyboard,
     new_inspection_keyboard,
     resume_keyboard,
@@ -68,7 +69,7 @@ async def _offer_resume(message: Message, inspection: domain.Inspection, lang: s
             auditor=inspection.auditor or "—",
             findings=len(inspection.findings),
         ),
-        reply_markup=resume_keyboard(),
+        reply_markup=resume_keyboard(lang),
     )
 
 
@@ -103,13 +104,13 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         except DomainError:
             logger.exception("состояние чата %s не читается", message.chat.id)
             await message.answer(
-                t("start.state_broken", lang), reply_markup=new_inspection_keyboard()
+                t("start.state_broken", lang), reply_markup=new_inspection_keyboard(lang)
             )
             return
         if inspection is not None:
             await _offer_resume(message, inspection, lang)
             return
-        await message.answer(t("start.greeting", lang), reply_markup=new_inspection_keyboard())
+        await message.answer(t("start.greeting", lang), reply_markup=new_inspection_keyboard(lang))
 
     @router.callback_query(F.data == NEW_INSPECTION_CALLBACK)
     async def on_new(callback: CallbackQuery, state: FSMContext) -> None:
@@ -182,7 +183,7 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
             return
         await state.update_data(unit=unit)
         await state.set_state(StartFlow.waiting_kind)
-        await message.answer(t("start.ask_kind", lang), reply_markup=kind_keyboard())
+        await message.answer(t("start.ask_kind", lang), reply_markup=kind_keyboard(lang))
 
     @router.message(StateFilter(StartFlow.waiting_unit))
     async def on_unit_not_text(message: Message) -> None:
@@ -196,7 +197,7 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         if not isinstance(message, Message):
             return
         code = (callback.data or "").removeprefix(KIND_PREFIX)
-        if code not in KIND_LABELS:
+        if code not in KIND_TITLES:
             return
         await state.update_data(kind=code)
         await state.set_state(StartFlow.waiting_lang)
@@ -217,9 +218,11 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         data = await state.get_data()
         unit = str(data.get("unit", "")).strip()
         kind_code = str(data.get("kind", ""))
-        if not unit or kind_code not in KIND_LABELS:
+        if not unit or kind_code not in KIND_TITLES:
             await state.clear()
-            await message.answer(t("start.greeting", lang), reply_markup=new_inspection_keyboard())
+            await message.answer(
+                t("start.greeting", lang), reply_markup=new_inspection_keyboard(lang)
+            )
             return
 
         auditor = auditor_name(
@@ -232,7 +235,11 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
                 domain.start_inspection,
                 message.chat.id,
                 unit=unit,
-                kind=KIND_LABELS[kind_code],
+                # Вид проверки — на языке ОТЧЁТА, а не интерфейса (T131): на
+                # кнопке аудитор прочитал его сам, а отсюда он уезжает в шапку
+                # документа партнёру. На кнопке было «Planned», в русском
+                # отчёте обязана стоять «Плановая».
+                kind=kind_title(kind_code, report_lang),
                 report_lang=report_lang,
                 # Языка в проверке три, и до T128 из бота не задавался ни один
                 # из двух остальных: аудитор выбирал английский отчёт, а

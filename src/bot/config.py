@@ -12,7 +12,8 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from .errors import BotConfigError
+from .errors import BotConfigError, BotTextError
+from .texts import DEFAULT_UI_LANG, UI_LANG_VAR, default_ui_lang
 
 # Подавление ниже: S105 видит «TOKEN» в имени и считает строку зашитым секретом.
 # Здесь это имя переменной окружения, а не значение — сам токен в коде
@@ -23,6 +24,8 @@ MODE_VAR = "BOT_MODE"
 #: Имя проверяющего для шапки отчёта по его Telegram ID (T063, решение D032).
 #: Переменная необязательна: без неё имя берётся из профиля Telegram.
 AUDITOR_NAMES_VAR = "AUDITOR_NAMES"
+#: Язык интерфейса до начала проверки (T131). Имя и разбор живут в `texts.py`,
+#: рядом с самим каталогом языков, — здесь только проверка на старте.
 
 #: `.env.example` объявляет только polling — единственный поддерживаемый режим
 #: сейчас (разработка без публичного адреса). `webhook` зарезервирован решением
@@ -39,6 +42,9 @@ class BotSettings:
     token: str
     allowed_ids: frozenset[int]
     mode: str
+    #: Язык интерфейса стенда — тот, которым бот здоровается до начала проверки
+    #: (T131). Начатая проверка перебивает его своим полем `ui_lang`.
+    ui_lang: str = DEFAULT_UI_LANG
     #: Telegram ID → имя проверяющего, как оно должно стоять в отчёте партнёру.
     #: Пустая карта — законное состояние: имена возьмутся из профилей Telegram.
     auditor_names: Mapping[int, str] = field(default_factory=dict)
@@ -109,6 +115,20 @@ def _parse_auditor_names(raw: str, allowed_ids: frozenset[int]) -> dict[int, str
     return names
 
 
+def _parse_ui_lang(env: Mapping[str, str]) -> str:
+    """Язык интерфейса стенда — или отказ на старте (T131).
+
+    Разбор один на всех (`texts.default_ui_lang`), здесь он только переводится
+    в отказ конфигурации: неизвестный язык обязан останавливать бота на старте,
+    а не всплывать первой строкой в чате. Цена молчания — демо, тихо съехавшее
+    на русский из-за опечатки в переменной, и узнают об этом на показе.
+    """
+    try:
+        return default_ui_lang(env)
+    except BotTextError as exc:
+        raise BotConfigError(f"{UI_LANG_VAR}: {exc}") from exc
+
+
 def load_bot_settings(env: Mapping[str, str] | None = None) -> BotSettings:
     """Прочитать и проверить окружение бота. Отказ — `BotConfigError`."""
     src = os.environ if env is None else env
@@ -120,4 +140,10 @@ def load_bot_settings(env: Mapping[str, str] | None = None) -> BotSettings:
             f"Режим «{mode}» ({MODE_VAR}) не поддержан. Доступно: {', '.join(KNOWN_MODES)}"
         )
     names = _parse_auditor_names(src.get(AUDITOR_NAMES_VAR) or "", allowed_ids)
-    return BotSettings(token=token, allowed_ids=allowed_ids, mode=mode, auditor_names=names)
+    return BotSettings(
+        token=token,
+        allowed_ids=allowed_ids,
+        mode=mode,
+        ui_lang=_parse_ui_lang(src),
+        auditor_names=names,
+    )

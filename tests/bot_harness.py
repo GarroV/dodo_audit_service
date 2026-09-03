@@ -110,6 +110,20 @@ class RecordingSession(BaseSession):
                 return [b.callback_data or "" for row in buttons for b in row]
         return []
 
+    def keyboard_texts(self) -> list[str]:
+        """Надписи всех кнопок последнего сообщения с клавиатурой.
+
+        Нужны там, где проверяется язык (T131): в `callback_data` едет код, и
+        языка он не знает намеренно, — а русская надпись под английским
+        вопросом ломает демо ровно так же, как русский текст, только незаметнее.
+        """
+        for call in reversed(self.calls):
+            markup = getattr(call, "reply_markup", None)
+            buttons = getattr(markup, "inline_keyboard", None)
+            if buttons:
+                return [b.text for row in buttons for b in row]
+        return []
+
     @property
     def documents(self) -> list[Any]:
         """Отправленные файлы — по ним проверяется, что отчёт дошёл до аудитора."""
