@@ -486,6 +486,42 @@ Best regards,
 {auditor}
 Dodo Brands""",
 }
+# Проверка без единой записи. Отдельный шаблон, а не «чистое письмо с нулём»:
+# у чистого письма есть блок «Что отметили» и обещание, что перечисленные
+# отклонения устраняются в рабочем порядке — при нуле находок и то и другое
+# ложь, и партнёр идёт искать в отчёте нарушения, которых нет (T128).
+LETTER_EMPTY = {
+    "ru": """Тема: Результаты проверки — {unit}, {date}: оценка {grade} ({pct}%)
+
+Здравствуйте{partner_greet}!
+
+{date} мы провели проверку пиццерии {unit}{city}. Вид проверки — {type}.
+
+Итоговая оценка — {grade} ({pct}%).{grade_note} Нарушений не зафиксировано.
+
+Отчёт с разбивкой по зонам — во вложении. Плана действий не ждём.
+
+Спасибо за работу. Готовы обсудить любой пункт отчёта.
+
+С уважением,
+{auditor}
+Dodo Brands""",
+    "en": """Subject: Inspection results — {unit}, {date}: grade {grade} ({pct}%)
+
+Hello{partner_greet},
+
+On {date} we inspected the {unit} store{city}. Inspection type: {type}.
+
+The final grade is {grade} ({pct}%).{grade_note} No violations were recorded.
+
+The report, with the breakdown by zone, is attached. No action plan is expected.
+
+Thank you for your work. We are happy to walk through any item in the report.
+
+Best regards,
+{auditor}
+Dodo Brands""",
+}
 GRADE_NOTE = {
     "ru": {"A": " Пиццерия соответствует стандарту.",
            "B": " Пиццерия в целом соответствует стандарту, отклонения незначительные.",
@@ -560,7 +596,10 @@ def build_letter(res, lang):
             crit = ("\nКритично (D3): " + names + ". По методике нарушение D3 обнуляет всю зону, "
                     "в которой оно зафиксировано.\n\n")
     contact = m.get("contact") or ""
-    template = LETTER_CLEAN[lang] if clean else LETTER_PLAN[lang]
+    if clean and not res["findings"]:
+        template = LETTER_EMPTY[lang]
+    else:
+        template = LETTER_CLEAN[lang] if clean else LETTER_PLAN[lang]
     return template.format(
         unit=m.get("unit", ""), date=fmt_date(m.get("date")),
         city=(f", {m['city']}" if m.get("city") else ""),
