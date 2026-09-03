@@ -277,3 +277,61 @@ def test_сервер_обслуживает_пока_его_не_останов
     поток.join(timeout=5)
 
     assert not поток.is_alive(), "цикл обслуживания не остановился"
+
+
+# --- отказ на неучтённом сбое называет то, что делал, а не то, что делал раньше
+
+
+def _запрос(инструмент: str, аргументы: Any) -> dict[str, Any]:
+    return {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": инструмент, "arguments": аргументы},
+    }
+
+
+def _текст_отказа(ответ: Any) -> str:
+    return str(ответ["result"]["content"][0]["text"])
+
+
+def test_сбой_чтения_говорит_про_чтение(monkeypatch: pytest.MonkeyPatch) -> None:
+    def падает(**_: Any) -> Any:
+        raise OSError("диск отвалился")
+
+    monkeypatch.setattr("src.mcp.tools.list_inspections", падает)
+    ответ = handle(_запрос("list_inspections", {}), tenant=АРЕНДАТОР)
+
+    текст = _текст_отказа(ответ)
+    assert "проверки" in текст, текст
+    assert ответ["result"]["isError"] is True
+
+
+def test_сбой_записи_методики_не_говорит_про_чтение_проверок(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Наследие read-only эпохи: текст врал про чтение проверок на записи.
+
+    Гонка двух одинаковых правок отвечала «не удалось прочитать проверки» —
+    и агент пересказал бы это человеку как отказ чтения, пока его правка молча
+    терялась. Найдено разбором безопасности 03.09 живым запуском двух
+    параллельных вызовов.
+    """
+
+    class ПадающееХранилище:
+        def __getattr__(self, _: str) -> Any:
+            def падает(**_kw: Any) -> Any:
+                raise OSError("гонка записи")
+
+            return падает
+
+    ответ = handle(
+        _запрос("checklist_versions", {}),
+        tenant=АРЕНДАТОР,
+        checklist=ПадающееХранилище(),
+    )
+
+    текст = _текст_отказа(ответ)
+    assert "проверки" not in текст, f"отказ записи методики говорит про чтение проверок: {текст}"
+    assert "методик" in текст, текст
+    assert ответ["result"]["isError"] is True
