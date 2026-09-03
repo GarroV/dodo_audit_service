@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from aiogram import F, Router
@@ -196,7 +197,10 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
             callback.from_user.id, callback.from_user.full_name, settings.auditor_names
         )
         try:
-            inspection = domain.start_inspection(
+            # Подпроцесс — в поток: старт проверки не должен останавливать бота
+            # для остальных аудиторов (T101).
+            inspection = await asyncio.to_thread(
+                domain.start_inspection,
                 message.chat.id,
                 unit=unit,
                 kind=KIND_LABELS[kind_code],

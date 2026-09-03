@@ -262,14 +262,18 @@ async def _save(
     печатает в отчёте партнёру, а сказанное вслух на точке для партнёра не
     предназначено. В отчёт идёт формулировка, собранная по правилам фиксации.
     """
+    # Движок вызывается подпроцессом, и это 27 мс на вызов. В цикле событий
+    # такой вызов останавливает бота ЦЕЛИКОМ — он не обслуживает ни других
+    # аудиторов, ни таймеры альбомов (замер T101: подтверждение записи стоило
+    # 47 мс, и очередь росла линейно — двадцать аудиторов, секунда последнему).
     try:
-        finding = domain.add_finding(chat_id, code, level, zone, text)
+        finding = await asyncio.to_thread(domain.add_finding, chat_id, code, level, zone, text)
     except DomainError as exc:
         await message.answer(t("record.failed", lang, reason=exc))
         return False
     for file_id in file_ids:
         try:
-            domain.attach_photo(chat_id, finding.n, file_id)
+            await asyncio.to_thread(domain.attach_photo, chat_id, finding.n, file_id)
         except DomainError:
             # Запись уже есть, и терять её из-за одного кадра нельзя. Молчанием
             # это не станет: не прикрепившийся кадр остаётся в заметках без
@@ -277,10 +281,13 @@ async def _save(
             logger.exception("кадр %s не прикрепился к записи #%s", file_id, finding.n)
     sidecar.remember_source(chat_id, finding.n, source)
     sidecar.remember_zone(chat_id, zone)
+    # `get_state` — чтение файла, 0.1 мс: в поток не выносится, обёртка стоила
+    # бы дороже самой операции. `score` — подпроцесс, выносится.
     saved = domain.get_state(chat_id)
     current = None if saved is None else saved.finding(finding.n)
+    pct = (await asyncio.to_thread(domain.score, chat_id)).pct
     await message.answer(
-        view.confirm_line(current or finding, domain.score(chat_id).pct, lang),
+        view.confirm_line(current or finding, pct, lang),
         reply_markup=edit_keyboard(finding.n, lang),
     )
     return True

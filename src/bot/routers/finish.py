@@ -63,7 +63,8 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
     if inspection is None:
         await message.answer(t("material.no_inspection", lang))
         return
-    score = domain.score(chat_id)
+    # Подпроцесс (26 мс) — в поток, чтобы бот не вставал на время расчёта (T101).
+    score = await asyncio.to_thread(domain.score, chat_id)
     await message.answer(
         t(
             "finish.summary",

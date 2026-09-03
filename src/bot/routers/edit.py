@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.filters import Command, StateFilter
@@ -58,8 +60,12 @@ async def show_changed(message: Message, chat_id: int, n: int, lang: str) -> Non
     if finding is None:
         await message.answer(t("edit.gone", lang, n=n))
         return
+    # `score` ходит подпроцессом (26 мс) — в цикле событий это остановка бота
+    # целиком, замер T101. `get_state` выше — чтение файла, 0.1 мс, обёртка
+    # стоила бы дороже операции.
+    pct = (await asyncio.to_thread(domain.score, chat_id)).pct
     await message.answer(
-        view.changed_line(finding, domain.score(chat_id).pct, lang),
+        view.changed_line(finding, pct, lang),
         reply_markup=edit_keyboard(n, lang),
     )
 
@@ -82,7 +88,7 @@ def build_edit_router() -> Router:
 
     async def apply(message: Message, chat_id: int, n: int, lang: str, **fields: str) -> None:
         try:
-            domain.edit_finding(chat_id, n, **fields)
+            await asyncio.to_thread(domain.edit_finding, chat_id, n, **fields)
         except DomainError as exc:
             await message.answer(t("edit.failed", lang, reason=exc))
             return
@@ -108,14 +114,13 @@ def build_edit_router() -> Router:
 
     async def drop(message: Message, chat_id: int, n: int, lang: str) -> None:
         try:
-            domain.drop_finding(chat_id, n)
+            await asyncio.to_thread(domain.drop_finding, chat_id, n)
         except DomainError as exc:
             await message.answer(t("edit.failed", lang, reason=exc))
             return
         sidecar.forget_source(chat_id, n)
-        await message.answer(
-            t("edit.dropped", lang, n=n, pct=view.percent(domain.score(chat_id).pct))
-        )
+        pct = (await asyncio.to_thread(domain.score, chat_id)).pct
+        await message.answer(t("edit.dropped", lang, n=n, pct=view.percent(pct)))
 
     @router.callback_query(F.data.startswith(EDIT_PREFIX))
     async def on_edit(callback: CallbackQuery, state: FSMContext) -> None:
