@@ -1,4 +1,4 @@
-.PHONY: check test regress demo demo-down loadcheck lint types dead bounds fmt migrate cov-engine
+.PHONY: check test regress demo demo-down loadcheck loadcheck-live lint types dead bounds fmt migrate cov-engine
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -56,6 +56,12 @@ demo:
 # Проверка способна упасть: со снятой блокировкой движка теряет записи альбома.
 loadcheck:
 	STATE_DIR=$${STATE_DIR:-/tmp/loadcheck-state} $(VENV)/python tools/loadcheck.py
+
+# Живой замер (T101, D062): НАСТОЯЩИЕ вызовы модели, то есть платный прогон.
+# Без --yes ничего не вызывает, только показывает план и цену. Владелец
+# санкционировал: «нам надо реально понять ограничения системы».
+loadcheck-live:
+	$(VENV)/python tools/loadcheck_live.py $(ARGS)
 
 demo-down:
 	docker compose --profile demo rm -sf demo demo-seed
