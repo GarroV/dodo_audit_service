@@ -27,6 +27,7 @@ from src.domain.errors import DomainError
 from src.domain.models import Inspection, Score
 
 from .config import check_environment
+from .directory import resolve_unit_id
 from .errors import PushError
 from .fingerprint import compute_fingerprint
 from .units import normalize_unit_name
@@ -120,11 +121,19 @@ def _push(conn: psycopg.Connection[Any], inspection: Inspection, result: Score) 
 
     with conn.cursor() as cur:
         cur.execute(_INSERT_TENANT_SQL, (tenant_code,))
-        cur.execute(
-            _UPSERT_UNIT_SQL,
-            (tenant_code, inspection.unit, normalize_unit_name(inspection.unit)),
-        )
-        unit_id = _require_row(cur)[0]
+        # Сначала справочник и карта синонимов (T092): «БГ2», введённое на
+        # бегу, обязано лечь в ту же точку, что «Белград 2», — иначе у одной
+        # пиццерии заводятся две несвязанные истории, а история точки и есть
+        # то, ради чего проверки складываются в базу (D035). Не нашлось —
+        # точка заводится по нормализованному названию, как и раньше: справочник
+        # может быть не заполнен, и это не повод отказать в сливе на точке.
+        unit_id = resolve_unit_id(conn, inspection.unit, tenant=tenant_code)
+        if unit_id is None:
+            cur.execute(
+                _UPSERT_UNIT_SQL,
+                (tenant_code, inspection.unit, normalize_unit_name(inspection.unit)),
+            )
+            unit_id = _require_row(cur)[0]
 
         cur.execute(
             _INSERT_INSPECTION_SQL,

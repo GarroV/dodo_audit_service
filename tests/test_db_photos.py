@@ -252,3 +252,26 @@ def test_пустой_адрес_означает_настоящий_aws_а_не
     )
     assert settings.endpoint_url is None
     assert "amazonaws.com" in S3PhotoStorage(settings).endpoint_url
+
+
+def test_отказ_поставщика_превращается_в_отказ_блока_на_границе_драйвера(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Перевод исключений делает драйвер, а не тот, кто его зовёт.
+
+    Иначе вызывающему пришлось бы ловить исключения boto3 — то есть знать про
+    конкретного поставщика, и смена хранилища перестала бы быть правкой
+    конфига. Корзины нет намеренно: это самый дешёвый настоящий отказ S3.
+    """
+    monkeypatch.setenv("MOTO_S3_CUSTOM_ENDPOINTS", АДРЕС_ХРАНИЛИЩА)
+    with moto.mock_aws():
+        склад = S3PhotoStorage(
+            StorageSettings(
+                bucket="no-such-bucket",
+                access_key_id="ключ-теста",
+                secret_access_key="секрет-теста",  # выдуманный, не настоящий
+                endpoint_url=АДРЕС_ХРАНИЛИЩА,
+            )
+        )
+        with pytest.raises(StorageError, match="no-such-bucket"):
+            склад.put("inspections/x/y.jpg", b"frame", content_type="image/jpeg")
