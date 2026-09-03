@@ -1,4 +1,4 @@
-.PHONY: check test regress demo demo-down loadcheck loadcheck-live lint types dead bounds fmt migrate db-up db-down storage-up storage-down mcp cov-engine
+.PHONY: check test regress demo demo-down loadcheck loadcheck-live fastpath lint types dead bounds fmt migrate db-up db-down storage-up storage-down mcp cov-engine
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -62,6 +62,12 @@ loadcheck:
 # санкционировал: «нам надо реально понять ограничения системы».
 loadcheck-live:
 	$(VENV)/python tools/loadcheck_live.py $(ARGS)
+
+# Замер T113: доля однозначных срабатываний быстрого пути (recognize.fastpath)
+# на боевых данных examples/*/inspection.json. Детерминированно, без сети и
+# без денег — гонять после каждого пополнения карты слов data/photo-cues.md.
+fastpath:
+	STATE_DIR=$${STATE_DIR:-/tmp/fastpath-state} $(VENV)/python tools/fastpath_measure.py
 
 demo-down:
 	docker compose --profile demo rm -sf demo demo-seed
