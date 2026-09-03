@@ -22,10 +22,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from bot_harness import (
     AUDITOR_ID,
     CHAT_ID,
+    Calls,
     candidate,
     feed,
     make_bot,
@@ -42,8 +45,16 @@ from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.keyboards import FAST_CALLBACK, MODEL_CALLBACK, SKIP_CALLBACK
 from src.bot.texts import t
-from src.domain import SOURCE_COMMENT, Finding, get_state, start_inspection
-from src.recognize.fastpath import NO_COLUMN, NO_CUE, NO_ZONE, SEVERAL_ITEMS
+from src.bot.view import zone_title
+from src.domain import SOURCE_COMMENT, Finding, get_item, get_state, start_inspection
+from src.recognize.fastpath import (
+    NO_COLUMN,
+    NO_CUE,
+    NO_ZONE,
+    SEVERAL_ITEMS,
+    FastPath,
+    fast_path,
+)
 
 pytestmark = [pytest.mark.asyncio, requires_data]
 
@@ -62,6 +73,22 @@ TWO_VIOLATIONS = (
     "потом ещё раз проверю на выходе, и это не всё что тут не так, потому что пол "
     "у входа в цех тоже грязный"
 )
+
+
+def spy_fast_path(monkeypatch: pytest.MonkeyPatch) -> Calls:
+    """Считать вызовы сверки, не подменяя её: сама сверка остаётся настоящей.
+
+    Нужен там, где проверяется не ответ, а сам факт обращения к карте: на голом
+    кадре слов нет, сверять не с чем, и лезть за этим на диск незачем.
+    """
+    calls = Calls()
+
+    def counted(note: str, zone_hint: str | None, **kw: Any) -> FastPath:
+        calls.append((note, zone_hint))
+        return fast_path(note, zone_hint, **kw)
+
+    monkeypatch.setattr("src.bot.routers.record.fast_path", counted)
+    return calls
 
 
 def started() -> None:
@@ -94,7 +121,13 @@ async def test_однозначные_слова_фиксируются_без_�
 async def test_рядом_с_кнопкой_видны_слова_аудитора_и_строка_карты(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Из чего сделан вывод, видно человеку, а не только логу."""
+    """Из чего сделан вывод, видно человеку, а не только логу.
+
+    Сообщение сверяется целиком, а не поиском подстрок. Проверено порчей:
+    «строка карты» и вопрос чек-листа начинаются одинаково («Печь…»), и
+    проверка `"Печь" in shown` оставалась зелёной с пустой строкой карты —
+    подстроку давал заголовок пункта. Такая проверка не проверяет ничего.
+    """
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
     bot, session = make_bot()
@@ -103,9 +136,16 @@ async def test_рядом_с_кнопкой_видны_слова_аудитор
 
     await feed(dp, bot, photo_message("frame-1", caption=CLEAR))
 
-    shown = session.last_text
-    assert CLEAR in shown, "слов аудитора рядом с кнопкой нет"
-    assert "Печь" in shown, "сработавшей строки карты рядом с кнопкой нет"
+    assert session.last_text == t(
+        "record.fast",
+        "ru",
+        note=CLEAR,
+        cue="Печь",
+        code="CLN05",
+        level="D1",
+        zone=zone_title("hot_kitchen", "ru"),
+        title=get_item("CLN05").question("ru"),
+    )
 
 
 async def test_фраза_с_двумя_нарушениями_показывает_слова_целиком(
@@ -247,10 +287,16 @@ async def test_нажатия_без_предложения_отвечают_ч�
     assert session.last_text == t("record.stale", "ru")
 
 
-async def test_разобрать_моделью_поверх_обычных_кандидатов_устарело(
+async def test_кнопки_быстрого_пути_поверх_кандидатов_модели_устарели(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Кнопка из-под прошлого быстрого предложения не разбирает чужой материал."""
+    """Кнопки из-под прошлого быстрого предложения не трогают чужой материал.
+
+    Живое предложение в чате есть, но оно от модели: быстрого пункта в нём нет.
+    Нажатие обязано ответить «устарело», а не записать пустоту. Проверено
+    порчей: без проверки на сам пункт «Записать» уходит в фиксацию с `None`
+    вместо кода — падение обработчика, о котором аудитор узнаёт молчанием.
+    """
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
     bot, session = make_bot()
@@ -258,10 +304,16 @@ async def test_разобрать_моделью_поверх_обычных_к�
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
     await feed(dp, bot, photo_message("frame-1", caption="тут непорядок"))
+    assert "rec:pick:0" in session.keyboard_data(), "нужно живое предложение от модели"
+
     session.clear()
     await feed(dp, bot, callback(MODEL_CALLBACK))
-
     assert session.last_text == t("record.stale", "ru")
+
+    session.clear()
+    await feed(dp, bot, callback(FAST_CALLBACK))
+    assert session.last_text == t("record.stale", "ru")
+    assert findings() == []
 
 
 async def test_без_названной_зоны_быстрый_путь_молчит(
@@ -282,9 +334,14 @@ async def test_без_названной_зоны_быстрый_путь_мол
 async def test_голый_кадр_по_кнопке_разобрать_идёт_в_модель(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Слов нет — сверять не с чем; «Разобрать» остаётся вызовом модели (D046)."""
+    """Слов нет — сверять не с чем; «Разобрать» остаётся вызовом модели (D046).
+
+    Карту при этом не читают вовсе: сверять пустые слова со списком нарушений
+    нечем, а чтение методики и карты стоит миллисекунды в цикле событий.
+    """
     started()
     asked = stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
+    checked = spy_fast_path(monkeypatch)
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
@@ -294,6 +351,7 @@ async def test_голый_кадр_по_кнопке_разобрать_идёт
 
     assert len(asked) == 1
     assert asked[0][0] == ""
+    assert checked == [], "сверка со списком звалась на пустых словах — впустую"
     assert FAST_CALLBACK not in session.keyboard_data()
 
 

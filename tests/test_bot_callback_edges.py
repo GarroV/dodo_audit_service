@@ -28,12 +28,15 @@ pytestmark = [pytest.mark.asyncio, requires_data]
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 
-#: Все коды кнопок второй очереди — по одному на каждый обработчик нажатия.
+#: Все коды кнопок разговора — по одному на каждый обработчик нажатия.
 #: Список перечислен руками, а не собран маской: маска молча пропустила бы
 #: обработчик, забытый в этой проверке, — ровно то, ради чего тест и написан.
 EVERY_CALLBACK = [
     "rec:analyze:501",
     "rec:pick:0",
+    # Быстрый путь (T117): подтверждение найденного без модели и выход к модели.
+    "rec:fast",
+    "rec:model",
     "rec:zp:hot_kitchen",
     "rec:zm:hot_kitchen",
     "rec:manual",
