@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import ConfigError
+from .version import published
 
 DATA_DIR_VAR = "AUDIT_DATA_DIR"
 STATE_DIR_VAR = "STATE_DIR"
@@ -22,6 +23,19 @@ STATE_DIR_VAR = "STATE_DIR"
 #: данных (`engine/../data`), то есть считает по смеси двух методик, — поэтому
 #: полнота каталога проверяется до первого вызова.
 REQUIRED_DATA_FILES = ("checklist.csv", "zones.csv", "scoring.json", "criteria.md")
+
+#: Файлы методики, которых может не быть. В отпечаток версии они входят наравне
+#: с обязательными (D050: любая правка методики — новая версия), а отсутствие
+#: файла — законное состояние, а не отказ.
+#:
+#: `route.csv` — порядок обхода (T061). Отдельным файлом, а не колонкой в
+#: `checklist.csv` и `zones.csv`, потому что `engine/manage.py` перезаписывает
+#: оба файла фиксированным списком колонок (`FIELDS`, `write_rows`): любая
+#: правка методики через него молча стёрла бы весь маршрут.
+OPTIONAL_DATA_FILES = ("route.csv",)
+
+#: Всё, что образует методику, — в том порядке, в котором идёт в отпечаток версии.
+DATA_FILES = REQUIRED_DATA_FILES + OPTIONAL_DATA_FILES
 
 #: Форк методики: `manage.py` при любой правке чек-листа создаёт эту папку в
 #: текущем рабочем каталоге, и дальше движок из неё считает по форку, а из
@@ -105,6 +119,9 @@ def check_environment(env: Mapping[str, str] | None = None) -> Settings:
             f"{', '.join(missing)}. Движок добрал бы недостающее из своей копии данных "
             f"и посчитал по смеси двух методик"
         )
+    # Издание методики разбирается на старте, а не при первой проверке: узнать,
+    # что набор подписан без даты, аудитор должен до выезда на точку, а не в поле.
+    published(settings.data_dir)
     if not settings.audit_script.is_file():
         raise ConfigError(
             f"Движок не найден: {settings.audit_script}. Блок вызывает его подпроцессом, "

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from conftest import requires_data
 
-from src.domain import allowed_levels, checklist_version, list_items, list_zones
+from src.domain import allowed_levels, list_items, list_zones
 from src.domain.errors import ValidationError
 
 pytestmark = requires_data
@@ -99,25 +99,6 @@ def test_зоны_читаются_с_долями_и_обоими_назван�
     assert fridge.title("en") == "Refrigerator"
 
 
-def test_версия_чек_листа_держится_за_содержимое(
-    data_copy: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Отчёты старых проверок должны сходиться — значит версия меняется с файлом."""
-    monkeypatch.setenv("AUDIT_DATA_DIR", str(data_copy))
-    monkeypatch.setenv("STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.chdir(tmp_path)
-    before = checklist_version()
-    assert before == checklist_version(), "версия обязана быть устойчивой на тех же данных"
-    with (data_copy / "checklist.csv").open("a", encoding="utf-8") as f:
-        f.write("ZZZ01,violation,Тест,Test,Вопрос,Question,D1,fridge,10\n")
-    assert checklist_version() != before, "правка методики не изменила версию"
-
-
-def test_явная_версия_из_каталога_методики_важнее_вычисленной(
-    data_copy: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (data_copy / "checklist_version.txt").write_text("imf-2026-08-21\n", encoding="utf-8")
-    monkeypatch.setenv("AUDIT_DATA_DIR", str(data_copy))
-    monkeypatch.setenv("STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.chdir(tmp_path)
-    assert checklist_version() == "imf-2026-08-21"
+# Версия методики проверяется отдельно — `tests/test_domain_version.py`: после
+# D050 идентификатор составной (имя, дата, отпечаток), и случаев там столько,
+# что в файле про чтение чек-листа они перестали быть видны.
