@@ -13,6 +13,12 @@
 Оценка не считается: процент, буква и разбивка приходят из `domain.score()`,
 который зовёт движок. Отчёт и письмо собирает блок `report` — здесь только
 кадры, потому что токен телеграма есть у одного бота.
+
+Отсюда же завершённая проверка уходит в историю (задача T123, решение D027):
+`db.push_inspection`, следом `db.upload_photos`. Место выбрано не случайно —
+это единственный момент, когда проверка закончена: у движка признака
+«завершена» нет, а после отчёта аудитор может начать новую, и она перепишет
+`inspection.json` вместе со всеми находками и идентификаторами кадров.
 """
 
 from __future__ import annotations
@@ -20,13 +26,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import tempfile
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
-from src import domain
+from src import db, domain
 from src.report import PhotoMissing, ReportError, build_letter, build_pdf
 
 from .. import sidecar, view
@@ -41,15 +48,11 @@ from ..keyboards import (
     pick_record_keyboard,
     without_photos_keyboard,
 )
+from ..lang import chat_ui_lang
 from ..photos import download_all
-from ..texts import t, ui_lang_or_default
+from ..texts import t
 
 logger = logging.getLogger(__name__)
-
-
-def chat_ui_lang(chat_id: int) -> str:
-    inspection = domain.get_state(chat_id)
-    return ui_lang_or_default(None if inspection is None else inspection.ui_lang)
 
 
 async def show_summary(message: Message, chat_id: int, lang: str) -> None:
@@ -107,12 +110,88 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
     )
 
 
+def _reader(photos: Mapping[str, str]) -> Callable[[str], bytes | None]:
+    """Как достать байты кадра по его идентификатору телеграма.
+
+    Синхронная функция намеренно: такой её ждёт `db.upload_photos`, и зовётся
+    она уже в рабочем потоке. Читается то, что бот скачал для отчёта, — второй
+    поход в телеграм за теми же кадрами стоил бы и времени, и лимитов.
+    """
+
+    def read(file_id: str) -> bytes | None:
+        path = photos.get(file_id)
+        if path is None:
+            return None
+        try:
+            return Path(path).read_bytes()
+        except OSError:
+            # Кадр скачался, но не читается. Молча выдать «кадра нет» нельзя:
+            # `upload_photos` перечислит его как потерянный, а причина — здесь.
+            logger.exception("кадр %s не прочитался с диска", file_id)
+            return None
+
+    return read
+
+
+async def archive(
+    message: Message,
+    chat_id: int,
+    photos: Mapping[str, str],
+    lang: str,
+    *,
+    allow_missing: bool,
+) -> None:
+    """Отправить завершённую проверку в историю: сама проверка, затем кадры (T123).
+
+    Зовётся ПОСЛЕ того, как отчёт и письмо уже у аудитора, и ни один её исход
+    не отменяет сделанного: человек стоит на точке, документ он получил, и
+    отказ базы для него — не повод переделывать проверку (D027).
+
+    Три исхода, и они разные:
+
+    * `ConfigError` — базы (или хранилища) в этой конфигурации просто нет.
+      Работа без базы законна, и сообщать о ней нечего: строка в журнал.
+    * прочий `DbError` — база есть, но не приняла. Молчать нельзя: аудитор
+      иначе останется уверен, что история сохранена, а она нет.
+    * успех — ни одного лишнего сообщения.
+
+    Слив и выгрузка вынесены в поток: обе ходят в сеть, а цикл событий
+    обслуживает и других аудиторов, и таймеры альбомов (T101).
+    """
+    try:
+        inspection_id = await asyncio.to_thread(db.push_inspection, chat_id)
+    except db.ConfigError as exc:
+        logger.info("проверка чата %s не сливается в историю: %s", chat_id, exc)
+        return
+    except db.DbError:
+        logger.exception("слив проверки чата %s не удался", chat_id)
+        await message.answer(t("finish.not_archived", lang))
+        return
+
+    try:
+        await asyncio.to_thread(
+            db.upload_photos,
+            inspection_id,
+            fetch=_reader(photos),
+            allow_missing=allow_missing,
+        )
+    except db.ConfigError as exc:
+        logger.info("кадры проверки чата %s не выгружаются: %s", chat_id, exc)
+    except db.DbError:
+        logger.exception("выгрузка кадров проверки чата %s не удалась", chat_id)
+        await message.answer(t("finish.photos_not_archived", lang))
+
+
 async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: bool) -> None:
-    """Собрать отчёт и письмо и отдать их в чат.
+    """Собрать отчёт и письмо, отдать их в чат и записать проверку в историю.
 
     Кадры скачиваются заранее и отдаются `report` готовой картой: `build_pdf`
     синхронный и выполняется в рабочем потоке, а качать из него нельзя — там нет
     цикла событий. Карта же держит правило «где лежит кадр» в одном месте.
+
+    Временная папка с кадрами живёт до конца работы, а не до отдачи PDF: та же
+    карта нужна выгрузке кадров в хранилище (T123). Скачивать их второй раз
+    значило бы платить телеграму дважды за один и тот же кадр.
     """
     bot = message.bot
     inspection = domain.get_state(chat_id)
@@ -145,13 +224,17 @@ async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: b
             await message.answer(t("finish.pdf_failed", lang, reason=exc))
             return
 
-    await message.answer_document(FSInputFile(pdf))
-    try:
-        letter = await asyncio.to_thread(build_letter, chat_id)
-    except ReportError as exc:
-        await message.answer(t("finish.pdf_failed", lang, reason=exc))
-        return
-    await message.answer(t("finish.letter", lang, letter=letter))
+        await message.answer_document(FSInputFile(pdf))
+        try:
+            letter = await asyncio.to_thread(build_letter, chat_id)
+        except ReportError as exc:
+            await message.answer(t("finish.pdf_failed", lang, reason=exc))
+        else:
+            await message.answer(t("finish.letter", lang, letter=letter))
+
+        # После отчёта, а не вместо: не собравшееся письмо проверку в истории
+        # не отменяет — она завершена ровно тем, что документ уже у аудитора.
+        await archive(message, chat_id, found, lang, allow_missing=allow_missing)
 
 
 def build_finish_router() -> Router:

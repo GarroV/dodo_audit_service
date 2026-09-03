@@ -63,7 +63,7 @@ from src.recognize.manual import manual_candidates
 from src.recognize.models import UNKNOWN_ZONE
 from src.recognize.transcribe import transcribe
 
-from .. import sidecar, view
+from .. import refusal, sidecar, view
 from ..keyboards import (
     ANALYZE_PREFIX,
     MANUAL_CALLBACK,
@@ -84,27 +84,17 @@ from ..keyboards import (
     manual_keyboard,
     zones_keyboard,
 )
+from ..lang import chat_langs
 from ..material import Comment, Material, MaterialStore, PhotoGroup
 from ..pending import Offer, PendingStore, Proposal
 from ..photos import fetch_bytes
-from ..texts import t, ui_lang_or_default
+from ..texts import t
+from ..zones import zone_from_words
 
 logger = logging.getLogger(__name__)
 
 #: Что делать с кадрами, которые пришли без подписи и ждут комментария.
 WaitingHandler = Callable[[Message, PhotoGroup, str], Awaitable[None]]
-
-
-def _langs(chat_id: int) -> tuple[str, str]:
-    """Язык интерфейса и язык отчёта этого чата.
-
-    Разные языки, и путать их нельзя: интерфейс аудитор читает сам, а
-    формулировка от модели уходит партнёру и обязана быть на языке отчёта.
-    """
-    inspection = domain.get_state(chat_id)
-    if inspection is None:
-        return ui_lang_or_default(None), ui_lang_or_default(None)
-    return ui_lang_or_default(inspection.ui_lang), inspection.report_lang
 
 
 def make_waiting_handler(pending: PendingStore) -> WaitingHandler:
@@ -205,7 +195,7 @@ async def _open_manual(
         pending.propose(chat_id, proposal)
         await _ask_zone(message, ZONE_FOR_MANUAL_PREFIX, lang)
         return
-    _, report_lang = _langs(chat_id)
+    _, report_lang = chat_langs(chat_id)
     try:
         items = await asyncio.to_thread(manual_candidates, zone, lang=report_lang)
     except RecognizeError as exc:
@@ -264,6 +254,7 @@ async def _try_fast(
         source=base.source,
         lang=lang,
         auto=item,
+        zone_guessed=not base.zone_spoken,
     )
     if not saved:
         return False
@@ -290,9 +281,19 @@ async def _analyze(
     `fast=False` приходит с кнопки «Разобрать моделью»: второй заход обязан
     дойти до модели, иначе кнопка возвращала бы тот же быстрый ответ по кругу.
     """
-    lang, report_lang = _langs(chat_id)
-    zone_hint = sidecar.read(chat_id).zone
-    base = Proposal(file_ids=file_ids, source=source, note=note, zone_hint=zone_hint)
+    lang, report_lang = chat_langs(chat_id)
+    # Слова текущего комментария — первыми, память — только если о зоне в них
+    # ничего не сказано (T124). Обратный порядок и был дефектом: «в зале лужа»
+    # ложилось в горячий цех, потому что там была прошлая запись.
+    spoken = zone_from_words(note)
+    zone_hint = spoken or sidecar.read(chat_id).zone
+    base = Proposal(
+        file_ids=file_ids,
+        source=source,
+        note=note,
+        zone_hint=zone_hint,
+        zone_spoken=spoken is not None,
+    )
 
     if fast and note and await _try_fast(message, chat_id, base, pending, lang):
         return
@@ -339,6 +340,7 @@ async def _save(
     source: str,
     lang: str,
     auto: FastItem | None = None,
+    zone_guessed: bool = False,
 ) -> bool:
     """Зафиксировать запись и показать её (T055, T121).
 
@@ -367,7 +369,14 @@ async def _save(
             domain.add_finding, chat_id, code, level, zone, text, source=source
         )
     except DomainError as exc:
-        await message.answer(t("record.failed", lang, reason=exc))
+        # Отказ движка разбирается, а не пересказывается (T127): пункт и зона
+        # называются по-человечески, а занятая пара «пункт + зона» — частый
+        # случай — приводит к кнопкам той записи, которая её заняла.
+        told = refusal.not_recorded(chat_id, code=code, zone=zone, lang=lang, exc=exc)
+        await message.answer(
+            told.text,
+            reply_markup=edit_keyboard(told.clash.n, lang) if told.clash is not None else None,
+        )
         return False
     for file_id in file_ids:
         try:
@@ -390,7 +399,9 @@ async def _save(
         )
     else:
         await message.answer(
-            view.fixed_block(shown, pct, lang, title=auto.title, cue=auto.cue),
+            view.fixed_block(
+                shown, pct, lang, title=auto.title, cue=auto.cue, zone_guessed=zone_guessed
+            ),
             reply_markup=fixed_keyboard(finding.n, lang),
         )
     return True
@@ -406,7 +417,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
         if not isinstance(message, Message):
             return None
         chat_id = message.chat.id
-        lang, _ = _langs(chat_id)
+        lang, _ = chat_langs(chat_id)
         return message, chat_id, lang
 
     async def stale(message: Message, lang: str) -> None:

@@ -29,6 +29,7 @@ from src.bot import sidecar
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.texts import t
+from src.bot.view import zone_title
 from src.domain.errors import EngineError
 
 pytestmark = [pytest.mark.asyncio, requires_data]
@@ -269,12 +270,16 @@ async def test_editing_a_gone_record_does_not_crash_the_bot(domain_env: object) 
     assert session.last_text == t("edit.dropped", "ru", n=1, pct=_pct())
 
 
-async def test_engine_refusal_reaches_the_auditor_verbatim(domain_env: object) -> None:
-    """Отказ движка (класс не разрешён пункту) уходит аудитору текстом, запись не портится.
+async def test_engine_refusal_reaches_the_auditor_in_his_own_words(domain_env: object) -> None:
+    """Отказ движка доходит до аудитора — но словами бота, а не движка (T127).
 
     Проверено фактическим прогоном: `CLN05` разрешает только `D1`
     (`data/checklist.csv`), и движок на `D3` действительно отказывает
     (`engine/audit.py: cmd_edit`) вместо того, чтобы молча принять правку.
+
+    Дословно его текст больше не пересказывается: он написан для командной
+    строки, а у аудитора её нет. Разбор — `tests/test_bot_refusal.py`; здесь
+    важно, что отказ дошёл и запись не испортилась.
     """
     domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
     domain.add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "текст")
@@ -283,9 +288,13 @@ async def test_engine_refusal_reaches_the_auditor_verbatim(domain_env: object) -
 
     await feed(dp, bot, callback_query("el:1:D3"))
 
-    levels = "/".join(domain.get_item("CLN05").levels)
-    reason = f"У вопроса CLN05 нет уровня D3. Доступны: {levels}"
-    assert session.last_text == t("edit.failed", "ru", reason=reason)
+    assert session.last_text == t(
+        "edit.failed",
+        "ru",
+        n=1,
+        item=domain.get_item("CLN05").question("ru"),
+        zone=zone_title("hot_kitchen", "ru"),
+    )
     inspection = domain.get_state(CHAT_ID)
     assert inspection is not None
     finding = inspection.finding(1)
@@ -367,12 +376,16 @@ async def test_command_instead_of_wording_still_runs(domain_env: object) -> None
 
 
 async def test_engine_refusing_to_delete_is_reported_not_swallowed(
-    domain_env: object, monkeypatch: pytest.MonkeyPatch
+    domain_env: object, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Отказ движка на удаление уходит аудитору текстом, а не тонет в «удалено».
+    """Отказ движка на удаление уходит аудитору, а не тонет в «удалено».
 
     Молчаливое «удалено» на неудалённой записи — худший исход: аудитор уходит с
     точки уверенным, что ошибку убрал, а она едет партнёру в отчёте.
+
+    Своими словами движка в чате больше нет (T127): «состояние заблокировано»
+    написано для того, кто чинит. Аудитору называется запись, которая осталась
+    на месте, а разбор уходит в журнал — и проверяются оба конца.
     """
     domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
@@ -384,9 +397,11 @@ async def test_engine_refusing_to_delete_is_reported_not_swallowed(
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
-    await feed(dp, bot, text_message("/undo"))
+    with caplog.at_level("ERROR"):
+        await feed(dp, bot, text_message("/undo"))
 
-    assert "состояние заблокировано" in session.last_text
+    assert session.last_text == t("edit.drop_failed", "ru", n=1)
+    assert "состояние заблокировано" in caplog.text, "причина отказа потеряна совсем"
     state = domain.get_state(CHAT_ID)
     assert state is not None
     assert len(state.findings) == 1, "запись исчезла, хотя движок отказал"

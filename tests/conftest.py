@@ -171,10 +171,32 @@ def data_copy(tmp_path: Path) -> Path:
 
 DATABASE_URL_VAR = "DATABASE_URL"
 
+#: Строка подключения запускающего, снятая ОДИН РАЗ при сборе тестов. Дальше
+#: она из окружения убирается (`_база_не_видна_сама_собой`), поэтому читать её
+#: во время теста уже неоткуда — и это единственное место, где она берётся.
+BASE_DSN = os.environ.get(DATABASE_URL_VAR, "")
+
 requires_db = pytest.mark.skipif(
-    not os.environ.get(DATABASE_URL_VAR),
+    not BASE_DSN,
     reason=f"нет {DATABASE_URL_VAR} — тесты блока db идут только с настоящим Postgres рядом",
 )
+
+
+@pytest.fixture(autouse=True)
+def _база_не_видна_сама_собой(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`DATABASE_URL` не достаётся тесту, который её не просил (T123).
+
+    С задачи T123 продукт ходит в базу сам — на завершении проверки. Значит,
+    любой тест бота, доводящий разговор до отчёта, при выставленной в оболочке
+    переменной начал бы писать в базу разработчика, и один и тот же набор вёл
+    бы себя по-разному с базой и без неё. Ровно этот разлад сверка со спекой
+    однажды уже поймала, поэтому переменная выдаётся только через фикстуры
+    `db_env`/`pg_dsn`, то есть тем, кто просит базу явно.
+
+    Автоматическая фикстура ставится раньше запрошенных явно, поэтому `db_env`
+    выставляет свою строку уже поверх снятой.
+    """
+    monkeypatch.delenv(DATABASE_URL_VAR, raising=False)
 
 
 @pytest.fixture
@@ -193,8 +215,7 @@ def pg_dsn() -> Iterator[str]:
 
     from src.db.migrate import apply_migrations
 
-    base = os.environ[DATABASE_URL_VAR]
-    maintenance_dsn = make_conninfo(base, dbname="postgres")
+    maintenance_dsn = make_conninfo(BASE_DSN, dbname="postgres")
     dbname = f"dodo_audit_test_{uuid.uuid4().hex[:12]}"
     create = sql.SQL("create database {}").format(sql.Identifier(dbname))
     drop = sql.SQL("drop database if exists {} with (force)").format(sql.Identifier(dbname))
@@ -202,7 +223,7 @@ def pg_dsn() -> Iterator[str]:
     with psycopg.connect(maintenance_dsn, autocommit=True) as conn:
         conn.execute(create)
     try:
-        dsn = make_conninfo(base, dbname=dbname)
+        dsn = make_conninfo(BASE_DSN, dbname=dbname)
         apply_migrations(dsn)
         yield dsn
     finally:

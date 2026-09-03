@@ -41,6 +41,21 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Название пиццерии пустое. Введите текстом, как оно должно стоять в отчёте.",
         "en": "The name is empty. Type it as it should appear in the report.",
     },
+    # Предел не вкусовой, а замеренный (T128): имя файла отчёта собирается как
+    # «Аудит <точка> - <аудитор> - <дата>.pdf», кириллица в UTF-8 стоит два
+    # байта на знак, а имя файла на ext4 (площадка продукта, D053) — 255 байт.
+    # На 100 знаках названия имя уже 258 байт, и сборка отчёта падает с «File
+    # name too long» в самом конце проверки, когда исправлять поздно.
+    "start.unit_too_long": {
+        "ru": (
+            "Название длиннее {limit} знаков не влезет ни в шапку отчёта, ни в имя файла. "
+            "Пришлите короче — так, как оно должно стоять в отчёте."
+        ),
+        "en": (
+            "A name longer than {limit} characters fits neither the report header nor the "
+            "file name. Send a shorter one — as it should appear in the report."
+        ),
+    },
     "start.unit_expected": {
         "ru": "Жду название пиццерии текстом.",
         "en": "Waiting for the pizzeria name as text.",
@@ -49,9 +64,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Вид проверки?",
         "en": "Inspection type?",
     },
+    # Вопрос один, а языков в проверке три (`docs/06-mvp-bot.md`). Ответ
+    # ложится во все три, и сказать об этом надо здесь: аудитор выбирает не
+    # только язык документа для партнёра, но и язык, на котором с ним говорят.
     "start.ask_lang": {
-        "ru": "Язык отчёта?",
-        "en": "Report language?",
+        "ru": "Язык проверки? На нём будут и отчёт, и наш разговор.",
+        "en": "Inspection language? Both the report and this chat will use it.",
     },
     "start.started": {
         "ru": (
@@ -99,6 +117,23 @@ TEXTS: dict[str, dict[str, str]] = {
     "start.resumed": {
         "ru": "Продолжаем: {unit}, {date}. Записей: {findings}.",
         "en": "Continuing: {unit}, {date}. Records: {findings}.",
+    },
+    # Состояние проверки не читается (T126). Причина и выход — в чат, разбор с
+    # путями и текстом исключения — в журнал: аудитору на точке он ничего не
+    # объясняет, а путь к файлу партнёрской проверки в переписке ему не место.
+    "start.state_broken": {
+        "ru": (
+            "Не могу прочитать проверку этого чата — файл состояния повреждён, "
+            "и продолжить её нечем. Подробности записаны в журнал.\n\n"
+            "«Новая проверка» начнёт с чистого листа. Всё, что было в повреждённой, "
+            "бот вернуть не сможет — если она важна, скажите об этом до того, как начнёте."
+        ),
+        "en": (
+            "I cannot read this chat’s inspection — the state file is damaged, and there "
+            "is nothing to continue. The details are in the log.\n\n"
+            "“New inspection” starts from scratch. Whatever was in the damaged one is "
+            "beyond the bot’s reach — if it matters, say so before you start."
+        ),
     },
     "start.resume_gone": {
         "ru": "Продолжать нечего: проверки в этом чате уже нет. Начните новую.",
@@ -174,7 +209,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "record.fixed": {
         "ru": (
             "✅ Записал сразу, по вашим словам — подтверждать не нужно.\n\n"
-            "{line}\n"
+            "{line}{guess}\n"
             "{title}\n\n"
             "Ваши слова: «{note}»\n"
             "Строка карты: «{cue}»\n\n"
@@ -183,7 +218,7 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "en": (
             "✅ Recorded straight away, from your words — no confirmation needed.\n\n"
-            "{line}\n"
+            "{line}{guess}\n"
             "{title}\n\n"
             "Your words: “{note}”\n"
             "Map line: “{cue}”\n\n"
@@ -227,9 +262,18 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "В какой зоне это? Из слов зону не видно — назовите её кнопкой.",
         "en": "Which zone is this? Your words do not name it — pick it with a button.",
     },
+    # Причина не называется: их несколько, и выбрать одну наугад — соврать
+    # (T128). Предложение забирается сразу после фиксации, гасится началом новой
+    # проверки, исчезает вместе с перезапуском и не переживает нажатие на кнопку
+    # из старого сообщения. «Бот перезапускался» посылало человека искать
+    # поломку, которой обычно не было.
     "record.stale": {
-        "ru": "Предложение устарело — бот перезапускался. Пришлите кадр заново.",
-        "en": "This suggestion is stale — the bot restarted. Send the photo again.",
+        "ru": (
+            "Это предложение уже неактуально — выбирать по нему нечего. Пришлите материал заново."
+        ),
+        "en": (
+            "This suggestion is no longer live — there is nothing to pick. Send the material again."
+        ),
     },
     "record.skipped": {
         "ru": "Не записал. Кадр не потеряется — покажу его при завершении проверки.",
@@ -251,13 +295,40 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Голосовое не скачалось. Повторите или напишите комментарий текстом.",
         "en": "The voice message did not download. Retry or type the comment.",
     },
+    # Зона взята из памяти о прошлой записи (D048), а не из этих слов. Сказать
+    # обязательно: запись уже сделана и подтверждать её не будут, а «по вашим
+    # словам» про зону в этом случае неправда — и промах памяти остаётся без
+    # единого читателя (T124).
+    "record.fixed_zone_guess": {
+        "ru": "\n⚠ Зону в этих словах вы не называли — поставил прошлую. Не та — кнопка «Зона».",
+        "en": "\n⚠ These words name no zone — I kept the previous one. Wrong? Use “Zone”.",
+    },
     "record.zone_unusual": {
         "ru": " ⚠ зона не из списка пункта",
         "en": " ⚠ zone is not on the item’s list",
     },
+    # Отказ движка разобран, а не пересказан (T127). Движок отвечает тому, кто
+    # зовёт его из командной строки: «CLN05 в зоне hot_kitchen уже зафиксировано
+    # — запись #1. Доснимите фото (audit.py photo 1 --add ...)». У аудитора на
+    # точке командной строки нет, `hot_kitchen` он читать не обязан, а язык
+    # интерфейса у него может быть не русский. Сам текст движка уходит в журнал.
+    "record.duplicate": {
+        "ru": (
+            "Не записал: это уже зафиксировано.\n\n"
+            "#{n} · {item}\n"
+            "Зона: {zone}\n\n"
+            "Если нашли что-то ещё — поправьте запись #{n} кнопками ниже."
+        ),
+        "en": (
+            "Not recorded: this is already on the list.\n\n"
+            "#{n} · {item}\n"
+            "Zone: {zone}\n\n"
+            "Found something else — fix record #{n} with the buttons below."
+        ),
+    },
     "record.failed": {
-        "ru": "Не записал: {reason}",
-        "en": "Not recorded: {reason}",
+        "ru": "Не записал: {item} · {zone}. Сбой на моей стороне, подробности в журнале.",
+        "en": "Not recorded: {item} · {zone}. Something broke on my side, details are in the log.",
     },
     # --- правки записи прямо в чате (T056) ---
     "edit.ask_zone": {
@@ -296,9 +367,28 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Записи #{n} уже нет.",
         "en": "Record #{n} no longer exists.",
     },
+    "edit.duplicate": {
+        "ru": (
+            "Не поправил: {item} в зоне «{zone}» уже записано — #{n}.\n\n"
+            "Поправьте её кнопками ниже или выберите другую зону."
+        ),
+        "en": (
+            "Not updated: {item} in “{zone}” is already recorded — #{n}.\n\n"
+            "Fix that one with the buttons below, or pick another zone."
+        ),
+    },
     "edit.failed": {
-        "ru": "Не поправил: {reason}",
-        "en": "Not updated: {reason}",
+        "ru": (
+            "Не поправил запись #{n}: {item} · {zone}. Сбой на моей стороне, подробности в журнале."
+        ),
+        "en": (
+            "Record #{n} not updated: {item} · {zone}. "
+            "Something broke on my side, details are in the log."
+        ),
+    },
+    "edit.drop_failed": {
+        "ru": "Не удалил запись #{n}: сбой на моей стороне, подробности в журнале.",
+        "en": "Record #{n} not deleted: something broke on my side, details are in the log.",
     },
     # --- завершение проверки (T058, T068) ---
     "finish.summary": {
@@ -357,6 +447,54 @@ TEXTS: dict[str, dict[str, str]] = {
     "finish.resumed": {
         "ru": "Продолжаем проверку. Присылайте кадры.",
         "en": "Back to the inspection. Send photos.",
+    },
+    # --- слив завершённой проверки в историю (T123) ---
+    #
+    # Оба сообщения приходят ПОСЛЕ отчёта и письма: они у аудитора на руках, и
+    # ничего из сделанного не отменяется. Сказать всё равно надо — молчание
+    # оставило бы человека уверенным, что история сохранена. Причина отказа
+    # (адрес базы, текст драйвера) сюда не попадает: аудитору она ничего не
+    # объясняет, её место в журнале.
+    "finish.not_archived": {
+        "ru": (
+            "Отчёт и письмо на месте, но в историю проверок эта проверка не записалась — "
+            "база не ответила. Не начинайте новую: пока проверка лежит здесь, её ещё можно "
+            "сохранить, а новая её сотрёт."
+        ),
+        "en": (
+            "The report and the letter are yours, but this inspection did not reach the "
+            "history — the database did not answer. Do not start a new one yet: while this "
+            "inspection is still here it can be saved, and a new one erases it."
+        ),
+    },
+    "finish.photos_not_archived": {
+        "ru": (
+            "Проверка в историю записана, а кадры в хранилище не уехали. Отчёта это не "
+            "задевает — в нём они уже есть."
+        ),
+        "en": (
+            "The inspection reached the history, but its photos did not reach the storage. "
+            "The report is unaffected — they are already in it."
+        ),
+    },
+    # --- сбой, который не поймал никто (T126) ---
+    #
+    # Текст исключения сюда не попадает никогда. Он написан для того, кто чинит:
+    # в нём пути к файлам и внутренние подробности, а аудитору нужно другое —
+    # что случилось и что делать дальше. Выход назван прямо, потому что до этой
+    # задачи выхода не было: испорченное состояние роняло и `/start` тоже, и
+    # аудитор оставался в чате, где не работает ни одна команда.
+    "error.unexpected": {
+        "ru": (
+            "Сбой на моей стороне — это сообщение я обработать не смог. "
+            "Подробности записаны в журнал.\n\n"
+            "Попробуйте ещё раз. Если повторяется — /start: он работает всегда."
+        ),
+        "en": (
+            "Something broke on my side — I could not handle this message. "
+            "The details are in the log.\n\n"
+            "Try again. If it keeps happening — /start: it always works."
+        ),
     },
     # --- надписи на кнопках ---
     "btn.analyze": {"ru": "Разобрать", "en": "Analyze"},

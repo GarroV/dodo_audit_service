@@ -169,6 +169,9 @@ async def test_показ_записи_называет_пункт_словам�
     assert session.last_text == t(
         "record.fixed",
         "ru",
+        # Зону аудитор в этих словах не называл — она из памяти (D048), и
+        # оговорка про это стоит в показе (T124).
+        guess=t("record.fixed_zone_guess", "ru"),
         line=t(
             "record.saved",
             "ru",
