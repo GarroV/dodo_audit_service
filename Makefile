@@ -1,4 +1,4 @@
-.PHONY: check test regress demo demo-down lint types dead bounds fmt migrate cov-engine
+.PHONY: check test regress demo demo-down loadcheck lint types dead bounds fmt migrate cov-engine
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -51,6 +51,12 @@ demo:
 # Сервис без `profiles:` активен при любом `--profile`, а `-v` удаляет все
 # именованные тома проекта. Поэтому здесь поимённо и без `-v`, а том демо
 # удаляется отдельной строкой.
+# Замер потолка нагрузки (T101, D058). Владелец назвал нагрузку главным риском,
+# но целевого числа не задал — поэтому сначала измеряем потолок, потом решаем.
+# Проверка способна упасть: со снятой блокировкой движка теряет записи альбома.
+loadcheck:
+	STATE_DIR=$${STATE_DIR:-/tmp/loadcheck-state} $(VENV)/python tools/loadcheck.py
+
 demo-down:
 	docker compose --profile demo rm -sf demo demo-seed
 	-docker volume rm $$(docker compose --profile demo config --format json \
