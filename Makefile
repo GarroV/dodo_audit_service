@@ -1,4 +1,4 @@
-.PHONY: check test regress demo demo-down loadcheck loadcheck-live lint types dead bounds fmt migrate db-up db-down storage-up storage-down cov-engine
+.PHONY: check test regress demo demo-down loadcheck loadcheck-live lint types dead bounds fmt migrate db-up db-down storage-up storage-down mcp cov-engine
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -103,6 +103,12 @@ storage-up:
 # `--profile storage down -v` унёс бы том состояния идущих проверок.
 storage-down:
 	docker compose --profile storage rm -sf storage
+
+# MCP-сервер поверх базы проверок (T095). Только чтение; доступ — личным
+# токеном из MCP_TOKENS (.env), слушает петлю и наружу не публикуется.
+# Строку подключения к базе и карту токенов читает сам из .env.
+mcp:
+	$(VENV)/python -m src.mcp
 
 cov-engine:  ## покрытие движка, который вызывается подпроцессом (T037)
 	@rm -f .coverage.engine*

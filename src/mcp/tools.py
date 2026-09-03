@@ -80,6 +80,28 @@ def _read_all(*, tenant: str, unit: str | None = None) -> _Page:
     return _read(tenant=tenant, unit=unit, limit=MAX_LIMIT)
 
 
+def _require_limit(limit: int | None) -> int | None:
+    """Предел выдачи в границах слоя чтения — или явный отказ.
+
+    Проверять приходится здесь, а не только в базе: с периодом чтение идёт по
+    потолку, и негодный предел до базы просто не доезжает — `limit=0` тихо
+    обрезал бы уже прочитанное в пустой список, и ответ читался бы как «за
+    этот период проверок нет». Само число потолка не переписывается: оно
+    берётся из слоя чтения, где и живёт.
+    """
+    if limit is None:
+        return None
+    from ..db.queries import MAX_LIMIT
+
+    if limit < 1 or limit > MAX_LIMIT:
+        raise ToolError(
+            f"Предел выдачи {limit} вне допустимого: ожидается от 1 до {MAX_LIMIT}. "
+            f"Ноль вернул бы пустоту вместо отказа, а число сверху — полный проход "
+            f"по таблице под видом ограничения"
+        )
+    return limit
+
+
 def _parse_date(value: str | None, *, field: str) -> date | None:
     """Строка из аргументов → дата. Кривая строка — отказ, а не «без фильтра»."""
     if value is None:
@@ -245,6 +267,7 @@ def list_inspections(
     здесь — фильтра по датам в слое чтения пока нет, и ответ честно помечает,
     когда чтение упёрлось в предел.
     """
+    rows_limit = _require_limit(limit)
     since, until = _parse_window(date_from, date_to)
     windowed = since is not None or until is not None
     # Без периода предел отдаётся самой базе — она и читает ровно столько.
@@ -253,21 +276,21 @@ def list_inspections(
     page = (
         _read_all(tenant=tenant, unit=unit)
         if windowed
-        else _read(tenant=tenant, unit=unit, limit=limit)
+        else _read(tenant=tenant, unit=unit, limit=rows_limit)
     )
     selected = _select(page, since, until)
-    shown = selected[:limit] if (windowed and limit is not None) else selected
+    shown = selected[:rows_limit] if (windowed and rows_limit is not None) else selected
     truncated = page.truncated or len(shown) < len(selected)
     note = _limit_note(page)
     if not note and truncated:
-        note = f"; more inspections match the period than the limit of {limit} shown"
+        note = f"; more inspections match the period than the limit of {rows_limit} shown"
     return {
         "tenant": tenant,
         "filters": {
             "unit": unit,
             "date_from": since.isoformat() if since else None,
             "date_to": until.isoformat() if until else None,
-            "limit": limit if limit is not None else page.limit,
+            "limit": rows_limit if rows_limit is not None else page.limit,
         },
         "count": len(shown),
         "read_rows": len(page.rows),
@@ -284,7 +307,7 @@ def unit_history(*, tenant: str, unit: str, limit: int | None = None) -> dict[st
     Сравнивает их спрашивающий, видя весь ряд целиком.
     """
     name = _require_unit(unit)
-    page = _read(tenant=tenant, unit=name, limit=limit)
+    page = _read(tenant=tenant, unit=name, limit=_require_limit(limit))
     return {
         "tenant": tenant,
         "unit": name,

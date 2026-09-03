@@ -51,3 +51,17 @@ headers
 timeout
 chunk_size
 raise_for_status
+
+# MCP-сервер (T095): крючки http.server, которые фреймворк ищет ПО ИМЕНИ, а
+# код по имени не зовёт. `do_GET`/`do_POST` вызывает базовый обработчик по
+# методу запроса; `log_message` он же зовёт на каждую строку лога;
+# `server_version`/`sys_version` подставляются им в заголовок ответа;
+# `daemon_threads` читает ThreadingHTTPServer при запуске потока;
+# `close_connection` читает он же после ответа, чтобы закрыть соединение.
+do_GET
+do_POST
+log_message
+server_version
+sys_version
+daemon_threads
+close_connection
