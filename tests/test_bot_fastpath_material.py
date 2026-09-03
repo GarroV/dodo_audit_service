@@ -1,4 +1,4 @@
-"""Быстрый путь одинаково срабатывает независимо от способа прислать материал (T117, D063).
+"""Быстрый путь срабатывает одинаково на любом способе прислать материал (T117, D063, T121).
 
 `tests/test_bot_fastpath.py` проверяет саму логику быстрого пути — но только на
 одном способе доставки, подписи к кадру. Способов пять (`src/bot/material.py`,
@@ -8,9 +8,16 @@ T053/T054): подпись, комментарий следующим сообщ
 способов — значит, склейка материала потеряла слова или подменила кадр ещё до
 `_try_fast`, и быстрый путь молча промолчал или прикрепил не тот снимок.
 
+Подтверждение нажатием на фиксацию словами снято (T121, D064): раньше здесь
+проверялось, что после материала на экране появляется кнопка «Записать», и
+запись ложится только по нажатию. Теперь запись появляется сразу вместе с
+материалом — нажимать нечего, а кнопка выхода к модели («Разобрать моделью»)
+остаётся под уже сделанной записью на случай, если сверка ошиблась пунктом.
+
 Здесь проверяется не логика самого быстрого пути (для неё есть сосед), а то, что
-склейка материала её не портит: на всех пяти — модель не звали, кнопка и слова
-аудитора на экране, а после «Записать» запись легла с правильными кадрами.
+склейка материала её не портит: на всех пяти способах — модель не звали, слова
+аудитора видны на экране целиком, запись легла с верным кодом пункта и с
+правильными кадрами, а под ней есть выход к модели.
 """
 
 from __future__ import annotations
@@ -32,13 +39,12 @@ from bot_harness import (
     text_message,
     voice_message,
 )
-from bot_harness import callback_query as callback
 from conftest import requires_data
 
 from src.bot import sidecar
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
-from src.bot.keyboards import FAST_CALLBACK
+from src.bot.keyboards import MODEL_CALLBACK
 from src.domain import SOURCE_COMMENT, Finding, get_state, start_inspection
 
 pytestmark = [pytest.mark.asyncio, requires_data]
@@ -59,26 +65,44 @@ def findings() -> list[Finding]:
     return [] if state is None else list(state.findings)
 
 
-def assert_fast_offer_shown(asked: Calls, session: RecordingSession) -> None:
-    """Общая для всех пяти способов проверка: модель не звали, слова на экране.
+async def wait_for_album_close(
+    session: RecordingSession, deadline: float = 2.0, step: float = 0.05
+) -> None:
+    """Дождаться, пока фоновый таймер альбома доведёт материал до показанной записи.
 
-    Без запомненной зоны быстрый путь не срабатывает никогда (правило 6) — этим
-    и объясняется `sidecar.remember_zone` в каждом тесте перед доставкой.
+    Раньше закрытие альбома лишь собирало кадры и показывало кнопку — работа
+    без единого обращения к движку. Теперь оно само зовёт `_save` (T121): запись
+    появляется раньше, чем к ней прикрепится второй кадр (`domain.add_finding`
+    отдельно от `domain.attach_photo`), и раньше, чем уйдёт сообщение — два
+    подпроцесса движка (`add_finding`, `score`) ощутимо дольше окна альбома
+    (`album_window=0.01`). Ждать нужно до последнего шага — отправки сообщения,
+    иначе проверка кадров ловит запись в промежуточном состоянии. Фиксированный
+    `asyncio.sleep` гонится с этим временем на глаз — опрос с потолком нет.
+    """
+    waited = 0.0
+    while not session.texts and waited < deadline:
+        await asyncio.sleep(step)
+        waited += step
+
+
+def assert_recorded_from_words(asked: Calls, session: RecordingSession, photos: list[str]) -> None:
+    """Общая для всех пяти способов проверка: запись легла сразу, без нажатия.
+
+    Раньше это были два отдельных помощника — «предложение показано» и «запись
+    после кнопки». Кнопки больше нет, поэтому и проверять нечего порознь: обе
+    стороны прежней проверки относятся к одному и тому же моменту — приходу
+    материала.
     """
     assert asked == [], "модель звали, хотя слова однозначны — быстрый путь не сработал"
-    assert FAST_CALLBACK in session.keyboard_data(), "кнопка быстрого пути не показана"
-    assert CLEAR in session.last_text, "слова аудитора не дошли до сообщения целиком"
-
-
-def assert_fast_record(photos: list[str]) -> None:
-    """Общая для всех пяти способов проверка записи после нажатия «Записать»."""
     saved = findings()
-    assert len(saved) == 1, "нажатие «Записать» дало не одну запись"
+    assert len(saved) == 1, "материал не дал ровно одну запись"
     finding = saved[0]
     assert (finding.code, finding.level, finding.zone) == ("CLN05", "D1", "hot_kitchen")
     assert finding.text == CLEAR, "текст записи — не дословные слова аудитора"
     assert finding.source == SOURCE_COMMENT
     assert finding.photos == photos, "кадры к записи прикрепились не те и не в том порядке"
+    assert CLEAR in session.last_text, "слова аудитора не дошли до сообщения целиком"
+    assert MODEL_CALLBACK in session.keyboard_data(), "под записью нет выхода к модели"
 
 
 async def test_быстрый_путь_срабатывает_на_подписи_к_кадру(
@@ -93,9 +117,7 @@ async def test_быстрый_путь_срабатывает_на_подпис�
 
     await feed(dp, bot, photo_message("frame-1", caption=CLEAR))
 
-    assert_fast_offer_shown(asked, session)
-    await feed(dp, bot, callback(FAST_CALLBACK))
-    assert_fast_record(["frame-1"])
+    assert_recorded_from_words(asked, session, ["frame-1"])
 
 
 async def test_быстрый_путь_срабатывает_на_комментарии_отдельным_сообщением(
@@ -111,9 +133,7 @@ async def test_быстрый_путь_срабатывает_на_коммен�
     await feed(dp, bot, photo_message("frame-1", message_id=701))
     await feed(dp, bot, text_message(CLEAR))
 
-    assert_fast_offer_shown(asked, session)
-    await feed(dp, bot, callback(FAST_CALLBACK))
-    assert_fast_record(["frame-1"])
+    assert_recorded_from_words(asked, session, ["frame-1"])
 
 
 async def test_быстрый_путь_срабатывает_на_ответе_на_кадр(
@@ -132,9 +152,7 @@ async def test_быстрый_путь_срабатывает_на_ответе_
     await feed(dp, bot, second)
     await feed(dp, bot, text_message(CLEAR, reply_to=first))
 
-    assert_fast_offer_shown(asked, session)
-    await feed(dp, bot, callback(FAST_CALLBACK))
-    assert_fast_record(["frame-1"])
+    assert_recorded_from_words(asked, session, ["frame-1"])
 
 
 async def test_быстрый_путь_срабатывает_на_голосовом_комментарии(
@@ -151,9 +169,7 @@ async def test_быстрый_путь_срабатывает_на_голосо�
     await feed(dp, bot, photo_message("frame-1"))
     await feed(dp, bot, voice_message("voice-1"))
 
-    assert_fast_offer_shown(asked, session)
-    await feed(dp, bot, callback(FAST_CALLBACK))
-    assert_fast_record(["frame-1"])
+    assert_recorded_from_words(asked, session, ["frame-1"])
 
 
 async def test_быстрый_путь_срабатывает_на_альбоме(
@@ -169,8 +185,6 @@ async def test_быстрый_путь_срабатывает_на_альбом�
     group_id = "album-fast"
     await feed(dp, bot, photo_message("frame-1", media_group_id=group_id, caption=CLEAR))
     await feed(dp, bot, photo_message("frame-2", media_group_id=group_id))
-    await asyncio.sleep(0.1)
+    await wait_for_album_close(session)
 
-    assert_fast_offer_shown(asked, session)
-    await feed(dp, bot, callback(FAST_CALLBACK))
-    assert_fast_record(["frame-1", "frame-2"])
+    assert_recorded_from_words(asked, session, ["frame-1", "frame-2"])
