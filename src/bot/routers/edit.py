@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
@@ -27,7 +28,7 @@ from aiogram.types import CallbackQuery, Message
 from src import domain
 from src.domain.errors import DomainError
 
-from .. import sidecar, view
+from .. import refusal, sidecar, view
 from ..keyboards import (
     EDIT_DROP,
     EDIT_LEVEL,
@@ -40,13 +41,11 @@ from ..keyboards import (
     levels_keyboard,
     zones_keyboard,
 )
+from ..lang import chat_ui_lang
 from ..states import EditFlow
-from ..texts import t, ui_lang_or_default
+from ..texts import t
 
-
-def chat_ui_lang(chat_id: int) -> str:
-    inspection = domain.get_state(chat_id)
-    return ui_lang_or_default(None if inspection is None else inspection.ui_lang)
+logger = logging.getLogger(__name__)
 
 
 async def show_changed(message: Message, chat_id: int, n: int, lang: str) -> None:
@@ -90,7 +89,21 @@ def build_edit_router() -> Router:
         try:
             await asyncio.to_thread(domain.edit_finding, chat_id, n, **fields)
         except DomainError as exc:
-            await message.answer(t("edit.failed", lang, reason=exc))
+            # Тот же разбор, что и при фиксации (T127). Занятая пара приходит
+            # сюда чаще всего сменой зоны: пункт тот же, место уже занято.
+            before = _finding(chat_id, n)
+            told = refusal.not_changed(
+                chat_id,
+                n,
+                code="" if before is None else before.code,
+                zone=fields.get("zone") or ("" if before is None else before.zone),
+                lang=lang,
+                exc=exc,
+            )
+            await message.answer(
+                told.text,
+                reply_markup=edit_keyboard(told.clash.n, lang) if told.clash is not None else None,
+            )
             return
         if "zone" in fields:
             # Аудитор назвал зону руками — она и становится догадкой для
@@ -115,8 +128,11 @@ def build_edit_router() -> Router:
     async def drop(message: Message, chat_id: int, n: int, lang: str) -> None:
         try:
             await asyncio.to_thread(domain.drop_finding, chat_id, n)
-        except DomainError as exc:
-            await message.answer(t("edit.failed", lang, reason=exc))
+        except DomainError:
+            # У удаления нет ни пункта, ни зоны, которые стоило бы назвать: не
+            # удалилась запись, и это всё, что аудитору тут важно знать.
+            logger.exception("запись #%s в чате %s не удалилась", n, chat_id)
+            await message.answer(t("edit.drop_failed", lang, n=n))
             return
         # Источник записи чистить не надо: он лежит в самой записи (T108), и
         # `domain.drop_finding` уносит его вместе с ней.

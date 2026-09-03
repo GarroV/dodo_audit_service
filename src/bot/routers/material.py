@@ -34,8 +34,9 @@ from src import domain
 
 from .. import sidecar
 from ..albums import ALBUM_WINDOW_SECONDS, AlbumBuffer, Frame
+from ..lang import chat_ui_lang
 from ..material import Comment, Material, MaterialStore, PhotoGroup
-from ..texts import t, ui_lang_or_default
+from ..texts import t
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +47,6 @@ MaterialHandler = Callable[[Message, Material, str], Awaitable[None]]
 #: Что делать с кадрами, которые приняты и ждут комментария: спросить
 #: «Разобрать?» (`routers/record.py`, задача T067).
 WaitingHandler = Callable[[Message, PhotoGroup, str], Awaitable[None]]
-
-
-def chat_ui_lang(chat_id: int) -> str:
-    inspection = domain.get_state(chat_id)
-    return ui_lang_or_default(None if inspection is None else inspection.ui_lang)
 
 
 async def confirm_taken(message: Message, group: PhotoGroup, lang: str) -> None:

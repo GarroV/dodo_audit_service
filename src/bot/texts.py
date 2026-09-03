@@ -100,6 +100,23 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Продолжаем: {unit}, {date}. Записей: {findings}.",
         "en": "Continuing: {unit}, {date}. Records: {findings}.",
     },
+    # Состояние проверки не читается (T126). Причина и выход — в чат, разбор с
+    # путями и текстом исключения — в журнал: аудитору на точке он ничего не
+    # объясняет, а путь к файлу партнёрской проверки в переписке ему не место.
+    "start.state_broken": {
+        "ru": (
+            "Не могу прочитать проверку этого чата — файл состояния повреждён, "
+            "и продолжить её нечем. Подробности записаны в журнал.\n\n"
+            "«Новая проверка» начнёт с чистого листа. Всё, что было в повреждённой, "
+            "бот вернуть не сможет — если она важна, скажите об этом до того, как начнёте."
+        ),
+        "en": (
+            "I cannot read this chat’s inspection — the state file is damaged, and there "
+            "is nothing to continue. The details are in the log.\n\n"
+            "“New inspection” starts from scratch. Whatever was in the damaged one is "
+            "beyond the bot’s reach — if it matters, say so before you start."
+        ),
+    },
     "start.resume_gone": {
         "ru": "Продолжать нечего: проверки в этом чате уже нет. Начните новую.",
         "en": "Nothing to continue: this chat has no inspection any more. Start a new one.",
@@ -263,9 +280,28 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": " ⚠ зона не из списка пункта",
         "en": " ⚠ zone is not on the item’s list",
     },
+    # Отказ движка разобран, а не пересказан (T127). Движок отвечает тому, кто
+    # зовёт его из командной строки: «CLN05 в зоне hot_kitchen уже зафиксировано
+    # — запись #1. Доснимите фото (audit.py photo 1 --add ...)». У аудитора на
+    # точке командной строки нет, `hot_kitchen` он читать не обязан, а язык
+    # интерфейса у него может быть не русский. Сам текст движка уходит в журнал.
+    "record.duplicate": {
+        "ru": (
+            "Не записал: это уже зафиксировано.\n\n"
+            "#{n} · {item}\n"
+            "Зона: {zone}\n\n"
+            "Если нашли что-то ещё — поправьте запись #{n} кнопками ниже."
+        ),
+        "en": (
+            "Not recorded: this is already on the list.\n\n"
+            "#{n} · {item}\n"
+            "Zone: {zone}\n\n"
+            "Found something else — fix record #{n} with the buttons below."
+        ),
+    },
     "record.failed": {
-        "ru": "Не записал: {reason}",
-        "en": "Not recorded: {reason}",
+        "ru": "Не записал: {item} · {zone}. Сбой на моей стороне, подробности в журнале.",
+        "en": "Not recorded: {item} · {zone}. Something broke on my side, details are in the log.",
     },
     # --- правки записи прямо в чате (T056) ---
     "edit.ask_zone": {
@@ -304,9 +340,28 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Записи #{n} уже нет.",
         "en": "Record #{n} no longer exists.",
     },
+    "edit.duplicate": {
+        "ru": (
+            "Не поправил: {item} в зоне «{zone}» уже записано — #{n}.\n\n"
+            "Поправьте её кнопками ниже или выберите другую зону."
+        ),
+        "en": (
+            "Not updated: {item} in “{zone}” is already recorded — #{n}.\n\n"
+            "Fix that one with the buttons below, or pick another zone."
+        ),
+    },
     "edit.failed": {
-        "ru": "Не поправил: {reason}",
-        "en": "Not updated: {reason}",
+        "ru": (
+            "Не поправил запись #{n}: {item} · {zone}. Сбой на моей стороне, подробности в журнале."
+        ),
+        "en": (
+            "Record #{n} not updated: {item} · {zone}. "
+            "Something broke on my side, details are in the log."
+        ),
+    },
+    "edit.drop_failed": {
+        "ru": "Не удалил запись #{n}: сбой на моей стороне, подробности в журнале.",
+        "en": "Record #{n} not deleted: something broke on my side, details are in the log.",
     },
     # --- завершение проверки (T058, T068) ---
     "finish.summary": {
@@ -393,6 +448,25 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": (
             "The inspection reached the history, but its photos did not reach the storage. "
             "The report is unaffected — they are already in it."
+        ),
+    },
+    # --- сбой, который не поймал никто (T126) ---
+    #
+    # Текст исключения сюда не попадает никогда. Он написан для того, кто чинит:
+    # в нём пути к файлам и внутренние подробности, а аудитору нужно другое —
+    # что случилось и что делать дальше. Выход назван прямо, потому что до этой
+    # задачи выхода не было: испорченное состояние роняло и `/start` тоже, и
+    # аудитор оставался в чате, где не работает ни одна команда.
+    "error.unexpected": {
+        "ru": (
+            "Сбой на моей стороне — это сообщение я обработать не смог. "
+            "Подробности записаны в журнал.\n\n"
+            "Попробуйте ещё раз. Если повторяется — /start: он работает всегда."
+        ),
+        "en": (
+            "Something broke on my side — I could not handle this message. "
+            "The details are in the log.\n\n"
+            "Try again. If it keeps happening — /start: it always works."
         ),
     },
     # --- надписи на кнопках ---

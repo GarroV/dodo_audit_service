@@ -48,15 +48,11 @@ from ..keyboards import (
     pick_record_keyboard,
     without_photos_keyboard,
 )
+from ..lang import chat_ui_lang
 from ..photos import download_all
-from ..texts import t, ui_lang_or_default
+from ..texts import t
 
 logger = logging.getLogger(__name__)
-
-
-def chat_ui_lang(chat_id: int) -> str:
-    inspection = domain.get_state(chat_id)
-    return ui_lang_or_default(None if inspection is None else inspection.ui_lang)
 
 
 async def show_summary(message: Message, chat_id: int, lang: str) -> None:

@@ -23,12 +23,14 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import ErrorEvent, Message
 
 from src import domain
 
 from .access import AccessMiddleware
 from .albums import ALBUM_WINDOW_SECONDS, AlbumBuffer
 from .config import BotSettings, load_bot_settings
+from .lang import chat_ui_lang
 from .material import MaterialStore
 from .pending import PendingStore
 from .routers import (
@@ -40,8 +42,54 @@ from .routers import (
 )
 from .routers.material import MaterialHandler
 from .routers.record import make_material_handler, make_waiting_handler
+from .texts import t
 
 logger = logging.getLogger(__name__)
+
+
+def _asked_here(event: ErrorEvent) -> Message | None:
+    """Сообщение, на которое можно ответить, — или ничего.
+
+    Ничего бывает по-настоящему: обновление без чата (нажатие старше 48 часов
+    приходит без сообщения), служебные события. Отвечать тогда некому, и
+    остаётся журнал.
+    """
+    update = event.update
+    if update.message is not None:
+        return update.message
+    callback = update.callback_query
+    if callback is not None and isinstance(callback.message, Message):
+        return callback.message
+    return None
+
+
+async def on_unexpected_error(event: ErrorEvent) -> bool:
+    """Сбой, который не поймал ни один хендлер (задача T126).
+
+    Без этого обработчика aiogram неперехваченное исключение **глотает**:
+    аудитор не получает ничего. Проверено на испорченном `inspection.json` —
+    `/start`, `/finish`, приём кадра и правка бросали отказ, а в чат не
+    приходило ни строки, и выйти из тупика было нечем.
+
+    Аудитору уходит причина и что делать, разбор — в журнал. Текст исключения
+    в чат не попадает: он написан для того, кто чинит, в нём пути к файлам и
+    внутренние подробности, а человеку на точке нужен выход.
+
+    Возвращает `True`: событие обработано. Ошибку это не прячет — она уже в
+    журнале целиком, со стеком; `False` означало бы, что aiogram напишет её
+    ещё раз своими словами.
+    """
+    logger.exception("необработанный сбой на обновлении", exc_info=event.exception)
+    message = _asked_here(event)
+    if message is None:
+        return True
+    try:
+        await message.answer(t("error.unexpected", chat_ui_lang(message.chat.id)))
+    except Exception:
+        # Ответить не вышло — телеграм отказал или чат недоступен. Падать
+        # отсюда нельзя: это последний рубеж, за ним обработчика уже нет.
+        logger.exception("не удалось сказать аудитору о сбое в чате %s", message.chat.id)
+    return True
 
 
 def build_dispatcher(
@@ -65,6 +113,9 @@ def build_dispatcher(
     лежит в файле и переживает перезапуск без него (`src/bot/states.py`).
     """
     dispatcher = Dispatcher(storage=MemoryStorage())
+    # Раньше роутеров: сбой в любом из них обязан дойти до аудитора, а не
+    # раствориться в aiogram (T126).
+    dispatcher.errors.register(on_unexpected_error)
 
     access = AccessMiddleware(settings.allowed_ids)
     dispatcher.message.outer_middleware(access)

@@ -39,21 +39,12 @@ from ..keyboards import (
     new_inspection_keyboard,
     resume_keyboard,
 )
+from ..lang import chat_ui_lang
 from ..pending import PendingStore
 from ..states import StartFlow
 from ..texts import t, ui_lang_or_default
 
 logger = logging.getLogger(__name__)
-
-
-def chat_ui_lang(chat_id: int) -> str:
-    """Язык интерфейса этого чата: из начатой проверки, иначе умолчание.
-
-    До старта проверки состояния нет — спрашивать язык интерфейса отдельным
-    шагом мастера спека не просит, а падать на приветствии нельзя.
-    """
-    inspection = domain.get_state(chat_id)
-    return ui_lang_or_default(None if inspection is None else inspection.ui_lang)
 
 
 async def _offer_resume(message: Message, inspection: domain.Inspection, lang: str) -> None:
@@ -87,9 +78,24 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
 
     @router.message(Command("start"))
     async def on_start(message: Message, state: FSMContext) -> None:
+        """`/start` обязан работать всегда — это единственный выход из тупика.
+
+        Испорченное состояние роняло здесь всё: аудитор не мог ни продолжить
+        проверку, ни начать новую, и бот на любое его сообщение отвечал
+        молчанием (T126). Поэтому нечитаемое состояние тут не отказ, а
+        отдельный ответ: сказать, что файл повреждён, и дать начать заново.
+        Молчаливой перезаписи при этом нет — новую заводит человек кнопкой.
+        """
         lang = chat_ui_lang(message.chat.id)
         await state.clear()
-        inspection = domain.get_state(message.chat.id)
+        try:
+            inspection = domain.get_state(message.chat.id)
+        except DomainError:
+            logger.exception("состояние чата %s не читается", message.chat.id)
+            await message.answer(
+                t("start.state_broken", lang), reply_markup=new_inspection_keyboard()
+            )
+            return
         if inspection is not None:
             await _offer_resume(message, inspection, lang)
             return
@@ -102,7 +108,15 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         if not isinstance(message, Message):
             return
         lang = chat_ui_lang(message.chat.id)
-        inspection = domain.get_state(message.chat.id)
+        try:
+            inspection = domain.get_state(message.chat.id)
+        except DomainError:
+            # Про повреждение аудитор уже прочитал на `/start` и нажал «Новая»
+            # осознанно. Второй раз пугать его нечем, а тупик здесь означал бы,
+            # что выхода нет и после нажатия единственной предложенной кнопки.
+            logger.exception("состояние чата %s не читается", message.chat.id)
+            await _ask_unit(message, state, lang)
+            return
         if inspection is not None:
             await _offer_resume(message, inspection, lang)
             return
