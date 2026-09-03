@@ -45,7 +45,7 @@ from src.bot.config import BotSettings
 from src.bot.pending import Offer
 from src.bot.routers.record import _drop_question
 from src.bot.texts import t
-from src.domain import get_state, score, start_inspection
+from src.domain import SOURCE_COMMENT, SOURCE_PHOTO, Finding, get_state, score, start_inspection
 from src.domain.config import check_environment
 from src.domain.engine import state_file
 from src.domain.errors import EngineError
@@ -61,7 +61,7 @@ def started() -> None:
     start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
 
 
-def findings() -> list[object]:
+def findings() -> list[Finding]:
     state = get_state(CHAT_ID)
     return [] if state is None else list(state.findings)
 
@@ -185,7 +185,12 @@ async def test_frames_are_attached_to_the_record(
 async def test_source_of_the_record_is_remembered(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Решение D044: за формулировку со слов и за догадку по кадру ответственность разная."""
+    """Решение D044: за формулировку со слов и за догадку по кадру ответственность разная.
+
+    Источник хранится в самой проверке (T108), а не в заметках бота: заметки
+    начинаются с нуля с каждой новой проверкой этого чата, и пометка догадки
+    исчезала бы вместе с ними.
+    """
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen", "Печь в нагаре")))
     bot, _ = make_bot()
@@ -203,10 +208,43 @@ async def test_source_of_the_record_is_remembered(
     await feed(dp, bot, callback("rec:analyze:777"))
     await feed(dp, bot, callback("rec:pick:0"))
 
-    assert len(findings()) == 2
-    sources = sidecar.read(CHAT_ID).sources
-    assert sources[1] == sidecar.SOURCE_COMMENT
-    assert sources[2] == sidecar.SOURCE_PHOTO
+    записи = findings()
+    assert len(записи) == 2
+    assert [f.source for f in записи] == [SOURCE_COMMENT, SOURCE_PHOTO]
+
+    заметки = json.loads(sidecar.notes_path(CHAT_ID).read_text(encoding="utf-8"))
+    assert "sources" not in заметки, (
+        "источник остался и в заметках бота — две правды об одном и том же разъедутся"
+    )
+
+
+async def test_the_source_set_at_recording_reaches_the_proofreading(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T108: источник, поставленный при фиксации, доезжает до предвычитки отчёта.
+
+    Сквозной путь целиком, от кадра до `/finish`, и проверяется он там, где
+    пометку читает аудитор, — в списке зафиксированного. Двух половин по
+    отдельности мало: и запись с верным источником, и правильно собранная
+    строка ничего не стоят, если между ними источник теряется.
+    """
+    started()
+    stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen", "Печь в нагаре")))
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, photo_message("frame-1", message_id=901))
+    await feed(dp, bot, callback("rec:analyze:901"))
+    await feed(dp, bot, callback("rec:pick:0"))
+    session.clear()
+    await feed(dp, bot, text_message("/finish"))
+
+    строки = [s for s in "\n".join(session.texts).splitlines() if s.startswith("#")]
+    assert len(строки) == 1, "зафиксированная запись не дошла до предвычитки"
+    assert t("finish.source_photo", "ru").strip() in строки[0], (
+        "запись, собранную по одному кадру без единого слова аудитора, "
+        "предвычитка выдаёт за сказанное им"
+    )
 
 
 async def test_last_zone_is_remembered_and_offered_as_a_guess(

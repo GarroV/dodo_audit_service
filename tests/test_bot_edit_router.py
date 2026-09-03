@@ -65,21 +65,31 @@ async def test_drop_button_removes_the_finding(domain_env: object) -> None:
     assert session.last_text == t("edit.dropped", "ru", n=1, pct=pct)
 
 
-async def test_drop_forgets_the_remembered_source(domain_env: object) -> None:
-    """Источник записи не переживает её удаление — иначе номер унаследует чужую пометку.
+async def test_dropping_a_marked_record_does_not_move_its_mark(domain_env: object) -> None:
+    """Удалили догадку по кадру — пометка уходит с ней, а не переезжает на соседа.
 
-    Если бы `sources` не чистился, следующая запись с тем же номером считалась
-    бы «по кадру», хотя аудитор мог зафиксировать её со слов.
+    Пометку несёт сама запись (`Finding.source`, задача T108), поэтому проверка
+    идёт там, где аудитор её видит: в списке для предвычитки при завершении.
+    Разметка по месту в списке, а не по записи, здесь и вскрывается — после
+    удаления первой строки соседняя встала бы на её место вместе с пометкой.
     """
     domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
-    domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
-    sidecar.remember_source(CHAT_ID, 1, sidecar.SOURCE_PHOTO)
-    bot, _ = make_bot()
+    domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "догадка", source=domain.SOURCE_PHOTO)
+    domain.add_finding(
+        CHAT_ID, "PRD01", "D1", "hot_kitchen", "со слов", source=domain.SOURCE_COMMENT
+    )
+    bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
     await feed(dp, bot, callback_query("edit:1:drop"))
+    session.clear()
+    await feed(dp, bot, text_message("/finish"))
 
-    assert sidecar.read(CHAT_ID).sources == {}
+    строки = [s for s in "\n".join(session.texts).splitlines() if s.startswith("#")]
+    assert len(строки) == 1, "после удаления одной записи из двух в предвычитке осталась не одна"
+    assert t("finish.source_photo", "ru").strip() not in строки[0], (
+        "пометка удалённой догадки переехала на запись со слов аудитора"
+    )
 
 
 async def test_undo_removes_the_last_record_not_the_first(domain_env: object) -> None:

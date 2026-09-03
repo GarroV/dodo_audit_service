@@ -83,7 +83,7 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
             t(
                 "finish.records",
                 lang,
-                lines=view.record_lines(inspection.findings, notes.sources, lang),
+                lines=view.record_lines(inspection.findings, lang),
             )
         )
     else:
@@ -199,9 +199,8 @@ def build_finish_router() -> Router:
         if finding is None:
             await message.answer(t("edit.gone", lang, n=raw))
             return
-        notes = sidecar.read(chat_id)
         await message.answer(
-            view.record_lines([finding], notes.sources, lang),
+            view.record_lines([finding], lang),
             reply_markup=edit_keyboard(finding.n, lang),
         )
 
