@@ -39,20 +39,35 @@ from .units import normalize_unit_name
 #: строковый литерал и закреплено тестом на конкретное значение "default".
 DEFAULT_TENANT = "default"
 
+# Проверка кладётся как `draft` и запечатывается последним действием ТОЙ ЖЕ
+# транзакции (T111). Это не церемония: политика `findings_not_added_to_finalized`
+# запрещает дописывать находки в запечатанную проверку — без черновой фазы слив
+# не смог бы положить собственные находки, а без запрета «переписать проверку»
+# осталось бы возможным через добавление ещё одной находки задним числом.
+# Наружу черновик не виден никогда: транзакция одна, и незапечатанная проверка
+# не переживает её конца.
 _INSERT_INSPECTION_SQL = """
 insert into inspections (
     tenant_code, unit_id, chat_id, kind, inspection_date, report_lang,
     ui_lang, speech_lang, checklist_version, auditor, city, partner, contact,
-    pct, grade, deductions, counts, by_zone, source_fingerprint
+    pct, grade, deductions, counts, by_zone, source_fingerprint, status
 ) values (
     %(tenant_code)s, %(unit_id)s, %(chat_id)s, %(kind)s, %(inspection_date)s,
     %(report_lang)s, %(ui_lang)s, %(speech_lang)s, %(checklist_version)s,
     %(auditor)s, %(city)s, %(partner)s, %(contact)s, %(pct)s, %(grade)s,
-    %(deductions)s, %(counts)s, %(by_zone)s, %(source_fingerprint)s
+    %(deductions)s, %(counts)s, %(by_zone)s, %(source_fingerprint)s, 'draft'
 )
 on conflict (source_fingerprint) do nothing
 returning id
 """
+
+#: Печать проверки. Условие `status = 'draft'` не украшение: запечатать можно
+#: только незапечатанное, и число затронутых строк ниже проверяется, а не
+#: считается заведомо единицей (конституция: у операции с наблюдаемым
+#: результатом проверяется результат, а не отсутствие исключения).
+_SEAL_INSPECTION_SQL = (
+    "update inspections set status = 'finalized' where id = %s and status = 'draft'"
+)
 
 _SELECT_BY_FINGERPRINT_SQL = "select id from inspections where source_fingerprint = %s"
 
@@ -202,6 +217,17 @@ def _push(conn: psycopg.Connection[Any], inspection: Inspection, result: Score) 
                     _INSERT_TRANSLATION_SQL,
                     ("inspection", inspection_id, "grade_label", lang, label),
                 )
+
+        # Проверка собрана целиком — печатаем. После этого её нельзя ни
+        # переписать, ни удалить, ни дополнить (T111, миграция 0004): документ
+        # ушёл партнёру и стал основанием для требований к нему.
+        cur.execute(_SEAL_INSPECTION_SQL, (inspection_id,))
+        if cur.rowcount != 1:
+            raise PushError(
+                f"Проверку чата {inspection.chat_id} не удалось запечатать: "
+                f"обновлено строк — {cur.rowcount}, ожидалась одна. Слив отменён "
+                f"целиком; незапечатанная проверка в базе не остаётся"
+            )
 
     conn.commit()
     return str(inspection_id)

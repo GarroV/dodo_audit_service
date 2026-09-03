@@ -11,16 +11,36 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import psycopg
 from dotenv import load_dotenv
+from psycopg import sql
 
 from .errors import ConfigError
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
+
+#: Непривилегированная роль приложения (миграция `0004`). Продукт ходит в базу
+#: под ней, накат — под привилегированной: суперпользователь обходит RLS
+#: всегда, и приложение под ним означало бы политики, которые ничего не держат.
+APP_ROLE = "dodo_audit_app"
+
+#: Строка подключения для НАКАТА. Отдельная от `DATABASE_URL` потому, что
+#: `DATABASE_URL` — это подключение приложения, и права у него намеренно
+#: маленькие: заводить роли и менять схему оно не должно. Не задана — накат
+#: идёт по `DATABASE_URL`, как раньше: на машине разработчика там обычно
+#: собственный суперпользователь Postgres, и вторая переменная не нужна.
+DATABASE_ADMIN_URL_VAR = "DATABASE_ADMIN_URL"
+
+#: Пароль роли приложения. В миграции его нет и быть не может — секретам не
+#: место в git (конституция); сюда он приходит из `.env`, а накат ставит его
+#: роли. Не задан — пароль не трогается вовсе: локально ходят по peer/trust.
+DATABASE_APP_PASSWORD_VAR = "DATABASE_APP_PASSWORD"  # noqa: S105 — имя переменной, не секрет
 
 #: `.env` рядом с проектом, а не найденный поиском от текущего каталога:
 #: `make migrate` зовут из корня, а руками — откуда придётся, и предсказуемость
@@ -145,16 +165,94 @@ def load_env_file(path: Path = DOTENV_PATH) -> None:
     load_dotenv(path)
 
 
-def main() -> None:  # pragma: no cover — тонкая обёртка CLI, проверяется через apply_migrations
+def admin_dsn(env: Mapping[str, str] | None = None) -> str | None:
+    """Строка подключения для наката, если она задана отдельно от приложения.
+
+    `None` — отдельной нет, накатывать нужно по `DATABASE_URL`. Возврат
+    вместо тихой подстановки: решение «чем накатывать» принимает вызывающий,
+    а не эта функция где-то в глубине.
+    """
+    src = os.environ if env is None else env
+    dsn = (src.get(DATABASE_ADMIN_URL_VAR) or "").strip()
+    return dsn or None
+
+
+def set_app_password(dsn: str, password: str) -> None:
+    """Поставить роли приложения пароль из окружения.
+
+    Пароль подставляется `sql.Literal`, а не форматированием строки: пароль
+    приходит из `.env`, то есть извне кода, и склеенный руками `alter role`
+    был бы ровно тем местом, где кавычка в пароле превращается в чужой SQL.
+
+    Пустой пароль — отказ, а не «оставим как есть»: роль без пароля на стенде
+    с парольной аутентификацией просто не войдёт, и разбираться в этом будут
+    по невнятной ошибке подключения, а не здесь.
+    """
+    if not password.strip():
+        raise ConfigError(
+            f"{DATABASE_APP_PASSWORD_VAR} задана пустой. Либо убрать переменную "
+            f"совсем (тогда пароль роли {APP_ROLE} не трогается), либо задать "
+            f"настоящий пароль — пустой оставит роль без входа"
+        )
+    statement = sql.SQL("alter role {} password {}").format(
+        sql.Identifier(APP_ROLE), sql.Literal(password)
+    )
+    with psycopg.connect(dsn) as conn:
+        conn.execute(statement)
+        conn.commit()
+
+
+def role_bypasses_rls(dsn: str) -> bool:
+    """Обходит ли роль этого подключения построчные политики.
+
+    Нужна ровно для одного: сказать вслух, что защита завершённых проверок не
+    действует. Суперпользователь обходит RLS всегда, и приложение, пущенное под
+    ним, выглядит защищённым, ничем таковым не являясь.
+    """
+    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+        cur.execute(
+            "select rolsuper or rolbypassrls from pg_roles where rolname = current_user"
+        )
+        row = cur.fetchone()
+    return bool(row and row[0])
+
+
+def _warn_if_app_role_bypasses_rls(app_url: str) -> None:
+    """Проверить подключение приложения и предупредить, если оно всесильно."""
+    try:
+        if role_bypasses_rls(app_url):
+            print(
+                f"ВНИМАНИЕ: роль подключения приложения обходит построчные политики "
+                f"(суперпользователь или bypassrls). Запрет правки завершённых "
+                f"проверок из миграции 0004 на ней НЕ ДЕЙСТВУЕТ. Приложение должно "
+                f"ходить под ролью {APP_ROLE} — см. .env.example, DATABASE_URL."
+            )
+    except psycopg.Error as exc:
+        # Молча это глотать нельзя: непроверенное — не значит безопасное.
+        print(
+            f"Не удалось проверить, обходит ли роль приложения политики "
+            f"({type(exc).__name__}): {exc}"
+        )
+
+
+def main() -> None:  # pragma: no cover — тонкая обёртка CLI, части проверены по отдельности
     from .config import check_environment
 
     load_env_file()
-    settings = check_environment()
-    applied = apply_migrations(settings.dsn)
+    app_url = check_environment().dsn
+    dsn = admin_dsn() or app_url
+    applied = apply_migrations(dsn)
     if applied:
         print("Применены миграции: " + ", ".join(applied))
     else:
         print("Схема уже актуальна, накатывать нечего")
+
+    password = (os.environ.get(DATABASE_APP_PASSWORD_VAR) or "").strip()
+    if password:
+        set_app_password(dsn, password)
+        print(f"Пароль роли приложения {APP_ROLE} обновлён из {DATABASE_APP_PASSWORD_VAR}")
+
+    _warn_if_app_role_bypasses_rls(app_url)
 
 
 if __name__ == "__main__":  # pragma: no cover

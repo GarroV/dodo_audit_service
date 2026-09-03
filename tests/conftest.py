@@ -210,8 +210,42 @@ def pg_dsn() -> Iterator[str]:
             conn.execute(drop)
 
 
+#: Роль приложения (миграция `0004`). Тесты блока идут под ней, а не под
+#: суперпользователем, и это не педантизм: суперпользователь обходит RLS
+#: всегда, поэтому под ним любая проверка политик зелена по неверной причине.
+APP_ROLE = "dodo_audit_app"
+
+#: Пароль роли приложения, если на этой машине к Postgres ходят по паролю.
+#: Пусто — подключение идёт без него (peer/trust), как на машине разработчика.
+APP_PASSWORD_VAR = "DATABASE_APP_PASSWORD"  # noqa: S105 — имя переменной, не секрет
+
+
+def app_role_dsn(admin_dsn: str) -> str:
+    """Та же база, но под ролью приложения.
+
+    Пароль привилегированной роли отбрасывается намеренно: он от другой роли, и
+    подставленный сюда дал бы отказ аутентификации вместо понятного «у роли
+    приложения нет пароля».
+    """
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    params = {k: v for k, v in conninfo_to_dict(admin_dsn).items() if k != "password"}
+    params["user"] = APP_ROLE
+    password = os.environ.get(APP_PASSWORD_VAR)
+    if password:
+        params["password"] = password
+    return make_conninfo(**params)
+
+
 @pytest.fixture
 def db_env(pg_dsn: str, monkeypatch: pytest.MonkeyPatch) -> str:
-    """Тот же DSN, но ещё и в `DATABASE_URL` — так, как его читает `db.config.check_environment`."""
-    monkeypatch.setenv(DATABASE_URL_VAR, pg_dsn)
-    return pg_dsn
+    """`DATABASE_URL` тестовой базы — так, как его читает `db.config.check_environment`.
+
+    Подключение идёт под ролью приложения, а не под той, что создавала базу:
+    именно так продукт ходит в базу на площадке (T111). Весь остальной набор
+    тестов блока заодно становится проверкой того, что выданных этой роли прав
+    хватает на настоящую работу — слив, справочник, выгрузку кадров.
+    """
+    dsn = app_role_dsn(pg_dsn)
+    monkeypatch.setenv(DATABASE_URL_VAR, dsn)
+    return dsn
