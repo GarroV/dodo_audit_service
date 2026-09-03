@@ -1,4 +1,4 @@
-.PHONY: check test regress demo lint types dead bounds fmt migrate cov-engine
+.PHONY: check test regress demo demo-down lint types dead bounds fmt migrate cov-engine
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -44,6 +44,17 @@ regress:
 # иначе эта цель, запущенная на сервере, писала бы в настоящие проверки.
 demo:
 	$(VENV)/python tools/seed_demo.py
+
+# Снос демо-стенда. Существует потому, что напрашивающаяся симметричная
+# команда `docker compose --profile demo down -v` сносит ВМЕСТЕ С ДЕМО боевой
+# бот и удаляет том `state` — состояние всех идущих проверок партнёров.
+# Сервис без `profiles:` активен при любом `--profile`, а `-v` удаляет все
+# именованные тома проекта. Поэтому здесь поимённо и без `-v`, а том демо
+# удаляется отдельной строкой.
+demo-down:
+	docker compose --profile demo rm -sf demo demo-seed
+	-docker volume rm $$(docker compose --profile demo config --format json \
+	  | $(VENV)/python -c "import json,sys; print(json.load(sys.stdin)['name']+'_demo-state')")
 
 # Накат схемы блока db (T091). DATABASE_URL берётся из .env — так же, как
 # AUDIT_DATA_DIR для DATA выше. Идемпотентно: на уже накатанной базе печатает
