@@ -210,9 +210,7 @@ def role_bypasses_rls(dsn: str) -> bool:
     ним, выглядит защищённым, ничем таковым не являясь.
     """
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute(
-            "select rolsuper or rolbypassrls from pg_roles where rolname = current_user"
-        )
+        cur.execute("select rolsuper or rolbypassrls from pg_roles where rolname = current_user")
         row = cur.fetchone()
     return bool(row and row[0])
 

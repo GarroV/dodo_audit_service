@@ -217,7 +217,7 @@ APP_ROLE = "dodo_audit_app"
 
 #: Пароль роли приложения, если на этой машине к Postgres ходят по паролю.
 #: Пусто — подключение идёт без него (peer/trust), как на машине разработчика.
-APP_PASSWORD_VAR = "DATABASE_APP_PASSWORD"  # noqa: S105 — имя переменной, не секрет
+APP_PASSWORD_VAR = "DATABASE_APP_PASSWORD"
 
 
 def app_role_dsn(admin_dsn: str) -> str:
