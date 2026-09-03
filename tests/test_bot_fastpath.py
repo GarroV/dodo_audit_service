@@ -1,23 +1,31 @@
-"""Быстрый путь в разговоре: пункт без модели, когда слова однозначны (T117, D063).
+"""Фиксация словами: запись появляется сразу, без кнопки (T121, D064).
 
-Владелец: «у нас тут не нужны размышления, а нужна сверка с текущим списком
-нарушений». Замер блока `recognize`: разбор кадра моделью идёт 5.3 с, текста —
-4.3 с, то есть ждём именно рассуждение. Быстрый путь его пропускает.
+Владелец, дословно: «снимаем с текста подтверждение, потом добавим». Слова
+аудитора, однозначно легшие на карту нарушений, больше не ждут нажатия — запись
+появляется в тот же момент. Для кадра подтверждение остаётся: там пункт
+угадывает система, а в словах зона и суть названы человеком.
 
-Главное, что защищает этот файл, — три вещи, и все три про доверие к кнопке.
+Что защищает этот файл — четыре вещи, и все четыре про цену снятой кнопки.
 
-**Модель не зовётся вовсе.** Проверяется не текстом ответа, а списком вызовов
-подменённого разбора: пустой список и есть доказательство. Иначе быстрый путь
-экономил бы только слова, а не секунды.
+**Модель не зовётся вовсе** (T117, D063). Проверяется не текстом ответа, а
+списком вызовов подменённого разбора: пустой список и есть доказательство.
 
-**Слова аудитора показываются целиком.** Это не оформление. Правило 11
-(`docs/03-recording-rules.md`): в одной фразе может быть два нарушения, а
-быстрый путь покажет один пункт. Обрезанные слова спрятали бы второе нарушение
-ровно там, где аудитор должен его заметить, — поэтому тест берёт фразу длиннее
-предпросмотра (160 знаков) и требует хвост дословно.
+**Запись появляется без нажатия.** Раньше тесты требовали обратного
+(`findings() == []` до кнопки) — теперь ровно наоборот, и это и есть T121.
 
-**`reason` не доходит до экрана.** Это диагностика для замера
-(`tools/fastpath_measure.py`), и человеку она не адресована.
+**Показ обязан быть виден.** Оговорка, высказанная владельцу до решения:
+сопоставление слов с пунктом промахивается, и без подтверждения промах станет
+тихим. На его же примере «кассовая зона, просрочка чизкейк» слова поднимают
+`CLN02` («оборудование в зоне мойки без загрязнений») вместо `PRD10`. Строка
+`#1 CLN02 · D1 · Кассовая зона · 99.5%` такой промах не показывает никак: код
+глазами не читается. Поэтому в показе обязаны стоять **вопрос пункта словами**,
+**слова аудитора целиком** и **сработавшая строка карты** — три вещи, по
+которым промах видно, — и тесты требуют каждую.
+
+**Выход к модели остаётся.** Правка записи меняет зону, класс, формулировку и
+удаляет запись, но НЕ код пункта. Значит, промах по коду чинится только
+разбором заново, а те же слова снова поднимут тот же неверный пункт: без кнопки
+«Разобрать моделью» рядом с записью аудитор оказался бы в петле.
 """
 
 from __future__ import annotations
@@ -43,10 +51,10 @@ from conftest import requires_data
 from src.bot import sidecar
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
-from src.bot.keyboards import FAST_CALLBACK, MODEL_CALLBACK, SKIP_CALLBACK
+from src.bot.keyboards import EDIT_PREFIX, MODEL_CALLBACK, PICK_PREFIX
 from src.bot.texts import t
-from src.bot.view import zone_title
-from src.domain import SOURCE_COMMENT, Finding, get_item, get_state, start_inspection
+from src.bot.view import percent, zone_title
+from src.domain import SOURCE_COMMENT, Finding, get_item, get_state, score, start_inspection
 from src.recognize.fastpath import (
     NO_COLUMN,
     NO_CUE,
@@ -100,10 +108,10 @@ def findings() -> list[Finding]:
     return [] if state is None else list(state.findings)
 
 
-async def test_однозначные_слова_фиксируются_без_единого_вызова_модели(
+async def test_однозначные_слова_ложатся_записью_без_нажатия_и_без_модели(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Смысл задачи: пункт показан сразу, модель не звали ни разу."""
+    """Смысл T121: аудитор написал словами — запись уже есть, нажимать нечего."""
     started()
     asked = stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
     bot, session = make_bot()
@@ -114,19 +122,40 @@ async def test_однозначные_слова_фиксируются_без_�
 
     assert asked == [], "модель звали, хотя слова однозначны — время потрачено впустую"
     assert t("record.thinking", "ru") not in session.texts, "«Разбираю…» без разбора"
-    assert "CLN05" in session.last_text
-    assert findings() == [], "запись появилась без подтверждения"
+    saved = findings()
+    assert len(saved) == 1, "запись не появилась — подтверждение всё ещё требуется"
+    assert (saved[0].code, saved[0].level, saved[0].zone) == ("CLN05", "D1", "hot_kitchen")
 
 
-async def test_рядом_с_кнопкой_видны_слова_аудитора_и_строка_карты(
+async def test_запись_ложится_словами_аудитора_с_источником_со_слов(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Из чего сделан вывод, видно человеку, а не только логу.
+    """Текст записи — дословные слова аудитора, источник — «со слов» (D044)."""
+    started()
+    stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
+    bot, _session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+    sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
-    Сообщение сверяется целиком, а не поиском подстрок. Проверено порчей:
-    «строка карты» и вопрос чек-листа начинаются одинаково («Печь…»), и
-    проверка `"Печь" in shown` оставалась зелёной с пустой строкой карты —
-    подстроку давал заголовок пункта. Такая проверка не проверяет ничего.
+    await feed(dp, bot, photo_message("frame-1", caption=TWO_VIOLATIONS))
+
+    saved = findings()
+    assert len(saved) == 1
+    assert saved[0].text == TWO_VIOLATIONS, "формулировку кто-то сочинил за аудитора"
+    assert saved[0].source == SOURCE_COMMENT
+    assert saved[0].photos == ["frame-1"], "кадр к записи не прикрепился"
+
+
+async def test_показ_записи_называет_пункт_словами_а_не_только_кодом(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Без кнопки промах сопоставления виден только отсюда — значит, отсюда он и виден.
+
+    Сообщение сверяется целиком, а не поиском подстрок. Проверено порчей на
+    прошлой очереди: «строка карты» и вопрос чек-листа начинаются одинаково
+    («Печь…»), и проверка `"Печь" in shown` оставалась зелёной с пустой строкой
+    карты. Отдельной строкой — что вопрос пункта дошёл целиком: именно он
+    отличает `CLN02` «оборудование в зоне мойки» от `PRD10` в примере владельца.
     """
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
@@ -136,26 +165,34 @@ async def test_рядом_с_кнопкой_видны_слова_аудитор
 
     await feed(dp, bot, photo_message("frame-1", caption=CLEAR))
 
+    question = get_item("CLN05").question("ru")
     assert session.last_text == t(
-        "record.fast",
+        "record.fixed",
         "ru",
+        line=t(
+            "record.saved",
+            "ru",
+            n=1,
+            code="CLN05",
+            level="D1",
+            zone=zone_title("hot_kitchen", "ru"),
+            pct=percent(score(CHAT_ID).pct),
+        ),
+        title=question,
         note=CLEAR,
         cue="Печь",
-        code="CLN05",
-        level="D1",
-        zone=zone_title("hot_kitchen", "ru"),
-        title=get_item("CLN05").question("ru"),
     )
+    assert question in session.last_text, "пункт назван одним кодом — промах не прочитать"
 
 
 async def test_фраза_с_двумя_нарушениями_показывает_слова_целиком(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Правило 11: ответ на одно нарушение из двух — но слова не обрезаны.
+    """Правило 11: записано одно нарушение из двух — но слова не обрезаны.
 
     Механизм второе нарушение не находит и найти не может. Единственное, что
     отделяет потерю от осознанного решения аудитора, — его собственные слова
-    целиком и кнопка «Разобрать моделью» рядом.
+    целиком в том самом сообщении, где стоит запись.
     """
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
@@ -170,35 +207,17 @@ async def test_фраза_с_двумя_нарушениями_показыва�
     assert TWO_VIOLATIONS in shown, "слова обрезаны — второе нарушение потерялось молча"
     assert "пол у входа в цех тоже грязный" in shown
     assert "…" not in shown, "многоточие: слова всё-таки урезаны"
-    assert MODEL_CALLBACK in session.keyboard_data(), "выхода на модель нет — аудитор зажат"
 
 
-async def test_кнопка_записать_фиксирует_словами_аудитора_со_слов(
+async def test_под_записью_есть_и_правка_и_выход_к_модели(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Текст записи — слова аудитора, источник — «со слов аудитора» (D044)."""
-    started()
-    stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
-    bot, session = make_bot()
-    dp = build_dispatcher(SETTINGS)
-    sidecar.remember_zone(CHAT_ID, "hot_kitchen")
+    """Замена подтверждению: поправить или удалить — и разобрать заново.
 
-    await feed(dp, bot, photo_message("frame-1", caption=TWO_VIOLATIONS))
-    await feed(dp, bot, callback(FAST_CALLBACK))
-
-    saved = findings()
-    assert len(saved) == 1
-    assert (saved[0].code, saved[0].level, saved[0].zone) == ("CLN05", "D1", "hot_kitchen")
-    assert saved[0].text == TWO_VIOLATIONS, "формулировку кто-то сочинил за аудитора"
-    assert saved[0].source == SOURCE_COMMENT
-    assert saved[0].photos == ["frame-1"], "кадр к записи не прикрепился"
-    assert session.last_text.startswith("#1 CLN05 · D1 ·")
-
-
-async def test_записать_второй_раз_нечего_предложение_забрано(
-    domain_env: object, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Одно предложение — одна запись: второе нажатие не удваивает находку."""
+    Правка кода пункта в чате не предусмотрена (`routers/edit.py`), а те же
+    слова снова поднимут тот же пункт. Без «Разобрать моделью» рядом с записью
+    неверный код чинился бы удалением и повтором по кругу.
+    """
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
     bot, session = make_bot()
@@ -206,17 +225,44 @@ async def test_записать_второй_раз_нечего_предлож�
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
     await feed(dp, bot, photo_message("frame-1", caption=CLEAR))
-    await feed(dp, bot, callback(FAST_CALLBACK))
-    await feed(dp, bot, callback(FAST_CALLBACK))
 
+    buttons = session.keyboard_data()
+    assert MODEL_CALLBACK in buttons, "выхода к модели нет — неверный код не починить"
+    for what in ("zone", "level", "text", "drop"):
+        assert f"{EDIT_PREFIX}1:{what}" in buttons, f"под записью нет правки «{what}»"
+
+
+async def test_отказ_движка_не_оставляет_тупика_а_передаёт_модели(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Тот же пункт в той же зоне второй раз движок не берёт — и это обычный исход.
+
+    Раньше отказ приходил на нажатие, и рядом оставались кнопки. Теперь нажатия
+    нет, и молча упереться в отказ аудитор не должен: причина названа, а
+    материал уходит в разбор моделью — там пункт можно выбрать другой.
+    """
+    started()
+    asked = stub_classify(monkeypatch, suggestion(candidate("CLN12", "D1", "hot_kitchen")))
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+    sidecar.remember_zone(CHAT_ID, "hot_kitchen")
+
+    await feed(dp, bot, photo_message("frame-1", caption=CLEAR))
     assert len(findings()) == 1
-    assert session.last_text == t("record.stale", "ru")
+    session.clear()
+
+    await feed(dp, bot, photo_message("frame-2", caption=CLEAR))
+
+    assert len(findings()) == 1, "движок взял тот же пункт в ту же зону дважды"
+    assert any(text.startswith("Не записал:") for text in session.texts), "отказ не назван"
+    assert len(asked) == 1, "после отказа материал никуда не пошёл — тупик"
+    assert f"{PICK_PREFIX}0" in session.keyboard_data()
 
 
 async def test_кнопка_разобрать_моделью_отдаёт_модели_тот_же_материал(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Быстрый путь показал не то — модель разбирает те же слова и тот же кадр."""
+    """Сверка дала не тот пункт — модель разбирает те же слова и тот же кадр."""
     started()
     asked = stub_classify(monkeypatch, suggestion(candidate("CLN12", "D1", "hot_kitchen")))
     bot, session = make_bot()
@@ -234,13 +280,13 @@ async def test_кнопка_разобрать_моделью_отдаёт_мо�
     assert photo is not None, "кадр до модели не доехал"
     assert zone == "hot_kitchen"
     assert "CLN12" in session.last_text
-    assert findings() == [], "разбор моделью сам ничего не фиксирует"
+    assert len(findings()) == 1, "разбор моделью сам ничего не фиксирует"
 
 
 async def test_разбор_моделью_после_быстрого_пути_не_зовёт_его_снова(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Иначе кнопка «Разобрать моделью» возвращала бы тот же быстрый ответ по кругу."""
+    """Иначе кнопка «Разобрать моделью» возвращала бы ту же запись по кругу."""
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN12", "D1", "hot_kitchen")))
     bot, session = make_bot()
@@ -248,54 +294,34 @@ async def test_разбор_моделью_после_быстрого_пути_
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
     await feed(dp, bot, photo_message("frame-1", caption=CLEAR))
+    assert len(findings()) == 1
     await feed(dp, bot, callback(MODEL_CALLBACK))
 
-    assert FAST_CALLBACK not in session.keyboard_data(), "быстрый путь сработал второй раз"
+    assert len(findings()) == 1, "сверка сработала второй раз и удвоила запись"
     assert t("record.thinking", "ru") in session.texts
 
 
-async def test_не_записывать_снимает_быстрое_предложение(
+async def test_нажатие_без_предложения_отвечает_что_оно_устарело(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Отказ от предложения — обычный исход, и кадр при этом не теряется (T068)."""
-    started()
-    stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
-    bot, session = make_bot()
-    dp = build_dispatcher(SETTINGS)
-    sidecar.remember_zone(CHAT_ID, "hot_kitchen")
-
-    await feed(dp, bot, photo_message("frame-1", caption=CLEAR))
-    await feed(dp, bot, callback(SKIP_CALLBACK))
-    await feed(dp, bot, callback(FAST_CALLBACK))
-
-    assert findings() == []
-    assert session.last_text == t("record.stale", "ru")
-
-
-async def test_нажатия_без_предложения_отвечают_что_оно_устарело(
-    domain_env: object, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Бот перезапустился — кнопки под старым сообщением молчать не должны."""
+    """Бот перезапустился — кнопка под старой записью молчать не должна."""
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
-    await feed(dp, bot, callback(FAST_CALLBACK))
-    assert session.last_text == t("record.stale", "ru")
     await feed(dp, bot, callback(MODEL_CALLBACK))
+
     assert session.last_text == t("record.stale", "ru")
 
 
-async def test_кнопки_быстрого_пути_поверх_кандидатов_модели_устарели(
+async def test_выход_к_модели_поверх_кандидатов_модели_устарел(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Кнопки из-под прошлого быстрого предложения не трогают чужой материал.
+    """Кнопка из-под прошлой записи не трогает чужой материал.
 
     Живое предложение в чате есть, но оно от модели: быстрого пункта в нём нет.
-    Нажатие обязано ответить «устарело», а не записать пустоту. Проверено
-    порчей: без проверки на сам пункт «Записать» уходит в фиксацию с `None`
-    вместо кода — падение обработчика, о котором аудитор узнаёт молчанием.
+    Нажатие обязано ответить «устарело», а не разбирать заново чужие слова.
     """
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
@@ -304,19 +330,15 @@ async def test_кнопки_быстрого_пути_поверх_кандид�
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
     await feed(dp, bot, photo_message("frame-1", caption="тут непорядок"))
-    assert "rec:pick:0" in session.keyboard_data(), "нужно живое предложение от модели"
+    assert f"{PICK_PREFIX}0" in session.keyboard_data(), "нужно живое предложение от модели"
 
     session.clear()
     await feed(dp, bot, callback(MODEL_CALLBACK))
     assert session.last_text == t("record.stale", "ru")
-
-    session.clear()
-    await feed(dp, bot, callback(FAST_CALLBACK))
-    assert session.last_text == t("record.stale", "ru")
     assert findings() == []
 
 
-async def test_без_названной_зоны_быстрый_путь_молчит(
+async def test_без_названной_зоны_ничего_не_фиксируется_само(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Зону определяет аудитор (правило 6), а не догадка по словам."""
@@ -328,21 +350,24 @@ async def test_без_названной_зоны_быстрый_путь_мол
     await feed(dp, bot, photo_message("frame-1", caption=CLEAR))
 
     assert len(asked) == 1, "без зоны разбирать обязана модель"
-    assert FAST_CALLBACK not in session.keyboard_data()
+    assert findings() == [], "запись появилась сама, хотя зона не названа"
+    assert f"{PICK_PREFIX}0" in session.keyboard_data()
 
 
-async def test_голый_кадр_по_кнопке_разобрать_идёт_в_модель(
+async def test_кадр_без_слов_фиксируется_только_подтверждением(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Слов нет — сверять не с чем; «Разобрать» остаётся вызовом модели (D046).
+    """Граница D064: подтверждение снято с текста, но не с кадра.
 
-    Карту при этом не читают вовсе: сверять пустые слова со списком нарушений
-    нечем, а чтение методики и карты стоит миллисекунды в цикле событий.
+    Слов нет — сверять не с чем; «Разобрать» остаётся вызовом модели (D046), и
+    запись появляется только после нажатия на кандидата. Карту при этом не
+    читают вовсе: сверять пустые слова со списком нечем, а чтение методики и
+    карты стоит миллисекунды в цикле событий.
     """
     started()
     asked = stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
     checked = spy_fast_path(monkeypatch)
-    bot, session = make_bot()
+    bot, _session = make_bot()
     dp = build_dispatcher(SETTINGS)
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
@@ -352,7 +377,10 @@ async def test_голый_кадр_по_кнопке_разобрать_идёт
     assert len(asked) == 1
     assert asked[0][0] == ""
     assert checked == [], "сверка со списком звалась на пустых словах — впустую"
-    assert FAST_CALLBACK not in session.keyboard_data()
+    assert findings() == [], "кадр записался сам — подтверждение по кадру снято, а не должно"
+
+    await feed(dp, bot, callback(f"{PICK_PREFIX}0"))
+    assert len(findings()) == 1, "по нажатию запись так и не появилась"
 
 
 async def test_неоднозначные_слова_идут_модели_как_раньше(
@@ -368,7 +396,8 @@ async def test_неоднозначные_слова_идут_модели_ка�
     await feed(dp, bot, photo_message("frame-1", caption="печь"))
 
     assert [call[0] for call in asked] == ["печь"]
-    assert "rec:pick:0" in session.keyboard_data()
+    assert f"{PICK_PREFIX}0" in session.keyboard_data()
+    assert findings() == [], "неоднозначные слова записались сами"
 
 
 async def test_причина_отказа_человеку_не_показывается(
@@ -389,10 +418,10 @@ async def test_причина_отказа_человеку_не_показыв�
         assert reason not in shown, f"диагностика уехала на экран: {reason}"
 
 
-async def test_быстрый_путь_работает_и_на_комментарии_следом(
+async def test_фиксация_словами_работает_и_на_комментарии_следом(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Связка «кадр, потом комментарий» (T053) — тот же поток, тот же быстрый путь."""
+    """Связка «кадр, потом комментарий» (T053) — тот же поток, та же запись сразу."""
     started()
     asked = stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
     bot, session = make_bot()
@@ -403,5 +432,6 @@ async def test_быстрый_путь_работает_и_на_коммента
     await feed(dp, bot, text_message(CLEAR))
 
     assert asked == []
-    assert FAST_CALLBACK in session.keyboard_data()
+    assert len(findings()) == 1
+    assert findings()[0].photos == ["frame-1"], "кадр к записи не прикрепился"
     assert NO_ZONE not in "\n".join(session.texts)

@@ -87,10 +87,11 @@ ANALYZE_PREFIX = "rec:analyze:"
 #: Кандидат модели по его месту в показанном списке.
 PICK_PREFIX = "rec:pick:"
 SKIP_CALLBACK = "rec:skip"
-#: Пункт, найденный без модели по словам аудитора (T117, D063), и выход к
-#: модели рядом с ним. Место в списке в коде кнопки не едет: у быстрого пути
-#: вариант ровно один — он лежит в предложении чата.
-FAST_CALLBACK = "rec:fast"
+#: Отдать модели тот же материал, который сверка по словам уже разобрала сама
+#: (T117, D063). После T121 кнопка стоит не рядом с предложением, а под уже
+#: сделанной записью: подтверждать нечего, но пункт бывает не тот. Место в
+#: списке в коде кнопки не едет: материал ровно один — он лежит в предложении
+#: чата.
 MODEL_CALLBACK = "rec:model"
 #: Открыть перечень пунктов для ручного выбора (T034 со стороны бота).
 MANUAL_CALLBACK = "rec:manual"
@@ -162,26 +163,6 @@ def candidates_keyboard(count: int, lang: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def fast_keyboard(code: str, title: str, lang: str) -> InlineKeyboardMarkup:
-    """Пункт, найденный без модели: записать, разобрать моделью, не записывать (T117).
-
-    Вторая кнопка обязательна, и не для симметрии. Быстрый путь отвечает по
-    одной сработавшей строке карты, а в одной фразе аудитора бывает два
-    нарушения (правило 11 `docs/03-recording-rules.md`): «Печь в нагаре, пол
-    грязный» покроет строку «Печь» и покажет один пункт из двух. Без выхода к
-    модели аудитор с неполным ответом зажат в угол.
-
-    На первой кнопке стоит вопрос чек-листа, как в ручном перечне: быстрый путь
-    формулировок не сочиняет, и предлагать ему нечего, кроме самого пункта.
-    """
-    builder = InlineKeyboardBuilder()
-    builder.button(text=f"{code} · {_short(title)}", callback_data=FAST_CALLBACK)
-    builder.button(text=t("btn.model", lang), callback_data=MODEL_CALLBACK)
-    builder.button(text=t("btn.skip", lang), callback_data=SKIP_CALLBACK)
-    builder.adjust(1)
-    return builder.as_markup()
-
-
 def manual_keyboard(
     titles: Sequence[tuple[int, str, str]], page: int, pages: int, lang: str
 ) -> InlineKeyboardMarkup:
@@ -229,6 +210,18 @@ def zones_keyboard(prefix: str, zones: Sequence[tuple[str, str]]) -> InlineKeybo
     return builder.as_markup()
 
 
+#: Правки записи: ключ надписи и код действия. Список один на две клавиатуры
+#: (`edit_keyboard` и `fixed_keyboard`) намеренно — разойдись они, у записи,
+#: сделанной без подтверждения, набор правок отличался бы от обычной, и это
+#: заметил бы только аудитор на точке.
+EDIT_BUTTONS: tuple[tuple[str, str], ...] = (
+    ("btn.zone", EDIT_ZONE),
+    ("btn.level", EDIT_LEVEL),
+    ("btn.text", EDIT_TEXT),
+    ("btn.drop", EDIT_DROP),
+)
+
+
 def edit_keyboard(n: int, lang: str) -> InlineKeyboardMarkup:
     """Правки записи прямо под подтверждением (T056).
 
@@ -236,14 +229,29 @@ def edit_keyboard(n: int, lang: str) -> InlineKeyboardMarkup:
     удаление. Процент пересчитывается после любой из них.
     """
     builder = InlineKeyboardBuilder()
-    for label, what in (
-        ("btn.zone", EDIT_ZONE),
-        ("btn.level", EDIT_LEVEL),
-        ("btn.text", EDIT_TEXT),
-        ("btn.drop", EDIT_DROP),
-    ):
+    for label, what in EDIT_BUTTONS:
         builder.button(text=t(label, lang), callback_data=f"{EDIT_PREFIX}{n}:{what}")
-    builder.adjust(4)
+    builder.adjust(len(EDIT_BUTTONS))
+    return builder.as_markup()
+
+
+def fixed_keyboard(n: int, lang: str) -> InlineKeyboardMarkup:
+    """Под записью, сделанной по словам сразу, без подтверждения (T121, D064).
+
+    Те же четыре правки, что под подтверждённой записью, плюс пятая кнопка —
+    «Разобрать моделью». Она обязательна, и не для симметрии с прошлой очередью.
+
+    Правка меняет зону, класс и формулировку и удаляет запись, но НЕ код пункта
+    (`routers/edit.py`). А сверка по словам промахивается: слова могут покрыть
+    не ту строку карты, и тогда запись уйдёт в отчёт с неверным пунктом. Без
+    выхода к модели починить такой промах было бы нечем: удаление и повтор тех
+    же слов дают ровно тот же неверный пункт — петля.
+    """
+    builder = InlineKeyboardBuilder()
+    for label, what in EDIT_BUTTONS:
+        builder.button(text=t(label, lang), callback_data=f"{EDIT_PREFIX}{n}:{what}")
+    builder.adjust(len(EDIT_BUTTONS))
+    builder.row(InlineKeyboardButton(text=t("btn.model", lang), callback_data=MODEL_CALLBACK))
     return builder.as_markup()
 
 
