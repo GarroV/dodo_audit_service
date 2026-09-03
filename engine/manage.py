@@ -173,12 +173,8 @@ def cmd_add(a):
         qid = f"{pre}{n:02d}"
     if qid in ids:
         sys.exit(f"{qid} уже есть. Выберите другой id или используйте edit.")
-    zc = {z["code"] for z in load_zones()}
     zones = (a.zones or "*").strip()
-    if zones != "*":
-        bad = [z for z in zones.split(",") if z.strip() and z.strip() not in zc]
-        if bad:
-            sys.exit(f"Неизвестные зоны: {', '.join(bad)}. Доступны: {', '.join(sorted(zc))}")
+    check_zone_codes(zones)
     levels = ";".join(x.strip().upper() for x in re.split(r"[;,]", a.levels or "D1") if x.strip())
     row = {"id": qid, "kind": a.kind or "violation", "process_ru": a.process or "",
            "process_en": a.process_en or a.process or "", "question_ru": a.question_ru or "",
@@ -207,8 +203,10 @@ def cmd_remove(a):
 
 
 def cmd_restore(a):
-    d = target_dir(create=True)
     rows = read_rows()
+    if not [r for r in rows if r["id"].upper() == a.id.upper()]:
+        sys.exit(f"Нет вопроса {a.id}")
+    d = target_dir(create=True)
     for r in rows:
         if r["id"].upper() == a.id.upper():
             r["kind"] = "violation"
@@ -216,7 +214,25 @@ def cmd_restore(a):
     print("включён " + a.id.upper())
 
 
+def check_zone_codes(zones):
+    """Отказ, если среди кодов зон через запятую есть код без зоны в zones.csv.
+
+    Общая для `cmd_add` и `cmd_edit` — раньше проверка стояла только в
+    `cmd_add`, и `edit --zones opechatka` записывал в чек-лист код, которого
+    нет ни в одной зоне, молча (пропуск, не замысел). `zones is None` (флаг
+    не передан) и `"*"` (все зоны) проверке не подлежат; пустые куски между
+    запятыми игнорируются — так же, как их игнорирует сама запись зон.
+    """
+    if zones is None or zones.strip() == "*":
+        return
+    zc = {z["code"] for z in load_zones()}
+    bad = [z for z in zones.split(",") if z.strip() and z.strip() not in zc]
+    if bad:
+        sys.exit(f"Неизвестные зоны: {', '.join(bad)}. Доступны: {', '.join(sorted(zc))}")
+
+
 def cmd_edit(a):
+    check_zone_codes(a.zones)
     d = target_dir(create=True)
     rows = read_rows()
     found = False
@@ -324,9 +340,13 @@ def cmd_zone_remove(a):
             "перестанет сходиться, поправьте её в zones.csv). "
             "--equal-shares уравнивает доли ВСЕХ оставшихся зон на 100/N."
         )
+    zrows_all = list(csv.DictReader(open(data_path("zones.csv"), encoding="utf-8-sig")))
+    zc = {r["code"] for r in zrows_all}
+    if a.code not in zc:
+        sys.exit(f"Неизвестная зона: {a.code}. Доступны: {', '.join(sorted(zc))}")
     d = target_dir(create=True)
     p = os.path.join(d, "zones.csv")
-    rows = [r for r in csv.DictReader(open(data_path("zones.csv"), encoding="utf-8-sig")) if r["code"] != a.code]
+    rows = [r for r in zrows_all if r["code"] != a.code]
     share = уравнять_доли(rows) if a.equal_shares else None
     write_csv_rows(p, rows, ZONE_FIELDS)
     cl = read_rows()
