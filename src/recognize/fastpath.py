@@ -22,8 +22,10 @@
 3. **Строка даёт ровно один код.** Карта различает грязь и поломку одного
    объекта колонками («Печь | CLN05 | TEH05») и сама объясняет разницу —
    значит, слова должны сказать, о чём речь. Не сказали или сказали и то и
-   другое — не однозначно. Строка вида «PRD09, PRD11» — выбор из двух пунктов,
-   предложенный самой картой, и быстрым путём не проходит никогда.
+   другое — не однозначно. Слово при отрицании при этом не считается: «печь
+   без нагара» и «нагара нет» — не про нагар. Строка вида «PRD09, PRD11» —
+   выбор из двух пунктов, предложенный самой картой, и быстрым путём не
+   проходит никогда.
 4. **У пункта единственный допустимый класс.** Где классов несколько, разницу
    задаёт то, чего в словах нет: сколько упаковок, как долго, насколько
    массово. «Живые насекомые» — это D1 или D3 по массовости, и решает её
@@ -43,7 +45,7 @@ from dataclasses import dataclass
 from src.domain import allowed_levels, get_item, list_items
 
 from .config import DEFAULT_LANG
-from .cues import Cue, load_cues, stems
+from .cues import Cue, load_cues, stems, tokens
 from .shortlist import MANUAL_ONLY
 
 #: Почему быстрый путь не сработал. Строки, а не флаги: их видно в замере
@@ -106,8 +108,28 @@ BREAKAGE_WORDS = (
 )
 
 
+#: Частицы, которые переворачивают смысл соседнего слова. «Печь без нагара» —
+#: это не нагар, «нагара нет» — тем более, а совпадение идёт по основам слов и
+#: частицу не видит. Поэтому слово рядом с отрицанием в выборе колонки не
+#: участвует вовсе: отказ стоит вызова модели, срабатывание — записи в отчёте.
+NEGATIONS = frozenset({"без", "не", "нет", "ни"})
+
+
 def _vocabulary(words: tuple[str, ...]) -> frozenset[str]:
     return frozenset(stem for word in words for stem in stems(word))
+
+
+def _column_words(note: str) -> set[str]:
+    """Основы слов, которыми выбирается колонка: без тех, что стоят при отрицании."""
+    sequence = tokens(note)
+    picked: set[str] = set()
+    for index, word in enumerate(sequence):
+        before = sequence[index - 1] if index else ""
+        after = sequence[index + 1] if index + 1 < len(sequence) else ""
+        if {word, before, after} & NEGATIONS:
+            continue
+        picked |= stems(word)
+    return picked
 
 
 #: Заголовок колонки → словарь, которым она выбирается. Заголовок, которого
@@ -145,7 +167,7 @@ def _covered(words: set[str]) -> list[Cue]:
     return [cue for cue in load_cues() if (phrase := stems(cue.phrase)) and phrase <= words]
 
 
-def _resolve(cue: Cue, words: set[str]) -> tuple[str, ...]:
+def _resolve(cue: Cue, column_words: set[str]) -> tuple[str, ...]:
     """Коды строки после разбора колонок. Пусто — колонка не выбрана словами."""
     distinct = {column[1] for column in cue.by_column}
     if len(distinct) == 1:
@@ -153,7 +175,7 @@ def _resolve(cue: Cue, words: set[str]) -> tuple[str, ...]:
     matched = [
         codes
         for header, codes in cue.by_column
-        if COLUMN_VOCABULARY.get(header.strip().lower(), frozenset()) & words
+        if COLUMN_VOCABULARY.get(header.strip().lower(), frozenset()) & column_words
     ]
     return matched[0] if len(matched) == 1 else ()
 
@@ -172,9 +194,10 @@ def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> 
     if not covered:
         return FastPath(None, NO_CUE)
 
+    column_words = _column_words(note)
     picked: dict[str, str] = {}
     for cue in covered:
-        codes = _resolve(cue, words)
+        codes = _resolve(cue, column_words)
         if not codes:
             return FastPath(None, NO_COLUMN)
         if len(codes) > 1:

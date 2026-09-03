@@ -120,6 +120,11 @@ def stems(text: str) -> set[str]:
     }
 
 
+def tokens(text: str) -> list[str]:
+    """Слова текста подряд, в нижнем регистре. Порядок нужен там, где важно соседство."""
+    return _WORD.findall(text.lower().replace("ё", "е"))
+
+
 def cues_path() -> Path:
     """Где лежит карта кадров. Каталог методики задаётся `AUDIT_DATA_DIR`."""
     return check_environment().data_dir / CUES_FILE
