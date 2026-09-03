@@ -173,7 +173,19 @@ def test_чужая_колонка_зон_переживает_добавлен�
 ) -> None:
     было = {r["code"]: r["floor"] for r in читать(зоны)[1]}
 
-    r = manage("zone-add", "--code", "terrace", "--name-ru", "Терраса", "--name-en", "Terrace")
+    # `--equal-shares` — не деталь: с T112 правка списка зон не решает за человека,
+    # что делать с долями. Здесь проверяются колонки, поэтому берётся любой из двух
+    # явных путей.
+    r = manage(
+        "zone-add",
+        "--code",
+        "terrace",
+        "--name-ru",
+        "Терраса",
+        "--name-en",
+        "Terrace",
+        "--equal-shares",
+    )
     assert r.code == 0, r.text
 
     fields, rows = читать(зоны)
@@ -186,7 +198,7 @@ def test_чужая_колонка_зон_переживает_добавлен�
 def test_чужая_колонка_зон_переживает_удаление_зоны(manage: Callable[..., Run], зоны: Path) -> None:
     было = {r["code"]: r["floor"] for r in читать(зоны)[1] if r["code"] != "staff"}
 
-    r = manage("zone-remove", "staff")
+    r = manage("zone-remove", "staff", "--equal-shares")
     assert r.code == 0, r.text
 
     fields, rows = читать(зоны)
@@ -200,7 +212,7 @@ def test_удаление_зоны_не_стирает_колонку_чек_л�
     """`zone-remove` переписывает и чек-лист — вычищая из пунктов удалённую зону."""
     было = {r["id"]: r["route_order"] for r in читать(чек_лист)[1]}
 
-    assert manage("zone-remove", "staff").code == 0
+    assert manage("zone-remove", "staff", "--equal-shares").code == 0
 
     fields, rows = читать(чек_лист)
     assert "route_order" in fields, f"колонка УК исчезла молча: {fields}"

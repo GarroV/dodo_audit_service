@@ -10,8 +10,9 @@
   manage.py remove PRD42 [--hard]          выключить вопрос (или удалить строку совсем)
   manage.py restore PRD42                  включить обратно
   manage.py edit PRD42 --levels D1;D2;D3 --days 7 --zones "*"
-  manage.py zone-add --code terrace --name-ru "Терраса" --name-en "Terrace"
-  manage.py zone-remove terrace
+  manage.py zone-add --code terrace --name-ru "Терраса" [--name-en "Terrace"] \
+                (--share 5 | --equal-shares)
+  manage.py zone-remove terrace (--keep-shares | --equal-shares)
   manage.py validate                       проверить целостность файлов
   manage.py import-xlsx файл.xlsx [--keep-zones] [--drop-extra-columns]
         пересобрать чек-лист из выгрузки шаблона IMF (Template_CL). --keep-zones
@@ -24,6 +25,11 @@
 Колонки, которых движок не знает, при правке методики сохраняются: чек-лист и зоны —
 данные управляющей компании, и `manage.py` не вправе выбрасывать из них то, чего не
 читает сам. Исключение одно — `import-xlsx`, см. выше.
+
+По той же причине правка списка зон не трогает доли остальных зон сама: вес зоны —
+решение управляющей компании (неравные доли разрешены с T103). Что делать с долями,
+человек говорит явно — `--share` у новой зоны, `--keep-shares` или `--equal-shares`;
+пока не сказал, команда не выполняется и файл не трогается.
 """
 import argparse, csv, json, os, re, shutil, sys
 
@@ -167,12 +173,8 @@ def cmd_add(a):
         qid = f"{pre}{n:02d}"
     if qid in ids:
         sys.exit(f"{qid} уже есть. Выберите другой id или используйте edit.")
-    zc = {z["code"] for z in load_zones()}
     zones = (a.zones or "*").strip()
-    if zones != "*":
-        bad = [z for z in zones.split(",") if z.strip() and z.strip() not in zc]
-        if bad:
-            sys.exit(f"Неизвестные зоны: {', '.join(bad)}. Доступны: {', '.join(sorted(zc))}")
+    check_zone_codes(zones)
     levels = ";".join(x.strip().upper() for x in re.split(r"[;,]", a.levels or "D1") if x.strip())
     row = {"id": qid, "kind": a.kind or "violation", "process_ru": a.process or "",
            "process_en": a.process_en or a.process or "", "question_ru": a.question_ru or "",
@@ -201,8 +203,10 @@ def cmd_remove(a):
 
 
 def cmd_restore(a):
-    d = target_dir(create=True)
     rows = read_rows()
+    if not [r for r in rows if r["id"].upper() == a.id.upper()]:
+        sys.exit(f"Нет вопроса {a.id}")
+    d = target_dir(create=True)
     for r in rows:
         if r["id"].upper() == a.id.upper():
             r["kind"] = "violation"
@@ -210,7 +214,25 @@ def cmd_restore(a):
     print("включён " + a.id.upper())
 
 
+def check_zone_codes(zones):
+    """Отказ, если среди кодов зон через запятую есть код без зоны в zones.csv.
+
+    Общая для `cmd_add` и `cmd_edit` — раньше проверка стояла только в
+    `cmd_add`, и `edit --zones opechatka` записывал в чек-лист код, которого
+    нет ни в одной зоне, молча (пропуск, не замысел). `zones is None` (флаг
+    не передан) и `"*"` (все зоны) проверке не подлежат; пустые куски между
+    запятыми игнорируются — так же, как их игнорирует сама запись зон.
+    """
+    if zones is None or zones.strip() == "*":
+        return
+    zc = {z["code"] for z in load_zones()}
+    bad = [z for z in zones.split(",") if z.strip() and z.strip() not in zc]
+    if bad:
+        sys.exit(f"Неизвестные зоны: {', '.join(bad)}. Доступны: {', '.join(sorted(zc))}")
+
+
 def cmd_edit(a):
+    check_zone_codes(a.zones)
     d = target_dir(create=True)
     rows = read_rows()
     found = False
@@ -235,28 +257,97 @@ def cmd_edit(a):
     print("обновлён " + a.id.upper())
 
 
+def уравнять_доли(rows):
+    """Раздать всем зонам равную долю. Прежнее поведение — теперь по явной просьбе."""
+    share = round(ZONE_SHARE_TOTAL / len(rows), 4)
+    for r in rows:
+        r["share_pct"] = share
+    return share
+
+
+def сказать_про_доли(path):
+    """Назвать итог по долям после правки списка зон — сходятся или нет.
+
+    Читаем с диска, а не из памяти: человеку важно, что теперь лежит в файле.
+    Проверка та же, что у `validate`, и допуск тот же, что у движка, — иначе
+    команда сказала бы «всё хорошо» там, где `score` откажется считать.
+    """
+    problems = zone_problems(zone_rows_raw(path))
+    if not problems:
+        print(f"доли зон сходятся: {ZONE_SHARE_TOTAL:g}%")
+        return
+    for x in problems:
+        print(" -", x)
+    print(
+        f"Файл: {path}. Приведите доли к сумме {ZONE_SHARE_TOTAL:g}% — до тех пор движок "
+        f"откажется считать оценку по этой методике."
+    )
+
+
 def cmd_zone_add(a):
+    # Доля новой зоны берётся откуда-то: либо человек называет её сам, либо
+    # соглашается уравнять ВСЕ доли. Раньше команда молча выбирала второе, и
+    # заданный управляющей компанией вес кухни (20%) исчезал при добавлении
+    # террасы — при действии, которое к долям отношения не имеет (T112).
+    if a.equal_shares and a.share is not None:
+        sys.exit(
+            "--share и --equal-shares противоречат друг другу: либо доля новой зоны, "
+            "либо равные доли у всех. Выберите одно."
+        )
+    if not a.equal_shares and a.share is None:
+        sys.exit(
+            "Не сказано, что делать с долями зон, а добавление зоны их затрагивает. "
+            "Доли задают вес зоны в оценке и складываются в 100% — это решение "
+            "управляющей компании, и движок не вправе принимать его за неё. "
+            "--share ДОЛЯ задаёт вес новой зоны и не трогает остальные (сумма после "
+            "этого перестанет сходиться, поправьте её в zones.csv). "
+            "--equal-shares уравнивает доли ВСЕХ зон на 100/N."
+        )
+    if a.share is not None and a.share < 0:
+        sys.exit(f"Доля зоны не может быть отрицательной: --share {a.share:g}")
     d = target_dir(create=True)
     p = os.path.join(d, "zones.csv")
     rows = list(csv.DictReader(open(p, encoding="utf-8-sig"))) if os.path.exists(p) else \
         [dict(r, share_pct=r["share_pct"]) for r in load_zones()]
     if any(r["code"] == a.code for r in rows):
         sys.exit("такая зона уже есть")
-    rows.append({"code": a.code, "name_ru": a.name_ru, "name_en": a.name_en or a.name_ru, "share_pct": 0})
-    share = round(100 / len(rows), 4)
-    for r in rows:
-        r["share_pct"] = share
+    rows.append({"code": a.code, "name_ru": a.name_ru, "name_en": a.name_en or a.name_ru,
+                 "share_pct": a.share if a.share is not None else 0})
+    if a.equal_shares:
+        share = уравнять_доли(rows)
+        print(f"зон стало {len(rows)}, доля каждой {share:g}%")
+    else:
+        print(f"зон стало {len(rows)}, доля новой зоны {a.share:g}%, остальные не тронуты")
     write_csv_rows(p, rows, ZONE_FIELDS)
-    print(f"зон стало {len(rows)}, доля каждой {share:g}%")
+    сказать_про_доли(p)
 
 
 def cmd_zone_remove(a):
+    # Убранная зона освобождает свою долю, и раздать её за управляющую компанию
+    # движок не может: неравные доли разрешены с T103, а уравнивание стирало
+    # их молча (T112). Поэтому решение о долях — явное, до правки файла.
+    if a.equal_shares and a.keep_shares:
+        sys.exit(
+            "--keep-shares и --equal-shares противоречат друг другу: либо доли "
+            "остальных зон остаются как есть, либо уравниваются. Выберите одно."
+        )
+    if not a.equal_shares and not a.keep_shares:
+        sys.exit(
+            "Не сказано, что делать с долями зон, а удаление зоны их затрагивает. "
+            "Доли задают вес зоны в оценке и складываются в 100% — это решение "
+            "управляющей компании, и движок не вправе принимать его за неё. "
+            "--keep-shares оставляет доли остальных зон как есть (сумма после этого "
+            "перестанет сходиться, поправьте её в zones.csv). "
+            "--equal-shares уравнивает доли ВСЕХ оставшихся зон на 100/N."
+        )
+    zrows_all = list(csv.DictReader(open(data_path("zones.csv"), encoding="utf-8-sig")))
+    zc = {r["code"] for r in zrows_all}
+    if a.code not in zc:
+        sys.exit(f"Неизвестная зона: {a.code}. Доступны: {', '.join(sorted(zc))}")
     d = target_dir(create=True)
     p = os.path.join(d, "zones.csv")
-    rows = [r for r in csv.DictReader(open(data_path("zones.csv"), encoding="utf-8-sig")) if r["code"] != a.code]
-    share = round(100 / len(rows), 4)
-    for r in rows:
-        r["share_pct"] = share
+    rows = [r for r in zrows_all if r["code"] != a.code]
+    share = уравнять_доли(rows) if a.equal_shares else None
     write_csv_rows(p, rows, ZONE_FIELDS)
     cl = read_rows()
     touched = []
@@ -266,9 +357,12 @@ def cmd_zone_remove(a):
             r["zones"] = ",".join(zs) or "*"
             touched.append(r["id"])
     write_rows(cl, d)
-    print(f"зона {a.code} убрана, доля каждой из {len(rows)} — {share:g}%")
+    если_уравняли = f", доля каждой из {len(rows)} — {share:g}%" if share is not None else \
+        f", доли остальных {len(rows)} зон не тронуты"
+    print(f"зона {a.code} убрана{если_уравняли}")
     if touched:
         print("вопросы, у которых зона убрана из списка:", ", ".join(touched))
+    сказать_про_доли(p)
 
 
 def levels_of(row):
@@ -276,7 +370,7 @@ def levels_of(row):
     return {x.strip().upper() for x in re.split(r"[;,]", row.get("levels", "")) if x.strip()}
 
 
-def zone_rows_raw():
+def zone_rows_raw(path=None):
     """Зоны как они лежат в файле, без проверок движка.
 
     `load_zones()` здесь звать нельзя. С T103 он сам завершает процесс на
@@ -284,8 +378,11 @@ def zone_rows_raw():
     правильно, но `validate` от такого умирает раньше первой напечатанной
     строки. Инструмент, которым человек чинит методику, обязан показать ВСЕ
     проблемы разом, а не падать на первой.
+
+    `path` нужен командам правки списка зон: они пишут в рабочую копию, и она
+    не обязана быть той, из которой читает движок.
     """
-    path = data_path("zones.csv")
+    path = path or data_path("zones.csv")
     with open(path, encoding="utf-8-sig") as f:
         return [r for r in csv.DictReader(f) if (r.get("code") or "").strip()]
 
@@ -512,8 +609,14 @@ def main():
     for x in ("process", "process-en", "question-ru", "question-en", "levels", "zones", "criteria", "kind"):
         ed.add_argument("--" + x)
     ed.add_argument("--days", type=int); ed.set_defaults(fn=cmd_edit)
-    za = s.add_parser("zone-add"); za.add_argument("--code", required=True); za.add_argument("--name-ru", required=True); za.add_argument("--name-en"); za.set_defaults(fn=cmd_zone_add)
-    zr = s.add_parser("zone-remove"); zr.add_argument("code"); zr.set_defaults(fn=cmd_zone_remove)
+    za = s.add_parser("zone-add"); za.add_argument("--code", required=True); za.add_argument("--name-ru", required=True); za.add_argument("--name-en")
+    za.add_argument("--share", type=float, help="доля новой зоны в процентах; остальные не трогать")
+    za.add_argument("--equal-shares", action="store_true", help="уравнять доли ВСЕХ зон на 100/N")
+    za.set_defaults(fn=cmd_zone_add)
+    zr = s.add_parser("zone-remove"); zr.add_argument("code")
+    zr.add_argument("--keep-shares", action="store_true", help="доли остальных зон не трогать")
+    zr.add_argument("--equal-shares", action="store_true", help="уравнять доли ВСЕХ оставшихся зон на 100/N")
+    zr.set_defaults(fn=cmd_zone_remove)
     s.add_parser("validate").set_defaults(fn=cmd_validate)
     im = s.add_parser("import-xlsx"); im.add_argument("path"); im.add_argument("--keep-zones", action="store_true")
     im.add_argument("--drop-extra-columns", action="store_true"); im.set_defaults(fn=cmd_import)
