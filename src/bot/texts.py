@@ -174,7 +174,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "record.fixed": {
         "ru": (
             "✅ Записал сразу, по вашим словам — подтверждать не нужно.\n\n"
-            "{line}\n"
+            "{line}{guess}\n"
             "{title}\n\n"
             "Ваши слова: «{note}»\n"
             "Строка карты: «{cue}»\n\n"
@@ -183,7 +183,7 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "en": (
             "✅ Recorded straight away, from your words — no confirmation needed.\n\n"
-            "{line}\n"
+            "{line}{guess}\n"
             "{title}\n\n"
             "Your words: “{note}”\n"
             "Map line: “{cue}”\n\n"
@@ -250,6 +250,14 @@ TEXTS: dict[str, dict[str, str]] = {
     "record.voice_not_downloaded": {
         "ru": "Голосовое не скачалось. Повторите или напишите комментарий текстом.",
         "en": "The voice message did not download. Retry or type the comment.",
+    },
+    # Зона взята из памяти о прошлой записи (D048), а не из этих слов. Сказать
+    # обязательно: запись уже сделана и подтверждать её не будут, а «по вашим
+    # словам» про зону в этом случае неправда — и промах памяти остаётся без
+    # единого читателя (T124).
+    "record.fixed_zone_guess": {
+        "ru": "\n⚠ Зону в этих словах вы не называли — поставил прошлую. Не та — кнопка «Зона».",
+        "en": "\n⚠ These words name no zone — I kept the previous one. Wrong? Use “Zone”.",
     },
     "record.zone_unusual": {
         "ru": " ⚠ зона не из списка пункта",

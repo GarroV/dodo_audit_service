@@ -113,7 +113,15 @@ def confirm_line(finding: domain.Finding, pct: float, lang: str) -> str:
     return line
 
 
-def fixed_block(finding: domain.Finding, pct: float, lang: str, *, title: str, cue: str) -> str:
+def fixed_block(
+    finding: domain.Finding,
+    pct: float,
+    lang: str,
+    *,
+    title: str,
+    cue: str,
+    zone_guessed: bool = False,
+) -> str:
     """Запись, легшая по словам сразу, без подтверждения (T121, D064).
 
     Не одна строка, и это главное отличие от `confirm_line`. Подтверждения
@@ -126,11 +134,17 @@ def fixed_block(finding: domain.Finding, pct: float, lang: str, *, title: str, c
     Слова берутся из САМОЙ записи, а не из показанного предложения: показать
     надо то, что легло в отчёт, а не то, что собирались положить. Потолок длины
     телеграмный (`FAST_NOTE_LIMIT`) и живым словам не мешает.
+
+    `zone_guessed` — зона взята из памяти о прошлой записи (D048), а не из этих
+    слов (T124). Тогда «по вашим словам» про зону неправда, и оговорка стоит
+    прямо под строкой записи: сама зона в ней видна, но не видно, откуда она
+    взялась, — а вычет уезжает партнёру в ту зону, которую бот подставил сам.
     """
     return t(
         "record.fixed",
         lang,
         line=confirm_line(finding, pct, lang),
+        guess=t("record.fixed_zone_guess", lang) if zone_guessed else "",
         title=title,
         note=shorten(finding.text, FAST_NOTE_LIMIT),
         cue=cue,

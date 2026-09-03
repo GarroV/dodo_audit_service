@@ -88,6 +88,7 @@ from ..material import Comment, Material, MaterialStore, PhotoGroup
 from ..pending import Offer, PendingStore, Proposal
 from ..photos import fetch_bytes
 from ..texts import t, ui_lang_or_default
+from ..zones import zone_from_words
 
 logger = logging.getLogger(__name__)
 
@@ -264,6 +265,7 @@ async def _try_fast(
         source=base.source,
         lang=lang,
         auto=item,
+        zone_guessed=not base.zone_spoken,
     )
     if not saved:
         return False
@@ -291,8 +293,18 @@ async def _analyze(
     дойти до модели, иначе кнопка возвращала бы тот же быстрый ответ по кругу.
     """
     lang, report_lang = _langs(chat_id)
-    zone_hint = sidecar.read(chat_id).zone
-    base = Proposal(file_ids=file_ids, source=source, note=note, zone_hint=zone_hint)
+    # Слова текущего комментария — первыми, память — только если о зоне в них
+    # ничего не сказано (T124). Обратный порядок и был дефектом: «в зале лужа»
+    # ложилось в горячий цех, потому что там была прошлая запись.
+    spoken = zone_from_words(note)
+    zone_hint = spoken or sidecar.read(chat_id).zone
+    base = Proposal(
+        file_ids=file_ids,
+        source=source,
+        note=note,
+        zone_hint=zone_hint,
+        zone_spoken=spoken is not None,
+    )
 
     if fast and note and await _try_fast(message, chat_id, base, pending, lang):
         return
@@ -339,6 +351,7 @@ async def _save(
     source: str,
     lang: str,
     auto: FastItem | None = None,
+    zone_guessed: bool = False,
 ) -> bool:
     """Зафиксировать запись и показать её (T055, T121).
 
@@ -390,7 +403,9 @@ async def _save(
         )
     else:
         await message.answer(
-            view.fixed_block(shown, pct, lang, title=auto.title, cue=auto.cue),
+            view.fixed_block(
+                shown, pct, lang, title=auto.title, cue=auto.cue, zone_guessed=zone_guessed
+            ),
             reply_markup=fixed_keyboard(finding.n, lang),
         )
     return True

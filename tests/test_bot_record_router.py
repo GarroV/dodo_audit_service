@@ -110,10 +110,12 @@ async def test_comment_after_the_frame_cancels_the_question(
     dp = build_dispatcher(SETTINGS)
 
     await feed(dp, bot, photo_message("frame-1", message_id=501))
-    await feed(dp, bot, text_message("печь в горячем цеху в нагаре"))
+    # Зону слова не называют намеренно: назвали бы — сверка со списком нарушений
+    # записала бы сразу (T121, T124), и до модели разбор бы не дошёл.
+    await feed(dp, bot, text_message("печь в нагаре"))
 
     assert [type(c).__name__ for c in session.calls].count("EditMessageReplyMarkup") == 1
-    assert asked[-1][0] == "печь в горячем цеху в нагаре"
+    assert asked[-1][0] == "печь в нагаре"
 
     session.clear()
     await feed(dp, bot, callback("rec:analyze:501"))
@@ -258,7 +260,7 @@ async def test_last_zone_is_remembered_and_offered_as_a_guess(
     bot, _ = make_bot()
     dp = build_dispatcher(SETTINGS)
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь в горячем цеху грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
     assert asked[0][2] is None, "первой зоны взять неоткуда — догадки быть не должно"
     await feed(dp, bot, callback("rec:pick:0"))
 
