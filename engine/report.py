@@ -17,7 +17,9 @@ from urllib.parse import quote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from audit import load_checklist, load_zones, load_cfg, load_state, state_dir, compute  # noqa: E402
+from audit import (  # noqa: E402
+    compute, inspection_date, load_cfg, load_checklist, load_state, load_zones, state_dir,
+)
 
 # Каталог вывода по умолчанию — рядом с состоянием проверки, но не в соседи
 # ему: там же лежат эталонные отчёты (examples/), и сборка их затирала (T104).
@@ -523,7 +525,13 @@ def summary_lines(res, lang, clean):
 
 
 def plan_due_date(res):
-    """Срок плана действий: дата отчёта плюс plan_due_days из scoring.json."""
+    """Срок плана действий: дата отчёта плюс plan_due_days из scoring.json.
+
+    Заглушки `___` здесь больше нет: дату проверки валидирует `inspection_date()`
+    до расчёта (T106), поэтому сюда `res` с нечитаемой датой не доходит. Пока
+    заглушка была, письмо партнёру уходило с прочерком вместо срока и никто
+    об этом не узнавал.
+    """
     m = res["meta"]
     cl = {r["id"]: r for r in load_checklist()}
     for k, v in (res.get("info") or {}).items():
@@ -531,10 +539,7 @@ def plan_due_date(res):
                   or "action plan" in (cl.get(k, {}).get("question_en") or "").lower()):
             return str(v)
     days = int(load_cfg().get("plan_due_days", 10))
-    try:
-        return (date.fromisoformat(m["date"]) + timedelta(days=days)).isoformat()
-    except (ValueError, TypeError, KeyError):
-        return "___"
+    return (inspection_date(res) + timedelta(days=days)).isoformat()
 
 
 def build_letter(res, lang):

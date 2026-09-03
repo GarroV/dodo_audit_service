@@ -68,26 +68,53 @@ def data_path(name):
 
 
 def load_checklist():
-    with open(data_path("checklist.csv"), encoding="utf-8-sig") as f:
+    """Вопросы чек-листа. Дубль id и нечитаемый срок устранения — отказ, не подмена.
+
+    Раньше дубль id пропускался с предупреждением в sys.stderr, которое никто
+    не читает, — в отчёт молча попадал не тот вопрос (пункты связываются
+    кодами, а не формулировками). А нечисловой срок устранения (days) молча
+    становился 0, и report.py печатает при нулевом сроке «немедленно» —
+    партнёр получал предписание устранить рядовое нарушение сегодня же.
+    Молчаливой нормализации здесь быть не может (задача T106).
+
+    Пустая клетка days остаётся нулём и отказа не вызывает: это осознанное
+    решение — manage.py add без --days пишет в CSV именно пустоту, и запрет
+    сломал бы штатное заведение пункта.
+    """
+    path = data_path("checklist.csv")
+    with open(path, encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
-    seen = set()
+    seen = {}
     out = []
-    for r in rows:
+    for n, r in enumerate(rows, start=2):
         qid = (r.get("id") or "").strip()
         if not qid or qid.startswith("#"):
             continue
         if qid in seen:
-            sys.stderr.write(f"ВНИМАНИЕ: дубль id {qid} в checklist.csv, вторая строка пропущена\n")
-            continue
-        seen.add(qid)
+            sys.exit(
+                f"Дубль id в чек-листе: «{qid}» встречается в строках {seen[qid]} и {n}. "
+                f"Файл: {path}. Пункты связываются кодами, а не формулировками: две строки "
+                f"с одним кодом означают, что в отчёт попадёт не тот вопрос. Оставьте одну "
+                f"строку или смените код."
+            )
+        seen[qid] = n
         r["id"] = qid
         r["levels"] = [x for x in re.split(r"[;,]", r.get("levels", "")) if x.strip()]
         r["levels"] = [x.strip().upper() for x in r["levels"]]
         r["zones"] = [z.strip() for z in (r.get("zones") or "").split(",") if z.strip()]
-        try:
-            r["days"] = int(float(r.get("days") or 0))
-        except ValueError:
+        raw_days = (r.get("days") or "").strip()
+        if not raw_days:
             r["days"] = 0
+        else:
+            try:
+                r["days"] = int(float(raw_days))
+            except (ValueError, TypeError):
+                sys.exit(
+                    f"Срок устранения не число: у пункта «{qid}» в колонке days стоит "
+                    f"«{raw_days}». Файл: {path}, строка {n}. Поставьте целое число дней — "
+                    f"иначе срок в предписании партнёру превращается в «немедленно», и "
+                    f"рядовое нарушение выглядит критическим."
+                )
         r["kind"] = (r.get("kind") or "violation").strip()
         out.append(r)
     return out
@@ -106,10 +133,22 @@ def load_zones():
     with open(path, encoding="utf-8-sig") as f:
         rows = [r for r in csv.DictReader(f) if (r.get("code") or "").strip()]
     for r in rows:
+        code = r["code"]
+        raw = (r.get("share_pct") or "").strip()
+        if not raw:
+            sys.exit(
+                f"Доля зоны не заполнена: у зоны «{code}» пусто в колонке share_pct. "
+                f"Файл: {path}. Доли зон складываются в 100% и задают вес зоны в оценке — "
+                f"без числа зона молча теряет вес."
+            )
         try:
-            r["share_pct"] = float(r.get("share_pct") or 0)
+            r["share_pct"] = float(raw)
         except ValueError:
-            r["share_pct"] = 0.0
+            sys.exit(
+                f"Доля зоны не число: у зоны «{code}» в колонке share_pct стоит «{raw}». "
+                f"Файл: {path}. Доли зон складываются в 100% и задают вес зоны в оценке — "
+                f"без числа зона молча теряет вес."
+            )
     total = sum(r["share_pct"] for r in rows)
     if rows and abs(total - ZONE_SHARE_TOTAL) > ZONE_SHARE_TOLERANCE:
         sys.exit(
@@ -285,6 +324,33 @@ def clean_lang(v):
     if v not in LANGS:
         sys.exit(f"Язык «{v}» не поддерживается. Доступны: {', '.join(LANGS)}")
     return v
+
+
+def inspection_date(st):
+    """Дата проверки из шапки. От неё считается КАЖДЫЙ срок устранения.
+
+    Раньше срок считался в `try/except Exception: pass`: нечитаемая дата
+    оставляла `due` пустым по всем нарушениям, и молча. Дальше `report.py`
+    подставлял вместо пропавшего срока «немедленно», а в письме срок плана
+    действий превращался в `___` — партнёр получал предписание устранить
+    рядовую D1 сегодня же. «Сроки устранения напечатаны в PDF» — объявленный
+    пункт готовности MVP, поэтому здесь отказ, а не подстановка (задача T106).
+
+    `init` и `meta` дату валидируют, но состояние — обычный JSON на диске:
+    проверки, начатые до появления валидации шапки (T014), и файлы, поправленные
+    руками, приходят сюда какими есть.
+    """
+    raw = (st.get("meta") or {}).get("date")
+    try:
+        return date.fromisoformat(str(raw))
+    except (ValueError, TypeError):
+        sys.exit(
+            f"Дата проверки в шапке не читается: «{raw}». Нужен ISO-формат "
+            f"ГГГГ-ММ-ДД, например 2026-08-21. Файл: {os.path.abspath(STATE)}. "
+            f"От этой даты считаются все сроки устранения — без неё в предписании "
+            f"партнёру каждое нарушение получит «немедленно». "
+            f"Поправьте шапку: audit.py meta --date ГГГГ-ММ-ДД"
+        )
 
 
 def cmd_init(a):
@@ -475,6 +541,7 @@ def cmd_list(a):
 
 
 def compute(st, cl_rows, zones, cfg):
+    inspected = inspection_date(st)
     cl = {r["id"]: r for r in cl_rows}
     zmap = {z["code"]: z for z in zones}
     pen = cfg["penalty"]
@@ -503,11 +570,7 @@ def compute(st, cl_rows, zones, cfg):
             else:
                 cost = float(pen.get(lvl, 0))
         days = min(r.get("days", 0), cfg["deadlines"]["max_days"].get(lvl, 99))
-        due = None
-        try:
-            due = (date.fromisoformat(st["meta"]["date"]) + timedelta(days=days)).isoformat()
-        except Exception:
-            pass
+        due = (inspected + timedelta(days=days)).isoformat()
         items.append({**f, "photos": photos_of(f), "question_ru": r.get("question_ru", ""), "question_en": r.get("question_en", ""),
                       "process_ru": r.get("process_ru", ""), "process_en": r.get("process_en", ""),
                       "zone_name_ru": zmap.get(f["zone"], {}).get("name_ru", f["zone"]),

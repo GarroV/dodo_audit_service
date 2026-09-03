@@ -24,10 +24,19 @@ import argparse, csv, json, os, re, shutil, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from audit import active_dir, load_zones, data_path  # noqa: E402
+from audit import (  # noqa: E402
+    ZONE_SHARE_TOLERANCE, ZONE_SHARE_TOTAL, active_dir, data_path, load_zones,
+)
 
 PLUGIN_DATA = os.path.normpath(os.path.join(HERE, os.pardir, "data"))
 FIELDS = ["id", "kind", "process_ru", "process_en", "question_ru", "question_en", "levels", "zones", "days"]
+# D0 — не класс нарушения, а приём: информационная запись живёт среди findings
+# с нулевым вычетом (docs/02-domain.md). Уровня не знала только эта проверка, и
+# три боевых пункта (INF09-INF11) делали `validate` красным всегда. Проверка,
+# которая кричит на исправных данных, так же бесполезна, как та, что не может
+# упасть: её перестают запускать — вместе со всем, что она ловит.
+VIOLATION_LEVELS = {"D1", "D2", "D3"}
+LEVELS = VIOLATION_LEVELS | {"D0"}
 
 
 def target_dir(create=False, name="checklist_data"):
@@ -215,10 +224,61 @@ def cmd_zone_remove(a):
         print("вопросы, у которых зона убрана из списка:", ", ".join(touched))
 
 
+def levels_of(row):
+    """Классы пункта из колонки `levels` — множеством, в верхнем регистре."""
+    return {x.strip().upper() for x in re.split(r"[;,]", row.get("levels", "")) if x.strip()}
+
+
+def zone_rows_raw():
+    """Зоны как они лежат в файле, без проверок движка.
+
+    `load_zones()` здесь звать нельзя. С T103 он сам завершает процесс на
+    несходящихся долях, а с T106 — ещё и на нечисловых: для расчёта оценки это
+    правильно, но `validate` от такого умирает раньше первой напечатанной
+    строки. Инструмент, которым человек чинит методику, обязан показать ВСЕ
+    проблемы разом, а не падать на первой.
+    """
+    path = data_path("zones.csv")
+    with open(path, encoding="utf-8-sig") as f:
+        return [r for r in csv.DictReader(f) if (r.get("code") or "").strip()]
+
+
+def zone_problems(zrows):
+    """Что не так с долями зон. Допуск — тот же, что у движка, и это важно.
+
+    Раньше здесь стояло `abs(zs - 100) > 0.05` против 0.005 в движке, и сумма
+    сходилась только потому, что считалась по УЖЕ нормализованным долям:
+    `load_zones()` переписывал их на равные, и проверка всегда получала ровно
+    100. Упасть она не могла ни на каких данных. Разойдись допуски теперь —
+    человек починит методику по зелёному `validate`, а `score` её не посчитает.
+    """
+    problems = []
+    total = 0.0
+    readable = True
+    for r in zrows:
+        code = (r.get("code") or "").strip()
+        raw = (r.get("share_pct") or "").strip()
+        if not raw:
+            problems.append(f"зона {code}: доля не заполнена — сумму долей проверить не на чем")
+            readable = False
+            continue
+        try:
+            total += float(raw)
+        except ValueError:
+            problems.append(f"зона {code}: доля «{raw}» не число — сумму долей проверить не на чем")
+            readable = False
+    if zrows and readable and abs(total - ZONE_SHARE_TOTAL) > ZONE_SHARE_TOLERANCE:
+        problems.append(
+            f"доли зон в сумме дают {total:g}%, а не {ZONE_SHARE_TOTAL:g}% "
+            f"(движок такую методику считать откажется)")
+    return problems
+
+
 def cmd_validate(a):
     problems = []
     rows = read_rows()
-    zc = {z["code"] for z in load_zones()}
+    zrows = zone_rows_raw()
+    zc = {(r.get("code") or "").strip() for r in zrows}
     seen = set()
     for r in rows:
         qid = r.get("id", "").strip()
@@ -231,11 +291,11 @@ def cmd_validate(a):
         if r.get("kind") not in ("violation", "info", "aggregate", "off"):
             problems.append(f"{qid}: неизвестный kind «{r.get('kind')}»")
         if r.get("kind") == "violation":
-            lv = [x.strip().upper() for x in re.split(r"[;,]", r.get("levels", "")) if x.strip()]
+            lv = levels_of(r)
             if not lv:
                 problems.append(f"{qid}: не указан ни один уровень D")
             for x in lv:
-                if x not in ("D1", "D2", "D3"):
+                if x not in LEVELS:
                     problems.append(f"{qid}: неизвестный уровень «{x}»")
             z = (r.get("zones") or "").strip()
             if z and z != "*":
@@ -251,11 +311,9 @@ def cmd_validate(a):
     crit = open(data_path("criteria.md"), encoding="utf-8").read()
     have = set(re.findall(r"\n## (\S+)\n", crit))
     for r in rows:
-        if r.get("kind") == "violation" and r["id"] not in have:
+        if r.get("kind") == "violation" and levels_of(r) & VIOLATION_LEVELS and r["id"] not in have:
             problems.append(f"{r['id']}: нет критериев в criteria.md (совет: добавьте, иначе распознавание по фото будет угадывать)")
-    zs = sum(float(z["share_pct"]) for z in load_zones())
-    if abs(zs - 100) > 0.05:
-        problems.append(f"доли зон в сумме дают {zs:g}%, а не 100%")
+    problems.extend(zone_problems(zrows))
     print(f"вопросов: {len(rows)}, зон: {len(zc)}")
     if problems:
         print("\nПроблемы:")
