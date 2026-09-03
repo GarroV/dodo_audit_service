@@ -15,7 +15,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -24,7 +26,7 @@ import pytest
 from aiogram import Bot
 from bot_harness import FAKE_TOKEN, RecordingSession, make_bot
 
-from src.bot.photos import download_all, fetch_bytes
+from src.bot.photos import MAX_PARALLEL, download_all, fetch_bytes
 
 pytestmark = pytest.mark.asyncio
 
@@ -184,3 +186,87 @@ async def test_download_all_with_no_frames_returns_an_empty_map(tmp_path: Path) 
 
     assert result == {}
     assert not dest.exists(), "папка создаётся только при первой настоящей записи"
+
+
+# --- T101: кадры качаются одновременно, но не без предела -------------------
+
+
+class _SlowSession(_ContentSession):
+    """Скачивание с задержкой — чтобы последовательность было видно по времени.
+
+    Заодно считает, сколько скачиваний идёт одновременно: без счётчика тест на
+    одном лишь времени доказывал бы «быстро», а не «параллельно», и любое
+    ускорение по другой причине выглядело бы успехом.
+    """
+
+    def __init__(self, content: bytes, delay: float) -> None:
+        super().__init__(content)
+        self._delay = delay
+        self.now = 0
+        self.peak = 0
+
+    async def stream_content(
+        self,
+        url: str,
+        headers: dict[str, Any] | None = None,
+        timeout: int = 30,  # noqa: ASYNC109 — сигнатура из BaseSession
+        chunk_size: int = 65536,
+        raise_for_status: bool = True,
+    ) -> AsyncGenerator[bytes, None]:
+        self.now += 1
+        self.peak = max(self.peak, self.now)
+        try:
+            await asyncio.sleep(self._delay)
+            yield self._content
+        finally:
+            self.now -= 1
+
+
+async def test_кадры_качаются_одновременно(tmp_path: Path) -> None:
+    """Десять кадров не должны качаться десятью задержками подряд.
+
+    Проверка на точке — несколько десятков кадров, и последовательная выкачка
+    складывает задержки сети в минуты ожидания ровно там, где аудитор уже
+    нажал «Завершить».
+    """
+    session = _SlowSession(b"frame", delay=0.05)
+    bot = Bot(token=FAKE_TOKEN, session=session)
+    ids = [f"file-{i}" for i in range(10)]
+
+    started = time.perf_counter()
+    found = await download_all(bot, ids, tmp_path)
+    took = time.perf_counter() - started
+
+    assert len(found) == 10, f"скачались не все кадры: {len(found)}"
+    assert session.peak > 1, "кадры качались строго по одному — параллельности нет"
+    assert took < 0.05 * 10 * 0.7, (
+        f"десять кадров заняли {took:.2f} с — это близко к последовательной выкачке"
+    )
+
+
+async def test_одновременность_ограничена(tmp_path: Path) -> None:
+    """Предел нужен: без него всплеск запросов упирается в лимиты телеграма."""
+    session = _SlowSession(b"frame", delay=0.02)
+    bot = Bot(token=FAKE_TOKEN, session=session)
+    ids = [f"file-{i}" for i in range(30)]
+
+    found = await download_all(bot, ids, tmp_path)
+
+    assert len(found) == 30
+    assert session.peak <= MAX_PARALLEL, (
+        f"одновременно качалось {session.peak} кадров при пределе {MAX_PARALLEL} — "
+        "предел не действует, и телеграм ответит отказом вместо кадров"
+    )
+
+
+async def test_порядок_карты_не_зависит_от_порядка_завершения(tmp_path: Path) -> None:
+    """Имена файлов должны идти по порядку входа, а не по тому, кто успел первым."""
+    session = _SlowSession(b"frame", delay=0.01)
+    bot = Bot(token=FAKE_TOKEN, session=session)
+    ids = [f"file-{i}" for i in range(5)]
+
+    found = await download_all(bot, ids, tmp_path)
+
+    assert list(found) == ids, f"порядок карты разъехался со входом: {list(found)}"
+    for number, file_id in enumerate(ids):
+        assert found[file_id].endswith(f"photo-{number:03d}.jpg"), found[file_id]

@@ -46,6 +46,11 @@ async def fetch_bytes(bot: Bot, file_id: str) -> bytes | None:
     return buffer.read()
 
 
+#: Сколько кадров качаем одновременно. Не «побольше»: телеграм отвечает лимитом
+#: на всплеск запросов от одного бота, и отказ вместо кадра дороже секунды.
+MAX_PARALLEL = 5
+
+
 async def download_all(bot: Bot, file_ids: Iterable[str], dest: Path) -> dict[str, str]:
     """Скачать кадры в папку и вернуть карту «идентификатор → путь к файлу».
 
@@ -56,17 +61,31 @@ async def download_all(bot: Bot, file_ids: Iterable[str], dest: Path) -> dict[st
 
     Кадры, которых нет, в карту не попадают — и `report` честно назовёт записи,
     потерявшие доказательство, вместо того чтобы напечатать пустоту.
+
+    **Качаются кадры одновременно, а не по одному** (T101). Проверка на точке —
+    это несколько десятков кадров, и последовательная выкачка складывает
+    задержки сети в минуты ожидания ровно там, где аудитор уже нажал
+    «Завершить» и ждёт документ. Одновременность ограничена `MAX_PARALLEL`:
+    без предела десятки запросов разом упираются в лимиты телеграма, и вместо
+    ускорения выходит отказ.
     """
-    found: dict[str, str] = {}
-    for number, file_id in enumerate(dict.fromkeys(file_ids)):
-        raw = await fetch_bytes(bot, file_id)
+    ids = list(dict.fromkeys(file_ids))
+    limit = asyncio.Semaphore(MAX_PARALLEL)
+
+    async def one(number: int, file_id: str) -> tuple[str, str] | None:
+        async with limit:
+            raw = await fetch_bytes(bot, file_id)
         if raw is None:
-            continue
+            return None
         # Имя по порядковому номеру, а не по идентификатору телеграма: тот
         # длинный, приходит от чужой стороны и в имени файла ему не место.
         path = dest / f"photo-{number:03d}.jpg"
         # Запись — в рабочем потоке: цикл событий обслуживает и вход телеграма,
         # и таймеры альбомов, и вставать на диске ему нельзя.
         await asyncio.to_thread(_save, path, raw)
-        found[file_id] = str(path)
-    return found
+        return file_id, str(path)
+
+    pairs = await asyncio.gather(*(one(n, f) for n, f in enumerate(ids)))
+    # Порядок карты сохраняется тот же, что у входа: `gather` возвращает
+    # результаты в порядке задач, а не завершения.
+    return {file_id: path for pair in pairs if pair for file_id, path in [pair]}
