@@ -140,7 +140,9 @@ def test_list_inspections_фильтрует_по_точке_и_отдаёт_с�
     id7 = push_inspection(7)
     push_inspection(8)
 
-    только_белград = list_inspections(unit="Белград-1")
+    # Арендатор обязателен с T110: чьи проверки читаем — обязана сказать
+    # выборка, а не подразумевать.
+    только_белград = list_inspections(tenant="default", unit="Белград-1")
 
     assert len(только_белград) == 1
     строка = только_белград[0]
@@ -149,7 +151,7 @@ def test_list_inspections_фильтрует_по_точке_и_отдаёт_с�
     assert строка.unit_name == "Белград-1"
     assert строка.findings_count == 2
     assert строка.pushed_at, "время слива не должно быть пустым"
-    assert len(list_inspections()) >= 2
+    assert len(list_inspections(tenant="default")) >= 2
 
 
 def _снять_версию(chat_id: int) -> None:
