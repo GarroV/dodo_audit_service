@@ -53,8 +53,19 @@ download_all(bot, file_ids, dest) -> dict[str, str]   # карта для report
 
 # src/bot/view.py                                # строки, которые читает аудитор
 confirm_line / changed_line / candidate_lines / counts_line
-fixed_block(finding, pct, lang, *, title, cue)   # запись без подтверждения (T121)
+fixed_block(finding, pct, lang, *, title, cue, zone_guessed=False)  # запись без подтверждения (T121)
 record_lines(findings, lang) / unclaimed_lines   # пометку догадки несёт сама запись (T108)
+
+# src/bot/zones.py                               # зона из слов аудитора (T124)
+zone_from_words(note: str) -> str | None         # имена зон из методики, произносимые формы — в коде
+
+# src/bot/lang.py                                # языки чата, на которых нельзя упасть (T126)
+chat_ui_lang(chat_id) -> str / chat_langs(chat_id) -> tuple[str, str]
+
+# src/bot/refusal.py                             # отказ движка человеческими словами (T127)
+Refusal(text, clash)
+not_recorded(chat_id, *, code, zone, lang, exc) -> Refusal
+not_changed(chat_id, n, *, code, zone, lang, exc) -> Refusal
 
 # src/bot/routers/
 build_start_router(settings, pending=None) -> Router  # T050, T051, T052, T063
@@ -62,10 +73,12 @@ build_material_router(*, store, albums, on_material, on_waiting=..., album_windo
 build_record_router(*, store, pending) -> Router  # T055, T057, T067
 build_edit_router() -> Router                     # T056
 build_finish_router() -> Router                   # T058, T068
+archive(message, chat_id, photos, lang, *, allow_missing)   # слив завершённой в историю (T123)
 make_material_handler(pending) / make_waiting_handler(pending)
 
 # src/bot/app.py
 build_dispatcher(settings, *, album_window=..., on_material=None) -> Dispatcher
+on_unexpected_error(event) -> bool                # последний рубеж: сбой доходит до аудитора (T126)
 create_bot(settings) -> Bot
 start_polling() -> None                          # long polling; методика проверяется до первого сообщения
 main() -> None                                   # точка входа `python -m src.bot`
@@ -146,7 +159,7 @@ main() -> None                                   # точка входа `python
 
 ## Статус
 
-`in_progress` — пятая очередь готова и предъявлена к приёмке (T121). Первая (T050-T054, T059, T063), вторая (T055-T058, T067, T068), третья (T108) и четвёртая (T117) приняты раньше.
+`in_progress` — шестая очередь готова и предъявлена к приёмке (T123, T124, T126, T127, T128 — расхождения, найденные сверкой со спекой). Первая (T050-T054, T059, T063), вторая (T055-T058, T067, T068), третья (T108), четвёртая (T117) и пятая (T121) приняты раньше.
 
 **Пятая очередь, T121 (решение владельца D064).** Подтверждение нажатием снято с фиксации словами: сошлась сверка со списком нарушений — запись появляется сразу, `_try_fast` сам зовёт `_save`. Кнопки «Записать» больше нет (`FAST_CALLBACK`, `fast_keyboard` и текст `record.fast` удалены), обработчик `on_fast` удалён вместе с ней. Фиксация по кадру не тронута: «Разобрать?» → кандидаты → запись только по нажатию.
 
