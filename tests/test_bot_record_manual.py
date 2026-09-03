@@ -22,6 +22,15 @@
 
 Разбор и ручной перечень подменены (`stub_classify`, `stub_manual`): до модели
 и до реального справочника тесты не ходят.
+
+Комментарий аудитора здесь неоднозначен намеренно, и вернуть на его место
+однозначный нельзя. С появлением быстрого пути (T117, D063) слова вроде «печь
+грязная» до модели не доходят вовсе: пункт показывает сверка со списком
+нарушений, а подменённый разбор не зовётся, и половина файла начинает
+проверять не то, что написано в её названии. Поэтому в подписи стоит «печь,
+посмотри что тут»: строка карты «Печь» произнесена, но по словам не видно,
+грязь это или поломка, — материал уходит модели, как этому файлу и нужно. Сам
+быстрый путь проверяет `tests/test_bot_fastpath.py`.
 """
 
 from __future__ import annotations
@@ -109,7 +118,7 @@ async def test_manual_button_opens_the_list_without_recording_model_candidates(
     dp = build_dispatcher(SETTINGS)
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
     await feed(dp, bot, callback("rec:manual"))
 
     assert session.last_text == t("record.manual_page", "ru", page=1, pages=1)
@@ -129,7 +138,7 @@ async def test_long_list_is_paginated_with_next_button_on_first_page(
     dp = build_dispatcher(SETTINGS)
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
 
     data = session.keyboard_data()
     item_buttons = [d for d in data if d.startswith("rec:mi:")]
@@ -150,7 +159,7 @@ async def test_next_page_shows_different_items_and_adds_back_button(
     dp = build_dispatcher(SETTINGS)
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
     first_page = {d for d in session.keyboard_data() if d.startswith("rec:mi:")}
 
     await feed(dp, bot, callback("rec:mp:1"))
@@ -174,7 +183,7 @@ async def test_last_page_has_no_next_button(
     dp = build_dispatcher(SETTINGS)
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
     await feed(dp, bot, callback("rec:mp:2"))
 
     data = session.keyboard_data()
@@ -198,7 +207,7 @@ async def test_page_number_beyond_the_list_clamps_to_the_last_page(
     dp = build_dispatcher(SETTINGS)
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
     await feed(dp, bot, callback("rec:mp:99"))
 
     assert session.last_text == t("record.manual_page", "ru", page=3, pages=3)
@@ -252,7 +261,7 @@ async def test_unknown_zone_is_asked_before_the_list(
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
 
     assert session.last_text == t("record.ask_zone", "ru")
     data = session.keyboard_data()
@@ -273,7 +282,7 @@ async def test_zone_picked_by_button_opens_the_list_and_is_remembered(
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
     await feed(dp, bot, callback("rec:zm:hot_kitchen"))
 
     assert sidecar.read(CHAT_ID).zone == "hot_kitchen"
@@ -294,7 +303,7 @@ async def test_stale_manual_pick_after_restart_records_nothing(
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
     first = build_dispatcher(SETTINGS)
-    await feed(first, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(first, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
 
     second = build_dispatcher(SETTINGS)
     session.clear()
@@ -318,7 +327,7 @@ async def test_manual_pick_out_of_range_is_stale_not_a_crash(
     dp = build_dispatcher(SETTINGS)
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
     session.clear()
     await feed(dp, bot, callback("rec:mi:99"))
 
@@ -340,7 +349,7 @@ async def test_config_error_from_classify_is_reported_not_treated_as_empty(
     dp = build_dispatcher(SETTINGS)
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
 
     assert session.last_text == t("record.unavailable", "ru", reason="нет карты кадров")
     assert session.keyboard_data() == [], "ни перечень, ни выбор зоны показаны быть не должны"
@@ -367,7 +376,7 @@ async def test_config_error_building_the_manual_list_is_reported_and_bot_survive
     dp = build_dispatcher(SETTINGS)
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
 
     assert session.texts[-1] == t("record.unavailable", "ru", reason="нет карты кадров")
     assert findings() == []

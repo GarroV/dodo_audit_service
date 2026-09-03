@@ -16,6 +16,14 @@
 подставляется догадкой (D048). Отдельного шага «выберите зону» в потоке нет —
 кнопки зон появляются ровно тогда, когда зону взять неоткуда.
 
+К этому добавился четвёртый порядок: **сначала сверка со списком нарушений,
+модель — если сверка не ответила** (T117, D063). Владелец: «у нас тут не нужны
+размышления, а нужна сверка с текущим списком нарушений». `fast_path` зовётся
+ДО `classify`; сработал — пункт показывается кнопкой сразу, и разбора не
+происходит вовсе (замер блока `recognize`: 4.3 с на текст, 5.3 с на кадр —
+ждём именно рассуждение модели). Не сработал — всё дальше как было, а причина
+отказа (`FastPath.reason`) остаётся в журнале: она для замера, а не для экрана.
+
 Замеры (`INF09`, `INF10`, `INF11`) идут этим же путём и ничем не выделены,
 кроме класса `D0` в подтверждении (задача T057): блоком `info` движка бот не
 пользуется, они лежат записями среди находок.
@@ -36,6 +44,7 @@ from src import domain
 from src.domain.errors import DomainError
 from src.recognize.classify import classify
 from src.recognize.errors import ModelUnavailable, RecognizeError
+from src.recognize.fastpath import FastItem, fast_path
 from src.recognize.manual import manual_candidates
 from src.recognize.models import UNKNOWN_ZONE
 from src.recognize.transcribe import transcribe
@@ -43,11 +52,13 @@ from src.recognize.transcribe import transcribe
 from .. import sidecar, view
 from ..keyboards import (
     ANALYZE_PREFIX,
+    FAST_CALLBACK,
     MANUAL_CALLBACK,
     MANUAL_LEVEL_PREFIX,
     MANUAL_PAGE_PREFIX,
     MANUAL_PAGE_SIZE,
     MANUAL_PICK_PREFIX,
+    MODEL_CALLBACK,
     PICK_PREFIX,
     SKIP_CALLBACK,
     ZONE_FOR_MANUAL_PREFIX,
@@ -55,6 +66,7 @@ from ..keyboards import (
     analyze_keyboard,
     candidates_keyboard,
     edit_keyboard,
+    fast_keyboard,
     levels_keyboard,
     manual_keyboard,
     zones_keyboard,
@@ -150,6 +162,29 @@ async def _show_candidates(message: Message, proposal: Proposal, lang: str) -> N
     await message.answer(text, reply_markup=candidates_keyboard(len(proposal.candidates), lang))
 
 
+async def _show_fast(message: Message, proposal: Proposal, item: FastItem, lang: str) -> None:
+    """Пункт, найденный без модели, — кнопкой подтверждения (T117, D063).
+
+    Слова аудитора показываются целиком, а не предпросмотром: механизм отвечает
+    по одной сработавшей строке карты, и второе нарушение той же фразы
+    (правило 11) в ответ не попадает. Свои слова рядом с ответом — единственное,
+    по чему человек это заметит; рядом же стоит выход к модели.
+    """
+    await message.answer(
+        t(
+            "record.fast",
+            lang,
+            note=view.shorten(proposal.note, view.FAST_NOTE_LIMIT),
+            cue=item.cue,
+            code=item.code,
+            level=item.level,
+            zone=view.zone_title(item.zone, lang),
+            title=item.title,
+        ),
+        reply_markup=fast_keyboard(item.code, item.title, lang),
+    )
+
+
 async def _show_manual_page(message: Message, proposal: Proposal, page: int, lang: str) -> None:
     """Страница ручного перечня: 70+ пунктов зоны кнопками разом не показать."""
     pages = max(1, ceil(len(proposal.manual) / MANUAL_PAGE_SIZE))
@@ -191,6 +226,35 @@ async def _open_manual(
     await _show_manual_page(message, ready, 0, lang)
 
 
+async def _try_fast(
+    message: Message, chat_id: int, base: Proposal, pending: PendingStore, lang: str
+) -> bool:
+    """Сверка со списком нарушений до модели: сошлось — показать пункт (T117, D063).
+
+    В поток вынесено намеренно, хотя ни сети, ни подпроцесса тут нет. Вызов
+    читает с диска методику и карту кадров: 2.3 мс на сработавшем комментарии,
+    1.2 мс на отказе — в пятьдесят раз дороже `get_state` (0.046 мс), который в
+    цикле оставлен осознанно. Пока чтение идёт, бот не обслуживает никого, и на
+    двадцати аудиторах это та же растущая очередь, из-за которой в поток уехали
+    вызовы движка (T101).
+
+    Язык здесь — интерфейса, а не отчёта, и это не оплошность: `item.title` —
+    вопрос чек-листа, который аудитор читает на кнопке. В запись он не попадает
+    никогда (её текстом становятся слова самого аудитора), поэтому языку отчёта
+    подчиняться ему незачем.
+    """
+    found = await asyncio.to_thread(fast_path, base.note, base.zone_hint or None, lang=lang)
+    if found.item is None:
+        # `reason` — для замера (`tools/fastpath_measure.py`) и разбора, поэтому
+        # он идёт в журнал, а не в чат: аудитору он ничего не объясняет, а
+        # объяснять отказ, за которым просто следует обычный разбор, нечем.
+        logger.info("быстрый путь не сработал в чате %s: %s", chat_id, found.reason)
+        return False
+    pending.propose(chat_id, replace(base, fast=found.item))
+    await _show_fast(message, base, found.item, lang)
+    return True
+
+
 async def _analyze(
     message: Message,
     chat_id: int,
@@ -199,18 +263,26 @@ async def _analyze(
     file_ids: tuple[str, ...],
     source: str,
     pending: PendingStore,
+    fast: bool = True,
 ) -> None:
-    """Спросить разбор и показать предложения кнопками.
+    """Сверить со списком нарушений, а если не сошлось — спросить разбор.
 
     Кадр в запрос кладёт `recognize`, а не бот: он один знает, неоднозначен ли
     комментарий. Здесь кадр только скачивается — байты нужны и для разбора
     голого кадра по «Разобрать», и для случая, когда слов не хватило.
+
+    `fast=False` приходит с кнопки «Разобрать моделью»: второй заход обязан
+    дойти до модели, иначе кнопка возвращала бы тот же быстрый ответ по кругу.
     """
     lang, report_lang = _langs(chat_id)
     zone_hint = sidecar.read(chat_id).zone
+    base = Proposal(file_ids=file_ids, source=source, note=note, zone_hint=zone_hint)
+
+    if fast and note and await _try_fast(message, chat_id, base, pending, lang):
+        return
+
     bot = message.bot
     photo = await fetch_bytes(bot, file_ids[0]) if bot is not None and file_ids else None
-    base = Proposal(file_ids=file_ids, source=source, note=note, zone_hint=zone_hint)
 
     await message.answer(t("record.thinking", lang))
     try:
@@ -335,6 +407,66 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             file_ids=offer.file_ids,
             source=domain.SOURCE_PHOTO,
             pending=pending,
+        )
+
+    @router.callback_query(F.data == FAST_CALLBACK)
+    async def on_fast(callback: CallbackQuery) -> None:
+        """Подтверждение пункта, найденного без модели (T117).
+
+        Формулировкой становятся слова аудитора целиком — те самые, что стоят
+        рядом с кнопкой. Быстрый путь формулировок не пишет, и сочинять их
+        здесь было бы худшим из вариантов: аудитор подтверждал одно, а в отчёт
+        партнёру ушло бы другое. Фраза с двумя нарушениями попадает в запись
+        целиком и правится кнопкой «Формулировка» тут же (T056).
+        """
+        await callback.answer()
+        here = chat_of(callback)
+        if here is None:
+            return
+        message, chat_id, lang = here
+        proposal = pending.proposal(chat_id)
+        if proposal is None or proposal.fast is None:
+            await stale(message, lang)
+            return
+        item = proposal.fast
+        if await _save(
+            message,
+            chat_id,
+            code=item.code,
+            level=item.level,
+            zone=item.zone,
+            text=proposal.note,
+            file_ids=proposal.file_ids,
+            source=proposal.source,
+            lang=lang,
+        ):
+            pending.take_proposal(chat_id)
+
+    @router.callback_query(F.data == MODEL_CALLBACK)
+    async def on_model(callback: CallbackQuery) -> None:
+        """«Разобрать моделью»: быстрый путь ответил не то или не на всё.
+
+        Существует ровно затем, чтобы быстрый путь не стал единственным
+        выходом. Материал тот же — те же слова и тот же кадр, — но сверка со
+        списком в этот раз пропускается.
+        """
+        await callback.answer()
+        here = chat_of(callback)
+        if here is None:
+            return
+        message, chat_id, lang = here
+        proposal = pending.proposal(chat_id)
+        if proposal is None or proposal.fast is None:
+            await stale(message, lang)
+            return
+        await _analyze(
+            message,
+            chat_id,
+            note=proposal.note,
+            file_ids=proposal.file_ids,
+            source=proposal.source,
+            pending=pending,
+            fast=False,
         )
 
     @router.callback_query(F.data.startswith(PICK_PREFIX))

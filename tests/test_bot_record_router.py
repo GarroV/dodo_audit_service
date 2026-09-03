@@ -346,7 +346,9 @@ async def test_model_outage_falls_back_to_manual_pick(
     dp = build_dispatcher(SETTINGS)
 
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
-    await feed(dp, bot, photo_message("frame-1", caption="печь грязная"))
+    # Слова неоднозначны намеренно: однозначные забрал бы быстрый путь (T117),
+    # и до недоступной модели дело бы не дошло — проверять было бы нечего.
+    await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
 
     assert "таймаут" in session.texts[-2]
     assert "rec:mi:0" in session.keyboard_data()
@@ -358,7 +360,7 @@ async def test_model_outage_falls_back_to_manual_pick(
     # Единственный разрешённый класс не спрашивается: лишний вопрос на точке.
     assert state.findings[0].level == "D1"
     # Формулировкой стали слова аудитора — лучшего источника без модели нет.
-    assert state.findings[0].text == "печь грязная"
+    assert state.findings[0].text == "печь, посмотри что тут"
 
 
 async def test_manual_pick_asks_for_the_class_when_there_is_a_choice(
@@ -508,7 +510,9 @@ async def test_refused_record_keeps_the_other_candidates_on_the_table(
     await feed(dp, bot, photo_message("frame-0", caption="печь грязная"))
     await feed(dp, bot, callback("rec:pick:0"))
 
-    await feed(dp, bot, photo_message("frame-1", caption="печь всё ещё грязная"))
+    # Опять же неоднозначно: зона уже запомнена первой записью, и однозначные
+    # слова ушли бы в быстрый путь мимо кандидатов модели (T117).
+    await feed(dp, bot, photo_message("frame-1", caption="печь всё ещё в том же виде"))
     session.clear()
     await feed(dp, bot, callback("rec:pick:0"))
     assert session.last_text.startswith("Не записал")
