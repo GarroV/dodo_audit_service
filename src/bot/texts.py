@@ -358,6 +358,35 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Продолжаем проверку. Присылайте кадры.",
         "en": "Back to the inspection. Send photos.",
     },
+    # --- слив завершённой проверки в историю (T123) ---
+    #
+    # Оба сообщения приходят ПОСЛЕ отчёта и письма: они у аудитора на руках, и
+    # ничего из сделанного не отменяется. Сказать всё равно надо — молчание
+    # оставило бы человека уверенным, что история сохранена. Причина отказа
+    # (адрес базы, текст драйвера) сюда не попадает: аудитору она ничего не
+    # объясняет, её место в журнале.
+    "finish.not_archived": {
+        "ru": (
+            "Отчёт и письмо на месте, но в историю проверок эта проверка не записалась — "
+            "база не ответила. Не начинайте новую: пока проверка лежит здесь, её ещё можно "
+            "сохранить, а новая её сотрёт."
+        ),
+        "en": (
+            "The report and the letter are yours, but this inspection did not reach the "
+            "history — the database did not answer. Do not start a new one yet: while this "
+            "inspection is still here it can be saved, and a new one erases it."
+        ),
+    },
+    "finish.photos_not_archived": {
+        "ru": (
+            "Проверка в историю записана, а кадры в хранилище не уехали. Отчёта это не "
+            "задевает — в нём они уже есть."
+        ),
+        "en": (
+            "The inspection reached the history, but its photos did not reach the storage. "
+            "The report is unaffected — they are already in it."
+        ),
+    },
     # --- надписи на кнопках ---
     "btn.analyze": {"ru": "Разобрать", "en": "Analyze"},
     "btn.manual": {"ru": "Выбрать пункт", "en": "Pick an item"},

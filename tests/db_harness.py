@@ -14,12 +14,11 @@ pytest).
 
 from __future__ import annotations
 
-import os
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-DATABASE_URL_VAR = "DATABASE_URL"
+from conftest import BASE_DSN
 
 
 @contextmanager
@@ -38,14 +37,17 @@ def empty_database() -> Iterator[str]:
     from psycopg import sql
     from psycopg.conninfo import make_conninfo
 
-    base = os.environ[DATABASE_URL_VAR]
-    maintenance_dsn = make_conninfo(base, dbname="postgres")
+    # Строка запускающего берётся у `conftest`, а не из окружения: во время
+    # теста переменной там уже нет — её снимает автоматическая фикстура
+    # `_база_не_видна_сама_собой`, чтобы база не доставалась тому, кто её
+    # не просил (T123).
+    maintenance_dsn = make_conninfo(BASE_DSN, dbname="postgres")
     dbname = f"dodo_audit_test_{uuid.uuid4().hex[:12]}"
 
     with psycopg.connect(maintenance_dsn, autocommit=True) as conn:
         conn.execute(sql.SQL("create database {}").format(sql.Identifier(dbname)))
     try:
-        yield make_conninfo(base, dbname=dbname)
+        yield make_conninfo(BASE_DSN, dbname=dbname)
     finally:
         with psycopg.connect(maintenance_dsn, autocommit=True) as conn:
             conn.execute(
