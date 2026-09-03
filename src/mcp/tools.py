@@ -25,11 +25,12 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from ..db.models import InspectionRow
+from ..db.models import FindingRow, InspectionRow
 from .errors import ToolError
 
 #: Формат даты в аргументах инструментов. ISO и только он: «15.08.2026» и
@@ -48,7 +49,14 @@ class _Page:
     truncated: bool
 
 
-def _read(*, tenant: str, unit: str | None = None, limit: int | None = None) -> _Page:
+def _read(
+    *,
+    tenant: str,
+    unit: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: int | None = None,
+) -> _Page:
     """Страница проверок арендатора через официальный контракт блока `db`.
 
     Импорт внутри функции, а не наверху модуля: `src.db.queries` тянет
@@ -58,36 +66,44 @@ def _read(*, tenant: str, unit: str | None = None, limit: int | None = None) -> 
 
     Предел и его потолок не переписываются здесь: и значение по умолчанию, и
     проверка границ живут в одном месте — в самом слое чтения.
+
+    Период уходит туда же (T119). Отбирать его здесь, поверх прочитанной
+    страницы, значило бы терять проверки молча: страница набирается по самым
+    свежим, а спрашивают про период, которого в ней может не быть вовсе.
     """
     from ..db.queries import DEFAULT_LIMIT, list_inspections
 
     rows_limit = DEFAULT_LIMIT if limit is None else limit
-    rows = tuple(list_inspections(tenant=tenant, unit=unit, limit=rows_limit))
+    rows = tuple(
+        list_inspections(
+            tenant=tenant, unit=unit, date_from=date_from, date_to=date_to, limit=rows_limit
+        )
+    )
     return _Page(rows=rows, limit=rows_limit, truncated=len(rows) >= rows_limit)
 
 
-def _read_all(*, tenant: str, unit: str | None = None) -> _Page:
-    """Страница по потолку чтения — для ответов, которым нужна вся история.
+def _read_everything(*, tenant: str, date_from: date | None, date_to: date | None) -> _Page:
+    """Чтение по потолку — для ответа, которому нужен весь период целиком.
 
-    Фильтр по датам слой чтения пока не умеет (см. `docs/forge/blocks/mcp.md`,
-    «Чего не хватило в слое чтения»), поэтому период отбирается уже здесь, по
-    прочитанной странице. Страница берётся по потолку, а упёршееся в него
-    чтение честно помечается `truncated`: ответ, молча посчитанный по первой
-    сотне строк, выглядел бы полной сводкой по сети.
+    Сводке по сети предел не задают: её считают по всему, что попало в период.
+    Потолок при этом остаётся — без него один вопрос агента вычитывал бы всю
+    историю сети, — и упёршееся в него чтение помечается `truncated`, а не
+    выдаёт себя за полную сводку.
     """
     from ..db.queries import MAX_LIMIT
 
-    return _read(tenant=tenant, unit=unit, limit=MAX_LIMIT)
+    return _read(tenant=tenant, date_from=date_from, date_to=date_to, limit=MAX_LIMIT)
 
 
 def _require_limit(limit: int | None) -> int | None:
     """Предел выдачи в границах слоя чтения — или явный отказ.
 
-    Проверять приходится здесь, а не только в базе: с периодом чтение идёт по
-    потолку, и негодный предел до базы просто не доезжает — `limit=0` тихо
-    обрезал бы уже прочитанное в пустой список, и ответ читался бы как «за
-    этот период проверок нет». Само число потолка не переписывается: оно
-    берётся из слоя чтения, где и живёт.
+    Проверяется здесь, а не только в базе, ради ответа спрашивающему: негодный
+    аргумент обязан вернуться как отказ по аргументу («предел вне
+    допустимого»), а не как «не удалось прочитать проверки» — именно так
+    выглядел бы отказ слоя чтения, дошедший до агента через общий перехват.
+    Само число потолка не переписывается: оно берётся из слоя чтения, где и
+    живёт.
     """
     if limit is None:
         return None
@@ -145,20 +161,19 @@ def _require_unit(unit: str) -> str:
     return name
 
 
-def _in_window(row: InspectionRow, since: date | None, until: date | None) -> bool:
-    """Попадает ли проверка в период — по дате ПРОВЕРКИ, не по дате слива.
+def _require_inspection_id(value: str) -> str:
+    """Идентификатор проверки в форме UUID — или явный отказ.
 
-    Историю за три года зальют одним заходом (D035): дата слива у всех строк
-    будет одинаковой и сегодняшней, а спрашивают всегда про дату обхода.
-    Обе границы включительно: «с 1 по 31 августа» человек понимает именно так.
+    Тот же приём и тот же довод, что у `_require_limit`: кривой идентификатор
+    обязан вернуться как отказ по аргументу, а не дойти до слоя чтения и
+    обернуться его собственным отказом («не удалось прочитать проверку») —
+    в котором опечатку в аргументе не разглядеть.
     """
-    if since is not None and row.inspection_date < since:
-        return False
-    return not (until is not None and row.inspection_date > until)
-
-
-def _select(page: _Page, since: date | None, until: date | None) -> tuple[InspectionRow, ...]:
-    return tuple(row for row in page.rows if _in_window(row, since, until))
+    raw = (value or "").strip()
+    try:
+        return str(uuid.UUID(raw))
+    except (ValueError, AttributeError, TypeError):
+        raise ToolError(f"«{value}» не похоже на идентификатор проверки, ожидается UUID") from None
 
 
 def _inspection(row: InspectionRow) -> dict[str, object]:
@@ -199,6 +214,30 @@ def _history_entry(row: InspectionRow) -> dict[str, object]:
     }
 
 
+def _finding(row: FindingRow) -> dict[str, object]:
+    """Одна записанная находка — как лежит, без выведенных чисел.
+
+    `text`/`comment` могут быть `None` — так и отдаётся наружу, `None` пустой
+    строкой не подменяется: «перевода нет вовсе» и «аудитор ничего не
+    написал» обязаны различаться (`docs/forge/blocks/db.md`).
+    """
+    return {
+        "id": row.id,
+        "inspection_id": row.inspection_id,
+        "unit": row.unit_name,
+        "inspection_date": row.inspection_date.isoformat(),
+        "n": row.n,
+        "code": row.code,
+        "level": row.level,
+        "zone": row.zone,
+        "zone_unusual": row.zone_unusual,
+        "source": row.source,
+        "lang": row.lang,
+        "text": row.text,
+        "comment": row.comment,
+    }
+
+
 def _brief(row: InspectionRow) -> dict[str, object]:
     """Ссылка на конкретную записанную проверку внутри сводки."""
     return {
@@ -214,13 +253,16 @@ def _found(count: int, *, subject: str = "inspections") -> str:
     return f"no {subject} found" if count == 0 else f"{count} {subject} found"
 
 
-def _limit_note(page: _Page) -> str:
-    """Приписка про упёршееся в предел чтение. Пусто — значит, предел не мешал."""
-    if not page.truncated:
+def _limit_note(*, limit: int, truncated: bool, subject: str) -> str:
+    """Приписка про упёршееся в предел чтение. Пусто — значит, предел не мешал.
+
+    Параметризовано предметом чтения («inspections», «findings»): одна и та
+    же формулировка обслуживает оба инструмента вместо второй копии текста.
+    """
+    if not truncated:
         return ""
     return (
-        f"; the read stopped at the limit of {page.limit} rows, so older inspections "
-        f"are not counted here"
+        f"; the read stopped at the limit of {limit} rows, so older {subject} are not counted here"
     )
 
 
@@ -235,8 +277,11 @@ def _grades(rows: Iterable[InspectionRow]) -> dict[str, int]:
 def _by_unit(rows: Sequence[InspectionRow]) -> list[dict[str, object]]:
     """Свод по точкам: сколько проверок и какая из них последняя.
 
-    Строки приходят свежими вперёд, поэтому первая встреченная точка и есть её
-    последняя проверка — досортировывать нечего.
+    Строки приходят свежими вперёд по дате ОБХОДА точки, поэтому первая
+    встреченная строка точки и есть её последняя проверка — досортировывать
+    нечего. До T114 порядок шёл по дате слива, и у истории, залитой одним
+    заходом (D035), «последней» оказывалась случайная проверка: допущение было
+    неверным, а выглядело обычным полем ответа.
     """
     counts: dict[str, int] = {}
     latest: dict[str, InspectionRow] = {}
@@ -262,41 +307,27 @@ def list_inspections(
 ) -> dict[str, object]:
     """Проверки арендатора, новые сначала.
 
-    Без периода выдача ограничена пределом и читается ровно на него. С
-    периодом читается страница по потолку, а отбор идёт по дате проверки уже
-    здесь — фильтра по датам в слое чтения пока нет, и ответ честно помечает,
-    когда чтение упёрлось в предел.
+    И период, и предел применяет слой чтения (T119): период первым, предел
+    после него. Обратный порядок — предел по свежим строкам, а период поверх
+    прочитанного — терял бы проверки молча, ответом «за этот период проверок
+    нет». Упёршееся в предел чтение ответ помечает само.
     """
     rows_limit = _require_limit(limit)
     since, until = _parse_window(date_from, date_to)
-    windowed = since is not None or until is not None
-    # Без периода предел отдаётся самой базе — она и читает ровно столько.
-    # С периодом читается страница по потолку: отобрать по дате можно только
-    # после чтения, и предел, применённый до отбора, дал бы неверный ответ.
-    page = (
-        _read_all(tenant=tenant, unit=unit)
-        if windowed
-        else _read(tenant=tenant, unit=unit, limit=rows_limit)
-    )
-    selected = _select(page, since, until)
-    shown = selected[:rows_limit] if (windowed and rows_limit is not None) else selected
-    truncated = page.truncated or len(shown) < len(selected)
-    note = _limit_note(page)
-    if not note and truncated:
-        note = f"; more inspections match the period than the limit of {rows_limit} shown"
+    page = _read(tenant=tenant, unit=unit, date_from=since, date_to=until, limit=rows_limit)
     return {
         "tenant": tenant,
         "filters": {
             "unit": unit,
             "date_from": since.isoformat() if since else None,
             "date_to": until.isoformat() if until else None,
-            "limit": rows_limit if rows_limit is not None else page.limit,
+            "limit": page.limit,
         },
-        "count": len(shown),
-        "read_rows": len(page.rows),
-        "truncated": truncated,
-        "status": _found(len(shown)) + note,
-        "inspections": [_inspection(row) for row in shown],
+        "count": len(page.rows),
+        "truncated": page.truncated,
+        "status": _found(len(page.rows))
+        + _limit_note(limit=page.limit, truncated=page.truncated, subject="inspections"),
+        "inspections": [_inspection(row) for row in page.rows],
     }
 
 
@@ -312,9 +343,9 @@ def unit_history(*, tenant: str, unit: str, limit: int | None = None) -> dict[st
         "tenant": tenant,
         "unit": name,
         "count": len(page.rows),
-        "read_rows": len(page.rows),
         "truncated": page.truncated,
-        "status": _found(len(page.rows)) + _limit_note(page),
+        "status": _found(len(page.rows))
+        + _limit_note(limit=page.limit, truncated=page.truncated, subject="inspections"),
         "history": [_history_entry(row) for row in page.rows],
     }
 
@@ -333,8 +364,8 @@ def network_summary(
     лучшая и худшая проверки — это ссылки на конкретные записанные строки.
     """
     since, until = _parse_window(date_from, date_to)
-    page = _read_all(tenant=tenant)
-    rows = _select(page, since, until)
+    page = _read_everything(tenant=tenant, date_from=since, date_to=until)
+    rows = page.rows
     best = max(rows, key=lambda row: row.pct, default=None)
     worst = min(rows, key=lambda row: row.pct, default=None)
     return {
@@ -350,7 +381,75 @@ def network_summary(
         "best": _brief(best) if best is not None else None,
         "worst": _brief(worst) if worst is not None else None,
         "by_unit": _by_unit(rows),
-        "read_rows": len(page.rows),
         "truncated": page.truncated,
-        "status": _found(len(rows)) + _limit_note(page),
+        "status": _found(len(rows))
+        + _limit_note(limit=page.limit, truncated=page.truncated, subject="inspections"),
+    }
+
+
+def get_inspection(*, tenant: str, id: str) -> dict[str, object]:
+    """Одна проверка арендатора целиком: шапка, разбивка оценки и находки.
+
+    Аргумент назван `id`, а не `inspection_id`: так же называется поле в
+    выдаче `list_inspections`, откуда агент его и копирует. Внутри функции
+    встроенный `id()` не используется — переопределённое имя ему не нужно.
+
+    `None` от слоя чтения — это «ничего не найдено» (в том числе — «проверка
+    есть, но чужая», T110), а не отказ. Набор ключей ответа одинаков в обоих
+    исходах: агенту не нужно угадывать, есть ли поле.
+    """
+    ident = _require_inspection_id(id)
+    from ..db.queries import get_inspection as db_get_inspection
+
+    detail = db_get_inspection(ident, tenant=tenant)
+    if detail is None:
+        return {
+            "tenant": tenant,
+            "id": ident,
+            "found": False,
+            "status": "no inspection found with that id",
+            "inspection": None,
+            "deductions": None,
+            "counts": None,
+            "by_zone": None,
+            "findings": [],
+        }
+    return {
+        "tenant": tenant,
+        "id": ident,
+        "found": True,
+        "status": f"inspection found; {len(detail.findings)} findings recorded",
+        "inspection": _inspection(detail.inspection),
+        "deductions": detail.deductions,
+        "counts": detail.counts,
+        "by_zone": detail.by_zone,
+        "findings": [_finding(row) for row in detail.findings],
+    }
+
+
+def findings_by_unit(*, tenant: str, unit: str, limit: int | None = None) -> dict[str, object]:
+    """Записанные находки одной точки по всем её проверкам, свежие проверки первыми.
+
+    Отвечает на вопрос «что у этой точки повторяется», но сам повтор здесь не
+    считается: ни счёта повторов, ни группировки по коду, ни доли — такое
+    число никто не записывал, а в ответе агента оно немедленно пошло бы как
+    факт проверки. Отдаётся ряд записанных находок, обобщает спрашивающий.
+    """
+    name = _require_unit(unit)
+    requested_limit = _require_limit(limit)
+    from ..db.queries import DEFAULT_LIMIT
+    from ..db.queries import findings_by_unit as db_findings_by_unit
+
+    applied_limit = DEFAULT_LIMIT if requested_limit is None else requested_limit
+    rows = db_findings_by_unit(tenant=tenant, unit=name, limit=applied_limit)
+    truncated = len(rows) >= applied_limit
+    return {
+        "tenant": tenant,
+        "unit": name,
+        "limit": applied_limit,
+        "count": len(rows),
+        "truncated": truncated,
+        "status": _found(len(rows), subject="findings")
+        + _limit_note(limit=applied_limit, truncated=truncated, subject="findings"),
+        "findings": [_finding(row) for row in rows],
     }

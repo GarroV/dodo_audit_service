@@ -75,6 +75,19 @@ _UNIT_REQUIRED_PROPERTY: dict[str, object] = {
     "description": "Name of the unit (pizzeria) whose inspection history to read.",
 }
 
+_INSPECTION_ID_PROPERTY: dict[str, object] = {
+    "type": "string",
+    "description": (
+        "Identifier of the inspection to read, as returned in the 'id' field "
+        "of list_inspections entries. Must be a UUID."
+    ),
+}
+
+_FINDINGS_UNIT_PROPERTY: dict[str, object] = {
+    "type": "string",
+    "description": "Name of the unit (pizzeria) whose recorded findings to read.",
+}
+
 TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="list_inspections",
@@ -147,10 +160,52 @@ TOOLS: tuple[ToolSpec, ...] = (
         },
         handler=tools.network_summary,
     ),
+    ToolSpec(
+        name="get_inspection",
+        description=(
+            "Read one recorded inspection of the caller's tenant in full: its "
+            "header, the score breakdown (percentage, letter grade, "
+            "deductions, per-check counts, per-zone breakdown), and every "
+            "recorded finding — exactly as the audit engine stored them when "
+            "the inspection was completed, with nothing recalculated here. "
+            "Returns found: false, with no error, when the id does not match "
+            "any inspection of this tenant (including one that belongs to "
+            "another tenant)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "id": _INSPECTION_ID_PROPERTY,
+            },
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        handler=tools.get_inspection,
+    ),
+    ToolSpec(
+        name="findings_by_unit",
+        description=(
+            "List the recorded findings of one unit (pizzeria) across all its "
+            "inspections, most recent inspection first, exactly as each "
+            "finding was recorded. No repeat count, grouping by code, or "
+            "share is computed here — that number was never recorded by the "
+            "audit engine, so the caller summarizes the returned rows itself."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "unit": _FINDINGS_UNIT_PROPERTY,
+                "limit": _LIMIT_PROPERTY,
+            },
+            "required": ["unit"],
+            "additionalProperties": False,
+        },
+        handler=tools.findings_by_unit,
+    ),
 )
 
 #: Индекс по имени — `find()` вызывается на каждый запрос `tools/call`,
-#: а линейный проход по трём записям пересчитывать незачем.
+#: а линейный проход по пяти записям пересчитывать незачем.
 _BY_NAME: dict[str, ToolSpec] = {spec.name: spec for spec in TOOLS}
 
 
