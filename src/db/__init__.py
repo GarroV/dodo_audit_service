@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .errors import ConfigError, DbError, PushError
+from .errors import ConfigError, DbError, PushError, StorageError
 from .models import InspectionRow
 
 # `apply_migrations` (src.db.migrate) и `check_environment` (src.db.config)
@@ -26,6 +26,7 @@ from .models import InspectionRow
 # отложенной загрузки сбор `tests/` падает целиком в окружении без psycopg —
 # даже для файлов, которые его не используют.
 if TYPE_CHECKING:
+    from .photos import upload_photos as upload_photos
     from .push import push_inspection as push_inspection
     from .queries import list_inspections as list_inspections
 
@@ -34,11 +35,14 @@ __all__ = [
     "DbError",
     "InspectionRow",
     "PushError",
+    "StorageError",
     "list_inspections",
     "push_inspection",
+    "upload_photos",
 ]
 
 _LAZY = {
+    "upload_photos": (".photos", "upload_photos"),
     "push_inspection": (".push", "push_inspection"),
     "list_inspections": (".queries", "list_inspections"),
 }

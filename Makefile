@@ -1,4 +1,4 @@
-.PHONY: check test regress demo demo-down loadcheck lint types dead bounds fmt migrate cov-engine
+.PHONY: check test regress demo demo-down loadcheck lint types dead bounds fmt migrate db-up db-down storage-up storage-down cov-engine
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -62,11 +62,41 @@ demo-down:
 	-docker volume rm $$(docker compose --profile demo config --format json \
 	  | $(VENV)/python -c "import json,sys; print(json.load(sys.stdin)['name']+'_demo-state')")
 
-# Накат схемы блока db (T091). DATABASE_URL берётся из .env — так же, как
-# AUDIT_DATA_DIR для DATA выше. Идемпотентно: на уже накатанной базе печатает
-# «нечего накатывать» и ничего не меняет.
+# Накат схемы блока db (T091). DATABASE_URL раннер читает из .env сам
+# (`src/db/migrate.py`, load_env_file) — держать её в оболочке не нужно.
+# Идемпотентно: на уже накатанной базе печатает «нечего накатывать» и ничего
+# не меняет.
 migrate:
 	$(VENV)/python -m src.db.migrate
+
+# Стенд базы одной командой (T090): поднять Postgres рядом с ботом, дождаться
+# ГОТОВНОСТИ БАЗЫ (`--wait` идёт по healthcheck, а не по факту запуска
+# контейнера — иначе накат упирается в ещё не открытый порт) и накатить схему
+# с нуля. Идемпотентно: на поднятом стенде и накатанной схеме не делает ничего.
+# Строка подключения при этом берётся из .env и должна указывать на этот же
+# порт — см. POSTGRES_PORT и DATABASE_URL в .env.example.
+db-up:
+	docker compose --profile db up -d --wait db
+	$(MAKE) migrate
+
+# Снос стенда базы. Существует по той же причине, что demo-down: напрашивающаяся
+# симметричная `docker compose --profile db down -v` удаляет ВСЕ именованные
+# тома проекта, а не только тома профиля, — вместе с базой уносит `state`,
+# состояние всех идущих проверок. Поэтому поимённо и без -v; том с данными
+# базы остаётся и переживает пересоздание контейнера.
+db-down:
+	docker compose --profile db rm -sf db
+
+# Хранилище кадров для локального смоука (T094). Не боевое хранилище: тома у
+# него нет, данные не переживают пересоздание контейнера — боевое задаётся
+# переменными S3_* и живёт снаружи.
+storage-up:
+	docker compose --profile storage up -d --wait storage
+
+# Снос стенда хранилища — поимённо и без -v, по той же причине, что db-down:
+# `--profile storage down -v` унёс бы том состояния идущих проверок.
+storage-down:
+	docker compose --profile storage rm -sf storage
 
 cov-engine:  ## покрытие движка, который вызывается подпроцессом (T037)
 	@rm -f .coverage.engine*
