@@ -12,10 +12,10 @@ from __future__ import annotations
 import re
 
 from .config import Settings, check_environment
-from .engine import option, run_audit
+from .engine import option, run_audit, state_file
 from .errors import EngineError, ValidationError
-from .models import Finding
-from .state import read_state
+from .models import SOURCES, Finding
+from .state import forget_source, read_state, remember_source
 
 #: Номер записи в ответе движка: «#3 CLN05 D1 / hot_kitchen: …».
 NUMBER = re.compile(r"#(\d+)")
@@ -56,15 +56,33 @@ def _finding_after(chat_id: int, settings: Settings, n: int, what: str) -> Findi
 
 
 def add_finding(
-    chat_id: int, code: str, level: str, zone: str, text: str, *, comment: str = ""
+    chat_id: int,
+    code: str,
+    level: str,
+    zone: str,
+    text: str,
+    *,
+    comment: str = "",
+    source: str = "",
 ) -> Finding:
     """Зафиксировать запись.
 
     Отказ движка — пара «пункт + зона» уже занята, класс не разрешён для пункта,
     зоны нет в справочнике — уходит наружу `EngineError` с его же текстом:
     аудитору в чате показывают именно его.
+
+    `source` — откуда взялась запись (решение D044): со слов аудитора
+    (`SOURCE_COMMENT`) или распознано по кадру (`SOURCE_PHOTO`). Ставится при
+    фиксации, а не отдельным вызовом следом: запись без источника, которую
+    забыли пометить вторым шагом, выглядит потом как слова аудитора.
     """
     settings = check_environment()
+    # До вызова движка: иначе запись есть, а источник у неё неизвестно какой.
+    if source and source not in SOURCES:
+        raise ValidationError(
+            f"Источник записи «{source}» не из {SOURCES}: запись появляется либо со слов "
+            f"аудитора, либо распознаванием по кадру"
+        )
     out = run_audit(
         [
             "add",
@@ -77,7 +95,9 @@ def add_finding(
         chat_id=chat_id,
         settings=settings,
     )
-    return _finding_after(chat_id, settings, _number(out, "add"), "add")
+    n = _number(out, "add")
+    remember_source(state_file(chat_id, settings), n, source)
+    return _finding_after(chat_id, settings, n, "add")
 
 
 def edit_finding(chat_id: int, n: int, **fields: str) -> Finding:
@@ -108,6 +128,7 @@ def drop_finding(chat_id: int, n: int) -> None:
     """Удалить запись. Удалять нечего — отказ, а не тихий успех."""
     settings = check_environment()
     run_audit(["drop", str(n)], chat_id=chat_id, settings=settings)
+    forget_source(state_file(chat_id, settings), n)
     state = read_state(chat_id, settings)
     if state is not None and state.finding(n) is not None:
         raise EngineError(

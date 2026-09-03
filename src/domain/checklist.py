@@ -10,17 +10,13 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import re
 from pathlib import Path
 
-from .config import REQUIRED_DATA_FILES, Settings, check_environment
+from . import route, version
+from .config import DATA_FILES, Settings, check_environment
 from .errors import ValidationError
 from .models import ChecklistItem, Zone
-
-#: Явная версия методики, если управляющая компания её проставила: «имя набора
-#: плюс дата» из `docs/02-domain.md`. Файл необязательный.
-VERSION_FILE = "checklist_version.txt"
 
 
 def _text(row: dict[str, str | None], key: str) -> str:
@@ -63,7 +59,11 @@ def _all_items(settings: Settings) -> list[ChecklistItem]:
             continue
         seen.add(code)
         items.append(_item(row))
-    return items
+    # Порядок обхода (T061) — данные: пункты выстраиваются так, как аудитор идёт
+    # по точке, а не как строки легли в CSV.
+    return route.arrange(
+        items, route.load(settings.data_dir).items, lambda i: i.code, what="пункты"
+    )
 
 
 def list_items(zone: str | None = None, kind: str | None = None) -> list[ChecklistItem]:
@@ -96,7 +96,7 @@ def _zones(settings: Settings) -> list[Zone]:
         for row in _rows(settings.data_dir / "zones.csv")
         if _text(row, "code")
     ]
-    return zones
+    return route.arrange(zones, route.load(settings.data_dir).zones, lambda z: z.code, what="зоны")
 
 
 def list_zones() -> list[Zone]:
@@ -122,18 +122,10 @@ def allowed_levels(code: str) -> list[str]:
 def checklist_version() -> str:
     """Версия методики, которая записывается в проверку.
 
-    Проверка, посчитанная по одной версии, должна сходиться и через год, поэтому
-    версия обязана меняться вместе с данными. Явное имя набора из
-    `checklist_version.txt` важнее вычисленного; без файла берётся отпечаток
-    самих данных — чек-листа, зон и ставок.
+    Составной идентификатор (решение D050): имя набора и дата публикации от
+    управляющей компании плюс отпечаток данных. Отпечаток обязателен — без него
+    правка методики проходит под прежним именем, и две проверки, посчитанные по
+    разным данным, становятся неотличимы. Собирается в `version.compose`.
     """
     settings = check_environment()
-    explicit = settings.data_dir / VERSION_FILE
-    if explicit.is_file():
-        for line in explicit.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                return line.strip()
-    digest = hashlib.sha256()
-    for name in REQUIRED_DATA_FILES:
-        digest.update((settings.data_dir / name).read_bytes())
-    return f"local-{digest.hexdigest()[:12]}"
+    return version.compose(settings.data_dir, DATA_FILES)

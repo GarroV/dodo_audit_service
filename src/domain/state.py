@@ -30,12 +30,19 @@ from .checklist import checklist_version
 from .config import DEFAULT_LANG, Settings, check_environment
 from .engine import option, run_audit, state_file
 from .errors import DomainError, ValidationError
-from .models import Finding, Inspection
+from .models import SOURCES, Finding, Inspection
 
 #: Ключ со сведениями, которых у движка нет. `schema` — чтобы будущий переезд
 #: состояния (в том числе в базу) видел, какой формы данные ему достались.
 DOMAIN_KEY = "domain"
 SCHEMA = 1
+
+#: Источники записей внутри блока `domain`: номер записи → значение из `SOURCES`
+#: (решение D044). Отдельным словарём, а не полем внутри записи движка: записи
+#: ведёт движок, и дописывать в его структуры свои ключи — способ однажды их
+#: потерять. Здесь же они переживают слив в базу вместе со всей проверкой, тогда
+#: как заметки бота обнуляются на старте следующей проверки того же чата.
+SOURCES_KEY = "sources"
 
 #: Арендатор по умолчанию. Функций мультиарендности в MVP нет (решение D005),
 #: но поле есть с первого дня: задним числом его в готовые проверки не вписать.
@@ -129,7 +136,55 @@ def patch_domain_block(path: Path, values: Mapping[str, Any]) -> None:
         _write_atomic(path, raw)
 
 
-def _finding(raw: Mapping[str, Any]) -> Finding:
+def read_sources(raw: Mapping[str, Any], path: Path) -> dict[int, str]:
+    """Источники записей из блока `domain`. Непонятное значение — отказ.
+
+    Прочитанное «неизвестно что» уехало бы в базу как источник записи и стало бы
+    там неотличимо от настоящего: раз значение нельзя объяснить, лучше отказать.
+    """
+    block: Mapping[str, Any] = raw.get(DOMAIN_KEY) or {}
+    result: dict[int, str] = {}
+    for key, value in dict(block.get(SOURCES_KEY) or {}).items():
+        try:
+            n = int(key)
+        except (TypeError, ValueError):
+            raise DomainError(
+                f"Номер записи «{key}» в источниках {path} не похож на число"
+            ) from None
+        if value not in SOURCES:
+            raise DomainError(f"Источник «{value}» записи #{n} в {path} не из {SOURCES}")
+        result[n] = str(value)
+    return result
+
+
+def remember_source(path: Path, n: int, source: str) -> None:
+    """Записать источник записи №`n`. Пустой источник не пишется: он и так пуст."""
+    if not source:
+        return
+    with state_lock(path):
+        raw = _read_raw(path)
+        block = dict(raw.get(DOMAIN_KEY) or {})
+        sources = dict(block.get(SOURCES_KEY) or {})
+        sources[str(n)] = source
+        block[SOURCES_KEY] = sources
+        raw[DOMAIN_KEY] = block
+        _write_atomic(path, raw)
+
+
+def forget_source(path: Path, n: int) -> None:
+    """Запись удалена — источник больше не о чём. Неизвестный номер не отказ."""
+    with state_lock(path):
+        raw = _read_raw(path)
+        block = dict(raw.get(DOMAIN_KEY) or {})
+        sources = dict(block.get(SOURCES_KEY) or {})
+        if sources.pop(str(n), None) is None:
+            return
+        block[SOURCES_KEY] = sources
+        raw[DOMAIN_KEY] = block
+        _write_atomic(path, raw)
+
+
+def _finding(raw: Mapping[str, Any], sources: Mapping[int, str]) -> Finding:
     photos = [p for p in (raw.get("photos") or []) if p]
     if not photos and raw.get("photo"):
         photos = [str(raw["photo"])]  # старая форма записи: одно фото строкой
@@ -142,12 +197,14 @@ def _finding(raw: Mapping[str, Any]) -> Finding:
         comment=str(raw.get("comment") or ""),
         photos=[str(p) for p in photos],
         zone_unusual=bool(raw.get("zone_unusual")),
+        source=sources.get(int(raw["n"]), ""),
     )
 
 
-def _inspection(chat_id: int, raw: Mapping[str, Any]) -> Inspection:
+def _inspection(chat_id: int, raw: Mapping[str, Any], path: Path) -> Inspection:
     meta: Mapping[str, Any] = raw.get("meta") or {}
     block: Mapping[str, Any] = raw.get(DOMAIN_KEY) or {}
+    sources = read_sources(raw, path)
     return Inspection(
         chat_id=chat_id,
         unit=str(meta.get("unit") or ""),
@@ -164,7 +221,7 @@ def _inspection(chat_id: int, raw: Mapping[str, Any]) -> Inspection:
         partner=str(meta.get("partner") or ""),
         contact=str(meta.get("contact") or ""),
         auditor=str(meta.get("auditor") or ""),
-        findings=[_finding(f) for f in (raw.get("findings") or [])],
+        findings=[_finding(f, sources) for f in (raw.get("findings") or [])],
     )
 
 
@@ -172,7 +229,7 @@ def read_state(chat_id: int, settings: Settings) -> Inspection | None:
     path = state_file(chat_id, settings)
     if not path.is_file():
         return None
-    return _inspection(chat_id, _read_raw(path))
+    return _inspection(chat_id, _read_raw(path), path)
 
 
 def get_state(chat_id: int) -> Inspection | None:
