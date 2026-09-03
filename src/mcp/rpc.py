@@ -23,7 +23,8 @@ import json
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
-from .catalogue import ToolSpec, as_list, find
+from .catalogue import KIND_CHECKLIST, ToolSpec, as_list, find
+from .checklist import Store
 from .errors import McpError, ToolError
 
 # Коды ошибок JSON-RPC 2.0. Свои коды не заводятся: клиент разбирает эти.
@@ -127,8 +128,30 @@ def _check_arguments(spec: ToolSpec, arguments: dict[str, Any]) -> str | None:
     return None
 
 
-def _call_tool(params: dict[str, Any], *, tenant: str) -> dict[str, Any] | str:
-    """Вызов инструмента. Строка в ответе — отказ протокола, словарь — результат."""
+#: Отказ на инструмент методики без открытого доступа. Один текст на оба
+#: случая — «не настроено» и «этому арендатору не открыто» — намеренно: разница
+#: между ними ничем не помогает спрашивающему и рассказывает ему о настройках
+#: сервера больше, чем нужно. Переменные названы, потому что читает этот отказ
+#: тот же человек, который держит сервер у себя на петле, и без имён переменных
+#: он пойдёт искать причину в коде.
+CHECKLIST_CLOSED = (
+    "Работа с методикой через агента для этого доступа не открыта. Методика одна на всю "
+    "сеть, и правит её управляющая компания: доступ включается переменными "
+    "MCP_CHECKLIST_STORE и MCP_CHECKLIST_TENANTS. Проверки при этом читаются как обычно"
+)
+
+
+def _call_tool(
+    params: dict[str, Any], *, tenant: str, checklist: Store | None
+) -> dict[str, Any] | str:
+    """Вызов инструмента. Строка в ответе — отказ протокола, словарь — результат.
+
+    `checklist` — хранилище версий методики, и оно же признак права на неё:
+    транспорт передаёт его, только если методика открыта ЭТОМУ арендатору.
+    Заслон стоит здесь, у входа, рядом с границей арендаторов, а не в
+    обработчиках: обработчик, забывший спросить о правах, был бы дырой,
+    которую видно только чтением всех обработчиков подряд.
+    """
     name = params.get("name")
     if not isinstance(name, str) or not name:
         return "Не назван инструмент: ожидается params.name"
@@ -138,14 +161,20 @@ def _call_tool(params: dict[str, Any], *, tenant: str) -> dict[str, Any] | str:
     arguments = params.get("arguments", {})
     if not isinstance(arguments, dict):
         return f"Аргументы инструмента {name} ожидаются объектом"
+    if spec.kind == KIND_CHECKLIST and checklist is None:
+        return _tool_text(CHECKLIST_CLOSED, failed=True)
     refusal = _check_arguments(spec, arguments)
     if refusal is not None:
         return refusal
+    прочее: dict[str, Any] = {"store": checklist} if spec.kind == KIND_CHECKLIST else {}
     try:
-        payload = spec.handler(tenant=tenant, **arguments)
+        payload = spec.handler(tenant=tenant, **прочее, **arguments)
     except ToolError as отказ:
         return _tool_text(str(отказ), failed=True)
-    except McpError as отказ:  # pragma: no cover — оставлен как общая сеть блока
+    except McpError as отказ:
+        # Сюда приходит и отказ методики (`ChecklistError`): правка, которую
+        # движок не принял, — это отказ, а не результат с пометкой. Пометку
+        # агент однажды перескажет человеку как «сделано».
         return _tool_text(str(отказ), failed=True)
     except Exception as отказ:
         # Широкий перехват намеренно: наружу уходит ТИП отказа, а не его текст
@@ -161,11 +190,16 @@ def _call_tool(params: dict[str, Any], *, tenant: str) -> dict[str, Any] | str:
     return _tool_text(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
-def handle(message: object, *, tenant: str) -> dict[str, Any] | None:
+def handle(
+    message: object, *, tenant: str, checklist: Store | None = None
+) -> dict[str, Any] | None:
     """Разобранное сообщение JSON-RPC → ответ. `None` — уведомление, ответа нет.
 
     `tenant` приходит от транспорта, разобравшего личный токен, и в сообщении
-    не участвует ни в каком виде.
+    не участвует ни в каком виде. `checklist` — оттуда же: транспорт передаёт
+    хранилище версий методики, только если она открыта этому арендатору, а
+    `None` по умолчанию означает, что до задачи T098 сервер отвечал только на
+    вопросы о проверках, и таким он и остаётся, пока методику не открыли явно.
     """
     if not isinstance(message, dict):
         return _error(None, CODE_INVALID_REQUEST, "Ожидается объект JSON-RPC 2.0")
@@ -203,7 +237,7 @@ def handle(message: object, *, tenant: str) -> dict[str, Any] | None:
     if method == "tools/list":
         return _result(request_id, {"tools": as_list()})
     if method == "tools/call":
-        outcome = _call_tool(params, tenant=tenant)
+        outcome = _call_tool(params, tenant=tenant, checklist=checklist)
         if isinstance(outcome, str):
             return _error(request_id, CODE_INVALID_PARAMS, outcome)
         return _result(request_id, outcome)

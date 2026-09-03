@@ -25,6 +25,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from .checklist import Store
 from .config import Settings, resolve_tenant
 from .errors import AuthError
 from .rpc import CODE_PARSE_ERROR, handle
@@ -244,11 +245,26 @@ class _Handler(BaseHTTPRequestHandler):
             )
             return
 
-        answer = handle(message, tenant=tenant)
+        answer = handle(message, tenant=tenant, checklist=_checklist_for(self._settings, tenant))
         if answer is None:
             self._send(_ACCEPTED)
             return
         self._send(HTTPStatus.OK, answer)
+
+
+def _checklist_for(settings: Settings, tenant: str) -> Store | None:
+    """Хранилище версий методики — или `None`, если этому арендатору она не открыта.
+
+    Право спрашивается здесь, на входе, по коду арендатора, разобранному из
+    токена, — то есть на той же двери, что и граница арендаторов. Отдельного
+    способа получить это право нет: ниже по коду `None` подменить нечем.
+    """
+    хранилище, методика = settings.checklist_store, settings.data_dir
+    if хранилище is None or методика is None:
+        return None
+    if not settings.may_manage_checklist(tenant):
+        return None
+    return Store(root=хранилище, live=методика)
 
 
 def build_server(settings: Settings) -> ThreadingHTTPServer:
