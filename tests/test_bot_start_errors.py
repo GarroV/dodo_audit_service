@@ -28,8 +28,8 @@ from src import domain
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.keyboards import (
-    KIND_LABELS,
     KIND_PREFIX,
+    KIND_TITLES,
     LANG_PREFIX,
     NEW_INSPECTION_CALLBACK,
     RESUME_CONTINUE_CALLBACK,
@@ -106,7 +106,7 @@ async def test_photo_instead_of_unit_name_keeps_the_wizard_on_the_same_step(
     assert session.last_text == t("start.unit_expected", "ru")
 
     await feed(dp, bot, text_message("Белград 4"))
-    assert set(session.keyboard_data()) == {f"start:kind:{code}" for code in KIND_LABELS}
+    assert set(session.keyboard_data()) == {f"start:kind:{code}" for code in KIND_TITLES}
 
 
 async def test_resume_continue_without_a_saved_inspection_replies_gone_not_crash(
@@ -129,7 +129,7 @@ async def test_unknown_kind_code_does_not_advance_the_wizard(domain_env: object)
     await feed(dp, bot, text_message("/start"))
     await feed(dp, bot, callback_query(NEW_INSPECTION_CALLBACK))
     await feed(dp, bot, text_message("Белград 5"))
-    kind_codes = {f"start:kind:{code}" for code in KIND_LABELS}
+    kind_codes = {f"start:kind:{code}" for code in KIND_TITLES}
     assert set(session.keyboard_data()) == kind_codes
 
     await feed(dp, bot, callback_query(KIND_PREFIX + "нет-такого"))

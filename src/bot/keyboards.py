@@ -5,7 +5,12 @@ Callback-данные — код, а не формулировка (принци
 нет. Значение вида проверки, которое уходит в движок (`--type`), — свободный
 текст (см. `engine/audit.py: cmd_init`, поле `type` там без ограничения на
 перечень), поэтому код кнопки и текст, который увидит движок и в итоге отчёт,
-разведены явной таблицей `KIND_LABELS`.
+разведены явной таблицей `KIND_TITLES`.
+
+Языков у этой таблицы два, и это не дубль, а разные языки проекта (T131): на
+кнопке вид проверки стоит на языке ИНТЕРФЕЙСА, а в шапку отчёта партнёру
+уезжает на языке ОТЧЁТА. На английском стенде с русским отчётом кнопка обязана
+читаться «Planned», а в шапке обязана стоять «Плановая».
 """
 
 from __future__ import annotations
@@ -15,22 +20,35 @@ from collections.abc import Sequence
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from .errors import BotTextError
 from .texts import t
 
-#: Код кнопки → формулировка вида проверки, которая уходит в `audit.py init --type`
-#: и дальше в шапку отчёта (`docs/06-mvp-bot.md`, сценарий, шаг 1).
-KIND_LABELS: dict[str, str] = {
-    "planned": "Плановая",
-    "repeat": "Повторная",
-    "unscheduled": "Внеплановая",
+#: Код кнопки → вид проверки на каждом языке. Это же значение уходит в
+#: `audit.py init --type` и дальше в шапку отчёта (`docs/06-mvp-bot.md`,
+#: сценарий, шаг 1) — но уже на языке отчёта, а не интерфейса.
+#:
+#: В каталоге текстов (`texts.py`) этой таблицы нет намеренно: там строки,
+#: которые читает только аудитор, а эта уезжает партнёру в документ. Отчёт же
+#: и переводится по методике (`domain.models.TEXT_LANGS`), а не по интерфейсу,
+#: и в тот день, когда наборы языков разойдутся, разойтись обязаны и таблицы.
+KIND_TITLES: dict[str, dict[str, str]] = {
+    "planned": {"ru": "Плановая", "en": "Planned"},
+    "repeat": {"ru": "Повторная", "en": "Repeat"},
+    "unscheduled": {"ru": "Внеплановая", "en": "Unscheduled"},
 }
 
 #: Код кнопки языка отчёта = сам код языка методики (`ru`/`en`, `domain.models.TEXT_LANGS`).
 #: Второй копии не нужно: то, что летит в `callback_data`, и есть значение параметра.
+#:
+#: Надписи здесь не переводятся и переводиться не должны: язык называют на нём
+#: самом. «Русский» в английском интерфейсе ищет глазами тот, кому он нужен, а
+#: «Russian» — никто. Это тот редкий случай, когда строка мимо каталога не
+#: дефект: перевода у неё нет по существу.
 LANG_LABELS: dict[str, str] = {
     "ru": "Русский",
     "en": "English",
 }
+
 
 NEW_INSPECTION_CALLBACK = "start:new"
 KIND_PREFIX = "start:kind:"
@@ -39,18 +57,46 @@ RESUME_CONTINUE_CALLBACK = "start:resume:continue"
 RESUME_NEW_CALLBACK = "start:resume:new"
 
 
-def new_inspection_keyboard() -> InlineKeyboardMarkup:
-    """Единственная кнопка входа — «Новая проверка»."""
+def kind_title(code: str, lang: str) -> str:
+    """Вид проверки словами. Язык — параметр, и он тут не всегда язык интерфейса.
+
+    Незаведённый язык — отказ, а не откат на русский: молчаливый откат поставил
+    бы русское слово в шапку английского отчёта партнёру, и заметил бы это
+    партнёр, а не мы.
+    """
+    titles = KIND_TITLES[code]
+    if lang not in titles:
+        raise BotTextError(
+            f"Вид проверки «{code}» не заведён на языке «{lang}». Доступны: {', '.join(titles)}"
+        )
+    return titles[lang]
+
+
+def new_inspection_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Единственная кнопка входа — «Новая проверка».
+
+    Язык — параметр с T131: это первое, что видит человек, открывший демо, и
+    русская надпись здесь была единственным русским местом английского стенда.
+    """
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="Новая проверка", callback_data=NEW_INSPECTION_CALLBACK))
+    builder.add(
+        InlineKeyboardButton(
+            text=t("btn.new_inspection", lang), callback_data=NEW_INSPECTION_CALLBACK
+        )
+    )
     return builder.as_markup()
 
 
-def kind_keyboard() -> InlineKeyboardMarkup:
-    """Вид проверки — по одной кнопке в ряд, порядок как в `docs/06-mvp-bot.md`."""
+def kind_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Вид проверки — по одной кнопке в ряд, порядок как в `docs/06-mvp-bot.md`.
+
+    `lang` здесь — язык ИНТЕРФЕЙСА: аудитор читает кнопку сам. В шапку отчёта
+    тот же вид уедет на языке отчёта, и берётся он тем же `kind_title` уже
+    после того, как язык отчёта выбран следующим шагом мастера.
+    """
     builder = InlineKeyboardBuilder()
-    for code, label in KIND_LABELS.items():
-        builder.button(text=label, callback_data=f"{KIND_PREFIX}{code}")
+    for code in KIND_TITLES:
+        builder.button(text=kind_title(code, lang), callback_data=f"{KIND_PREFIX}{code}")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -64,11 +110,11 @@ def lang_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def resume_keyboard() -> InlineKeyboardMarkup:
+def resume_keyboard(lang: str) -> InlineKeyboardMarkup:
     """Незавершённая проверка найдена — предложить «Продолжить» или «Начать новую» (T052)."""
     builder = InlineKeyboardBuilder()
-    builder.button(text="Продолжить", callback_data=RESUME_CONTINUE_CALLBACK)
-    builder.button(text="Начать новую", callback_data=RESUME_NEW_CALLBACK)
+    builder.button(text=t("btn.resume_continue", lang), callback_data=RESUME_CONTINUE_CALLBACK)
+    builder.button(text=t("btn.resume_new", lang), callback_data=RESUME_NEW_CALLBACK)
     builder.adjust(1)
     return builder.as_markup()
 
