@@ -49,8 +49,7 @@ bounds:
 # приводил в движок ОСНОВНОЙ копии. Регресс при этом был зелёным, ничего не
 # проверяя. Проверено на себе 28.08.2026.
 regress:
-	@cd examples/belgrade-1 && $(CURDIR)/$(VENV)/python $(CURDIR)/engine/audit.py score | head -2
-	@cd examples/belgrade-2 && $(CURDIR)/$(VENV)/python $(CURDIR)/engine/audit.py score | head -2
+	@$(VENV)/python tools/regress_check.py
 
 # Демо-набор на английском (T074, T100): вымышленная точка, синтетический
 # чек-лист demo/data, отчёт и письмо партнёру. Идемпотентно — повторный
