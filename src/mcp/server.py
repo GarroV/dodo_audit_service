@@ -16,8 +16,11 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import threading
+import traceback
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -32,6 +35,16 @@ MAX_BODY_BYTES = 1 << 20
 
 #: Ответ на уведомление JSON-RPC: принято, тела нет.
 _ACCEPTED = HTTPStatus.ACCEPTED
+
+#: Строка запроса (всё за `?`) из лога вырезается (T116). Авторизация через
+#: адрес не принимается — но клиент об этом не знает и вполне может дописать
+#: туда токен, а лог переживёт и запрос, и клиента. Вырезается ровно кусок от
+#: `?` до ближайшего пробела или кавычки, то есть сама строка запроса, а не
+#: хвост сообщения.
+_QUERY = re.compile(r"\?[^\s\"']*")
+
+#: Чем строка запроса заменяется в логе: место видно, содержимое — нет.
+_QUERY_HIDDEN = "?<скрыто>"
 
 #: Сколько секунд ждём от клиента, который замолчал посреди запроса.
 #:
@@ -98,6 +111,11 @@ class _Handler(BaseHTTPRequestHandler):
     #: версию интерпретатора тому, кто стучится, незачем.
     sys_version = ""
 
+    #: Ответ этому запросу уже отправлен. Нужно заслону от пустого ответа
+    #: (`_guarded`): второй ответ, дописанный после первого, склеивается с ним
+    #: в поток, который клиент не разберёт вовсе.
+    _answered = False
+
     @property
     def _settings(self) -> Settings:
         """Настройки сервера, которому принадлежит этот обработчик.
@@ -117,12 +135,16 @@ class _Handler(BaseHTTPRequestHandler):
 
         Ни заголовков, ни тела: в заголовке едет токен, в теле — вопросы про
         проверки партнёров (конституция, «в логах — идентификаторы, а не
-        содержимое»).
+        содержимое»). Строка запроса вырезается здесь, а не в одном месте
+        печати пути (T116): она попадает в лог двумя разными дорогами —
+        обычной записью запроса и отказом на кривую строку запроса, где
+        базовый класс печатает её целиком.
         """
-        print(f"[mcp] {self.command} {format % args}", file=sys.stderr)
+        print(f"[mcp] {self.command} {_QUERY.sub(_QUERY_HIDDEN, format % args)}", file=sys.stderr)
 
     def _send(self, status: HTTPStatus, payload: dict[str, Any] | None = None) -> None:
         body = b"" if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self._answered = True
         self.send_response(status)
         if body:
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -133,12 +155,53 @@ class _Handler(BaseHTTPRequestHandler):
         if body:
             self.wfile.write(body)
 
+    def _guarded(self, обработка: Callable[[], None]) -> None:
+        """Обслужить запрос так, чтобы любой отказ стал кодом, а не молчанием.
+
+        Необработанное исключение в обработчике `http.server` разрывает
+        соединение без единого байта: клиент получает пустой ответ, а причина
+        остаётся только в логе сервера. Ровно так выглядел `TypeError` на
+        сравнении токенов (T115, issue #94) — и точно так же будет выглядеть
+        любая следующая ошибка, если её не во что обернуть.
+
+        Наружу уходит ТИП отказа и ничего больше: в тексте исключения может
+        оказаться строка подключения к базе, а в трейсбеке — пути на машине.
+        Трейсбек при этом печатается в свой лог: он остаётся на петле, у
+        владельца, и без него чинить нечего.
+        """
+        try:
+            обработка()
+        except Exception as отказ:
+            print(f"[mcp] необработанный отказ: {type(отказ).__name__}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            self.close_connection = True
+            if self._answered:
+                # Ответ уже ушёл — дописывать второй нельзя, он склеится с
+                # первым и клиент не разберёт ни одного.
+                return
+            try:
+                self._send(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Внутренний отказ сервера ({type(отказ).__name__})"},
+                )
+            except OSError:
+                # Сокет уже закрыт клиентом: сказать некому, и это не повод
+                # уронить поток. Отказ при этом уже записан в лог выше.
+                pass
+
     # Имена do_GET/do_POST задаёт BaseHTTPRequestHandler — он ищет их по имени.
     def do_GET(self) -> None:
         """Просматриваемой поверхности у сервера нет: только JSON-RPC по POST."""
-        self._send(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "Сервер отвечает только на POST"})
+        self._guarded(
+            lambda: self._send(
+                HTTPStatus.METHOD_NOT_ALLOWED, {"error": "Сервер отвечает только на POST"}
+            )
+        )
 
     def do_POST(self) -> None:
+        self._guarded(self._post)
+
+    def _post(self) -> None:
         try:
             tenant = resolve_tenant(self._settings, self.headers.get("Authorization"))
         except AuthError as отказ:

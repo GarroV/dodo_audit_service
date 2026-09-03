@@ -266,7 +266,13 @@ def test_перечень_инструментов_отдаётся_целико
     ответ = _rpc(сервер, "tools/list")
 
     имена = {инструмент["name"] for инструмент in ответ["result"]["tools"]}
-    assert имена == {"list_inspections", "unit_history", "network_summary"}
+    assert имена == {
+        "list_inspections",
+        "unit_history",
+        "network_summary",
+        "get_inspection",
+        "findings_by_unit",
+    }, "пять инструментов чтения контракта блока (T119)"
     assert all("inputSchema" in инструмент for инструмент in ответ["result"]["tools"])
 
 

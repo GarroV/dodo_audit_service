@@ -25,11 +25,12 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from ..db.models import InspectionRow
+from ..db.models import FindingRow, InspectionRow
 from .errors import ToolError
 
 #: Формат даты в аргументах инструментов. ISO и только он: «15.08.2026» и
@@ -160,6 +161,21 @@ def _require_unit(unit: str) -> str:
     return name
 
 
+def _require_inspection_id(value: str) -> str:
+    """Идентификатор проверки в форме UUID — или явный отказ.
+
+    Тот же приём и тот же довод, что у `_require_limit`: кривой идентификатор
+    обязан вернуться как отказ по аргументу, а не дойти до слоя чтения и
+    обернуться его собственным отказом («не удалось прочитать проверку») —
+    в котором опечатку в аргументе не разглядеть.
+    """
+    raw = (value or "").strip()
+    try:
+        return str(uuid.UUID(raw))
+    except (ValueError, AttributeError, TypeError):
+        raise ToolError(f"«{value}» не похоже на идентификатор проверки, ожидается UUID") from None
+
+
 def _inspection(row: InspectionRow) -> dict[str, object]:
     """Проверка для списка.
 
@@ -198,6 +214,30 @@ def _history_entry(row: InspectionRow) -> dict[str, object]:
     }
 
 
+def _finding(row: FindingRow) -> dict[str, object]:
+    """Одна записанная находка — как лежит, без выведенных чисел.
+
+    `text`/`comment` могут быть `None` — так и отдаётся наружу, `None` пустой
+    строкой не подменяется: «перевода нет вовсе» и «аудитор ничего не
+    написал» обязаны различаться (`docs/forge/blocks/db.md`).
+    """
+    return {
+        "id": row.id,
+        "inspection_id": row.inspection_id,
+        "unit": row.unit_name,
+        "inspection_date": row.inspection_date.isoformat(),
+        "n": row.n,
+        "code": row.code,
+        "level": row.level,
+        "zone": row.zone,
+        "zone_unusual": row.zone_unusual,
+        "source": row.source,
+        "lang": row.lang,
+        "text": row.text,
+        "comment": row.comment,
+    }
+
+
 def _brief(row: InspectionRow) -> dict[str, object]:
     """Ссылка на конкретную записанную проверку внутри сводки."""
     return {
@@ -213,13 +253,16 @@ def _found(count: int, *, subject: str = "inspections") -> str:
     return f"no {subject} found" if count == 0 else f"{count} {subject} found"
 
 
-def _limit_note(page: _Page) -> str:
-    """Приписка про упёршееся в предел чтение. Пусто — значит, предел не мешал."""
-    if not page.truncated:
+def _limit_note(*, limit: int, truncated: bool, subject: str) -> str:
+    """Приписка про упёршееся в предел чтение. Пусто — значит, предел не мешал.
+
+    Параметризовано предметом чтения («inspections», «findings»): одна и та
+    же формулировка обслуживает оба инструмента вместо второй копии текста.
+    """
+    if not truncated:
         return ""
     return (
-        f"; the read stopped at the limit of {page.limit} rows, so older inspections "
-        f"are not counted here"
+        f"; the read stopped at the limit of {limit} rows, so older {subject} are not counted here"
     )
 
 
@@ -282,7 +325,8 @@ def list_inspections(
         },
         "count": len(page.rows),
         "truncated": page.truncated,
-        "status": _found(len(page.rows)) + _limit_note(page),
+        "status": _found(len(page.rows))
+        + _limit_note(limit=page.limit, truncated=page.truncated, subject="inspections"),
         "inspections": [_inspection(row) for row in page.rows],
     }
 
@@ -300,7 +344,8 @@ def unit_history(*, tenant: str, unit: str, limit: int | None = None) -> dict[st
         "unit": name,
         "count": len(page.rows),
         "truncated": page.truncated,
-        "status": _found(len(page.rows)) + _limit_note(page),
+        "status": _found(len(page.rows))
+        + _limit_note(limit=page.limit, truncated=page.truncated, subject="inspections"),
         "history": [_history_entry(row) for row in page.rows],
     }
 
@@ -337,5 +382,74 @@ def network_summary(
         "worst": _brief(worst) if worst is not None else None,
         "by_unit": _by_unit(rows),
         "truncated": page.truncated,
-        "status": _found(len(rows)) + _limit_note(page),
+        "status": _found(len(rows))
+        + _limit_note(limit=page.limit, truncated=page.truncated, subject="inspections"),
+    }
+
+
+def get_inspection(*, tenant: str, id: str) -> dict[str, object]:
+    """Одна проверка арендатора целиком: шапка, разбивка оценки и находки.
+
+    Аргумент назван `id`, а не `inspection_id`: так же называется поле в
+    выдаче `list_inspections`, откуда агент его и копирует. Внутри функции
+    встроенный `id()` не используется — переопределённое имя ему не нужно.
+
+    `None` от слоя чтения — это «ничего не найдено» (в том числе — «проверка
+    есть, но чужая», T110), а не отказ. Набор ключей ответа одинаков в обоих
+    исходах: агенту не нужно угадывать, есть ли поле.
+    """
+    ident = _require_inspection_id(id)
+    from ..db.queries import get_inspection as db_get_inspection
+
+    detail = db_get_inspection(ident, tenant=tenant)
+    if detail is None:
+        return {
+            "tenant": tenant,
+            "id": ident,
+            "found": False,
+            "status": "no inspection found with that id",
+            "inspection": None,
+            "deductions": None,
+            "counts": None,
+            "by_zone": None,
+            "findings": [],
+        }
+    return {
+        "tenant": tenant,
+        "id": ident,
+        "found": True,
+        "status": f"inspection found; {len(detail.findings)} findings recorded",
+        "inspection": _inspection(detail.inspection),
+        "deductions": detail.deductions,
+        "counts": detail.counts,
+        "by_zone": detail.by_zone,
+        "findings": [_finding(row) for row in detail.findings],
+    }
+
+
+def findings_by_unit(*, tenant: str, unit: str, limit: int | None = None) -> dict[str, object]:
+    """Записанные находки одной точки по всем её проверкам, свежие проверки первыми.
+
+    Отвечает на вопрос «что у этой точки повторяется», но сам повтор здесь не
+    считается: ни счёта повторов, ни группировки по коду, ни доли — такое
+    число никто не записывал, а в ответе агента оно немедленно пошло бы как
+    факт проверки. Отдаётся ряд записанных находок, обобщает спрашивающий.
+    """
+    name = _require_unit(unit)
+    requested_limit = _require_limit(limit)
+    from ..db.queries import DEFAULT_LIMIT
+    from ..db.queries import findings_by_unit as db_findings_by_unit
+
+    applied_limit = DEFAULT_LIMIT if requested_limit is None else requested_limit
+    rows = db_findings_by_unit(tenant=tenant, unit=name, limit=applied_limit)
+    truncated = len(rows) >= applied_limit
+    return {
+        "tenant": tenant,
+        "unit": name,
+        "limit": applied_limit,
+        "count": len(rows),
+        "truncated": truncated,
+        "status": _found(len(rows), subject="findings")
+        + _limit_note(limit=applied_limit, truncated=truncated, subject="findings"),
+        "findings": [_finding(row) for row in rows],
     }

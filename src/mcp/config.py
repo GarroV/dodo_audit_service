@@ -54,6 +54,17 @@ _SEPARATORS = re.compile(r"[,\n]")
 _BEARER = "bearer"
 
 
+def _bytes(value: str) -> bytes:
+    """Строка → байты для сравнения токенов.
+
+    `surrogateescape` здесь не украшение: заголовки HTTP разбираются как
+    latin-1, и строка оттуда может нести что угодно. Кодировка одна и та же с
+    обеих сторон сравнения, поэтому годный (то есть ASCII) токен совпадает
+    сам с собой, а любой другой набор байтов просто не совпадает ни с чем.
+    """
+    return value.encode("utf-8", "surrogateescape")
+
+
 @dataclass(frozen=True)
 class Settings:
     """Разобранное окружение сервера.
@@ -75,10 +86,19 @@ class Settings:
         строк выходит на первом несовпавшем символе, и по времени ответа
         токен подбирается посимвольно. Перебор идёт по всем записям без
         досрочного выхода — по той же причине.
+
+        Сверяются БАЙТЫ, а не строки (T115). Строковый `compare_digest` знаков
+        вне ASCII не поддерживает и бросает `TypeError`, а содержимое
+        предъявленного токена задаёт клиент: любой набор байтов в заголовке
+        ронял бы сверку. Байты сравниваются при любой кодировке, и незнакомый
+        токен получает отказ вместо падения. Свои токены до сюда доходят уже
+        проверенными (`_parse_tokens`) — заслон стоит с обеих сторон нарочно:
+        падение здесь означало бы пустой ответ вместо кода ошибки.
         """
+        предъявленный = _bytes(token)
         found: str | None = None
         for known, tenant in self.tokens.items():
-            if secrets.compare_digest(known, token):
+            if secrets.compare_digest(_bytes(known), предъявленный):
                 found = tenant
         return found
 
@@ -107,6 +127,14 @@ def _parse_tokens(raw: str) -> dict[str, str]:
             raise McpConfigError(
                 f"Токен арендатора «{tenant}» короче {MIN_TOKEN_LENGTH} знаков — такая длина "
                 f"перебирается за минуты, а за дверью история проверок партнёра"
+            )
+        if not token.isascii():
+            raise McpConfigError(
+                f"Токен арендатора «{tenant}» набран знаками вне ASCII (кириллицей и т. п.). "
+                f"Такой токен не доедет до сервера: заголовки HTTP кодируются latin-1, часть "
+                f"клиентов откажется его отправлять, часть пришлёт другие байты — доступ будет "
+                f"считаться выданным и не работать. Годный токен даёт "
+                f'python3 -c "import secrets; print(secrets.token_urlsafe(32))"'
             )
         if token in tokens and tokens[token] != tenant:
             raise McpConfigError(
@@ -170,14 +198,32 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
 def resolve_tenant(settings: Settings, header: str | None) -> str:
     """Заголовок `Authorization` → код арендатора. Незнакомый токен — отказ.
 
+    **Схема `Bearer` обязательна** (T116). Голый токен без схемы сервер
+    принимал осознанно, брешью это не было — но инструменты, маскирующие
+    секреты в логах, ищут именно образец `Bearer <токен>`, а голое значение
+    заголовка записывают как есть. Сервер и сам объявляет схему в
+    `WWW-Authenticate` при отказе: принимать при этом что-то ещё означало бы
+    два вида годного доступа, из которых второй нигде не описан. Отказ при
+    этом называет ожидаемый вид заголовка — иначе забытая схема неотличима от
+    неверного токена, и человек чинит не то.
+
     Отказ не называет ни предъявленный токен, ни живых арендаторов: он уходит
     и в лог, и клиенту, а перечислять по нему партнёров не должен никто.
     """
     raw = (header or "").strip()
     scheme, _, rest = raw.partition(" ")
-    token = rest.strip() if scheme.lower() == _BEARER else raw
-    if not token or (scheme and " " in raw and scheme.lower() != _BEARER):
-        raise AuthError("Запрос без токена. Доступ к проверкам закрыт личным токеном")
+    if raw and scheme.lower() != _BEARER:
+        raise AuthError(
+            "Токен предъявлен без схемы Bearer: ожидается заголовок "
+            "«Authorization: Bearer <токен>». Голый токен не принимается — "
+            "инструменты маскируют в логах именно этот образец"
+        )
+    token = rest.strip()
+    if not token:
+        raise AuthError(
+            "Запрос без токена по схеме Bearer: ожидается заголовок "
+            "«Authorization: Bearer <токен>». Доступ к проверкам закрыт личным токеном"
+        )
     tenant = settings.tenant_for(token)
     if tenant is None:
         raise AuthError("Токен не опознан. Доступ к проверкам закрыт личным токеном")
