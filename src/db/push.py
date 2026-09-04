@@ -23,12 +23,12 @@ from psycopg.types.json import Json
 
 from src.domain import get_state
 from src.domain import score as domain_score
-from src.domain.errors import DomainError
+from src.domain.errors import ChecklistVersionMismatch, DomainError
 from src.domain.models import Inspection, Score
 
 from .config import check_environment
 from .directory import resolve_unit_id
-from .errors import PushError
+from .errors import PushError, VersionMismatchError
 from .fingerprint import compute_fingerprint
 from .units import normalize_unit_name
 
@@ -271,6 +271,18 @@ def push_inspection(chat_id: int, *, allow_unknown_version: bool = False) -> str
             return _push(conn, inspection, result)
     except PushError:
         raise
+    except ChecklistVersionMismatch as exc:
+        # Методику переиздали между итогом и сливом (T178). База здесь ни при
+        # чём, и общий отказ слива отправил бы человека чинить не то: бот
+        # разбирает исходы слива по ТИПУ, и в ветке «база не приняла» этот
+        # случай выглядел бы отказом связи. Обе версии уходят полями — по ним
+        # показывающий соберёт человеку выбор, не разбирая текст.
+        raise VersionMismatchError(
+            f"Проверку чата {chat_id} не слили: {exc} Файл проверки не тронут — "
+            f"после того, как выбор сделан, слить можно тем же вызовом",
+            recorded=exc.recorded,
+            current=exc.current,
+        ) from exc
     except (psycopg.Error, DomainError) as exc:
         # Причина — в тексте, а не только в типе: движок с T106 отказывается
         # считать проверку с нечитаемой датой раньше, чем сюда дойдёт `_parse_date`,
