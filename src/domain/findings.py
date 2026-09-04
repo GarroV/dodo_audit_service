@@ -14,8 +14,15 @@ import re
 from .config import Settings, check_environment
 from .engine import option, run_audit, state_file
 from .errors import EngineError, ValidationError
-from .models import SOURCES, Finding
-from .state import forget_source, read_state, remember_source
+from .models import SOURCES, Finding, Suggestion
+from .state import (
+    check_confidence,
+    forget_source,
+    forget_suggestion,
+    read_state,
+    remember_source,
+    remember_suggestion,
+)
 
 #: Номер записи в ответе движка: «#3 CLN05 D1 / hot_kitchen: …».
 NUMBER = re.compile(r"#(\d+)")
@@ -64,6 +71,7 @@ def add_finding(
     *,
     comment: str = "",
     source: str = "",
+    suggested: Suggestion | None = None,
 ) -> Finding:
     """Зафиксировать запись.
 
@@ -75,6 +83,17 @@ def add_finding(
     (`SOURCE_COMMENT`) или распознано по кадру (`SOURCE_PHOTO`). Ставится при
     фиксации, а не отдельным вызовом следом: запись без источника, которую
     забыли пометить вторым шагом, выглядит потом как слова аудитора.
+
+    `suggested` — что предложила система ДО того, как аудитор нажал кнопку
+    (решение D077, задача T181). Ставится здесь по той же причине, что и
+    источник, и по ещё одной: момент фиксации — единственный, когда предложение
+    и запись существуют одновременно. Дальше запись правится (`edit_finding`), а
+    предложение остаётся прежним — их РАЗНИЦА и есть то, ради чего сигнал
+    сохраняется. Отдельной копии «что аудитор поправил» не заводится: она
+    разъехалась бы с парой, из которой считается, молча.
+
+    Пусто — система не предлагала ничего (запись заведена вручную). Это не то же
+    самое, что «предложила ровно это»: там тройка заполнена и совпадает.
     """
     settings = check_environment()
     # До вызова движка: иначе запись есть, а источник у неё неизвестно какой.
@@ -83,6 +102,16 @@ def add_finding(
             f"Источник записи «{source}» не из {SOURCES}: запись появляется либо со слов "
             f"аудитора, либо распознаванием по кадру"
         )
+    # По тому же правилу и в том же месте: разобранное после движка оставило бы
+    # запись без предложения, а вызывающий об этом не узнал бы — сигнал о промахе
+    # потерялся бы ровно там, где его собирались собирать.
+    if suggested is not None:
+        if not suggested.code:
+            raise ValidationError(
+                "В предложении системы не назван пункт методики. Предложение без пункта "
+                "сравнивать с записью не с чем, а в базе оно неотличимо от «не предлагала»"
+            )
+        check_confidence(suggested.confidence, "в предложении к новой записи")
     out = run_audit(
         [
             "add",
@@ -96,7 +125,9 @@ def add_finding(
         settings=settings,
     )
     n = _number(out, "add")
-    remember_source(state_file(chat_id, settings), n, source)
+    path = state_file(chat_id, settings)
+    remember_source(path, n, source)
+    remember_suggestion(path, n, suggested)
     return _finding_after(chat_id, settings, n, "add")
 
 
@@ -128,7 +159,11 @@ def drop_finding(chat_id: int, n: int) -> None:
     """Удалить запись. Удалять нечего — отказ, а не тихий успех."""
     settings = check_environment()
     run_audit(["drop", str(n)], chat_id=chat_id, settings=settings)
-    forget_source(state_file(chat_id, settings), n)
+    path = state_file(chat_id, settings)
+    forget_source(path, n)
+    # Номер после удаления освобождается, и оставленное предложение досталось бы
+    # следующей записи — то есть в базу уехало бы предложение к чужой записи.
+    forget_suggestion(path, n)
     state = read_state(chat_id, settings)
     if state is not None and state.finding(n) is not None:
         raise EngineError(

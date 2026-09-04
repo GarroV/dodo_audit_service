@@ -25,6 +25,7 @@ from .models import (
     Finding,
     Inspection,
     Score,
+    Suggestion,
     Zone,
     ZoneScore,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "Finding",
     "Inspection",
     "Score",
+    "Suggestion",
     "Zone",
     "ZoneScore",
     "add_finding",

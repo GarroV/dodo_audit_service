@@ -38,7 +38,7 @@ from .errors import (
     ValidationError,
 )
 from .kinds import kind_title
-from .models import SOURCES, TEXT_LANGS, Finding, Inspection
+from .models import SOURCES, TEXT_LANGS, Finding, Inspection, Suggestion
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,13 @@ SCHEMA = 1
 #: потерять. Здесь же они переживают слив в базу вместе со всей проверкой, тогда
 #: как заметки бота обнуляются на старте следующей проверки того же чата.
 SOURCES_KEY = "sources"
+
+#: Предложения системы к записям (решение D077, задача T181): номер записи →
+#: `{code, level, zone, confidence?}`. Лежит рядом с источниками и по той же
+#: причине: это свойство самой записи, а не переписки, и оно обязано пережить
+#: слив в базу вместе со всей проверкой. Второго способа хранить его не
+#: заводится намеренно — два способа расходятся, и расхождение видно не будет.
+SUGGESTIONS_KEY = "suggestions"
 
 #: След перестановок отметки версии: список записей `{from, to, at}`. Лежит в
 #: самой проверке, а не в журнале процесса, потому что отвечать «по какой
@@ -200,7 +207,125 @@ def forget_source(path: Path, n: int) -> None:
         _write_atomic(path, raw)
 
 
-def _finding(raw: Mapping[str, Any], sources: Mapping[int, str]) -> Finding:
+def check_confidence(value: Any, where: str) -> float | None:
+    """Уверенность системы: доля от нуля до единицы либо ничего.
+
+    Одна проверка на запись и на чтение намеренно: разойдись они, файл принял бы
+    то, чего потом не прочитать, — и заметить это было бы негде.
+
+    Чужая шкала (проценты вместо доли) отказывается по существу, а не из
+    придирчивости: по этой величине управляющая компания ставит порог отбора
+    предложений, и одна строка в процентах обесценивает выборку целиком.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValidationError(
+            f"Уверенность системы {where} — «{value!r}», а ожидается доля от 0 до 1"
+        )
+    share = float(value)
+    if not 0.0 <= share <= 1.0:
+        raise ValidationError(
+            f"Уверенность системы {where} равна {share} — это не доля от 0 до 1. "
+            f"Чужая шкала (проценты вместо доли) обесценила бы порог отбора предложений "
+            f"для управляющей компании на всей выборке разом"
+        )
+    return share
+
+
+def read_suggestions(raw: Mapping[str, Any], path: Path) -> dict[int, Suggestion]:
+    """Предложения системы из блока `domain`. Непонятное значение — отказ.
+
+    Тот же довод, что у `read_sources`: прочитанное «неизвестно что» уехало бы в
+    базу и стало бы там неотличимо от настоящего предложения, а по этой выборке
+    управляющая компания правит боевой список слов (D077). Отсутствие ключа
+    отказом не является — так выглядят проверки, начатые до T181.
+    """
+    block: Mapping[str, Any] = raw.get(DOMAIN_KEY) or {}
+    result: dict[int, Suggestion] = {}
+    for key, value in dict(block.get(SUGGESTIONS_KEY) or {}).items():
+        try:
+            n = int(key)
+        except (TypeError, ValueError):
+            raise DomainError(
+                f"Номер записи «{key}» в предложениях {path} не похож на число"
+            ) from None
+        if not isinstance(value, Mapping):
+            raise DomainError(
+                f"Предложение к записи #{n} в {path} не похоже на предложение: "
+                f"ожидается пункт, класс и зона, а лежит «{value!r}»"
+            )
+        code = str(value.get("code") or "")
+        if not code:
+            raise DomainError(f"В предложении к записи #{n} в {path} не назван пункт методики")
+        try:
+            confidence = check_confidence(value.get("confidence"), f"в записи #{n} в {path}")
+        except ValidationError as exc:
+            raise DomainError(str(exc)) from exc
+        result[n] = Suggestion(
+            code=code,
+            level=str(value.get("level") or ""),
+            zone=str(value.get("zone") or ""),
+            confidence=confidence,
+        )
+    return result
+
+
+def remember_suggestion(path: Path, n: int, suggested: Suggestion | None) -> None:
+    """Записать предложение системы к записи №`n` (D077, T181).
+
+    Предложения нет — не пишется ничего: `None` и есть «система не предлагала»,
+    и пустая тройка в файле выглядела бы её ответом.
+
+    Записывается ПОСЛЕ движка, вторым обращением к файлу, как и источник записи.
+    Дороже одного обращения, но честнее: складывать своё в структуры движка —
+    способ однажды их потерять, а собственный вызов до движка записал бы
+    предложение к записи, которой движок ещё не сделал.
+    """
+    if suggested is None:
+        return
+    with state_lock(path):
+        raw = _read_raw(path)
+        block = dict(raw.get(DOMAIN_KEY) or {})
+        suggestions = dict(block.get(SUGGESTIONS_KEY) or {})
+        stored: dict[str, Any] = {
+            "code": suggested.code,
+            "level": suggested.level,
+            "zone": suggested.zone,
+        }
+        # Ключ не пишется вовсе, когда уверенности нет: `null` в файле и
+        # отсутствие ключа означали бы одно и то же, а два способа сказать одно
+        # и то же — два способа его прочитать по-разному.
+        if suggested.confidence is not None:
+            stored["confidence"] = suggested.confidence
+        suggestions[str(n)] = stored
+        block[SUGGESTIONS_KEY] = suggestions
+        raw[DOMAIN_KEY] = block
+        _write_atomic(path, raw)
+
+
+def forget_suggestion(path: Path, n: int) -> None:
+    """Запись удалена — предложение к ней тоже. Неизвестный номер не отказ.
+
+    Оставленное предложение досталось бы следующей записи с тем же номером:
+    движок нумерует записи подряд, и после удаления номер освобождается.
+    """
+    with state_lock(path):
+        raw = _read_raw(path)
+        block = dict(raw.get(DOMAIN_KEY) or {})
+        suggestions = dict(block.get(SUGGESTIONS_KEY) or {})
+        if suggestions.pop(str(n), None) is None:
+            return
+        block[SUGGESTIONS_KEY] = suggestions
+        raw[DOMAIN_KEY] = block
+        _write_atomic(path, raw)
+
+
+def _finding(
+    raw: Mapping[str, Any],
+    sources: Mapping[int, str],
+    suggestions: Mapping[int, Suggestion],
+) -> Finding:
     photos = [p for p in (raw.get("photos") or []) if p]
     if not photos and raw.get("photo"):
         photos = [str(raw["photo"])]  # старая форма записи: одно фото строкой
@@ -214,6 +339,13 @@ def _finding(raw: Mapping[str, Any], sources: Mapping[int, str]) -> Finding:
         photos=[str(p) for p in photos],
         zone_unusual=bool(raw.get("zone_unusual")),
         source=sources.get(int(raw["n"]), ""),
+        # Предложение разворачивается в четыре поля здесь, а не на границе с
+        # базой: слив берёт их с записи по имени, и вложенный объект пришлось бы
+        # разбирать в чужом блоке.
+        suggested_code=suggested.code if (suggested := suggestions.get(int(raw["n"]))) else "",
+        suggested_level=suggested.level if suggested else "",
+        suggested_zone=suggested.zone if suggested else "",
+        suggested_confidence=suggested.confidence if suggested else None,
     )
 
 
@@ -221,6 +353,7 @@ def _inspection(chat_id: int, raw: Mapping[str, Any], path: Path) -> Inspection:
     meta: Mapping[str, Any] = raw.get("meta") or {}
     block: Mapping[str, Any] = raw.get(DOMAIN_KEY) or {}
     sources = read_sources(raw, path)
+    suggestions = read_suggestions(raw, path)
     return Inspection(
         chat_id=chat_id,
         unit=str(meta.get("unit") or ""),
@@ -241,7 +374,7 @@ def _inspection(chat_id: int, raw: Mapping[str, Any], path: Path) -> Inspection:
         partner=str(meta.get("partner") or ""),
         contact=str(meta.get("contact") or ""),
         auditor=str(meta.get("auditor") or ""),
-        findings=[_finding(f, sources) for f in (raw.get("findings") or [])],
+        findings=[_finding(f, sources, suggestions) for f in (raw.get("findings") or [])],
     )
 
 

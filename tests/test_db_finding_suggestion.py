@@ -23,7 +23,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -37,27 +37,12 @@ from src.db.push import push_inspection  # noqa: E402
 from src.db.queries import findings_by_unit, get_inspection  # noqa: E402
 from src.domain import add_finding, get_state, start_inspection  # noqa: E402
 from src.domain import score as domain_score  # noqa: E402
-from src.domain.models import Finding, Inspection  # noqa: E402
+from src.domain.models import Inspection  # noqa: E402
 
 pytestmark = requires_db
 
 АРЕНДАТОР = "предложения"
 ТОЧКА = "Белград-1"
-
-
-@dataclass(frozen=True)
-class СПредложением(Finding):
-    """Находка, к которой домен однажды приложит предложение модели.
-
-    Форма выбрана по образцу `source`: плоские поля со значением по умолчанию,
-    чтобы слой записи брал их через `getattr` и работал одинаково и с находкой,
-    у которой предложения нет, и с той, у которой оно есть.
-    """
-
-    suggested_code: str | None = None
-    suggested_level: str | None = None
-    suggested_zone: str | None = None
-    suggested_confidence: float | None = None
 
 
 def _строки(dsn: str, sql: str, params: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
@@ -80,11 +65,18 @@ def _с_предложением(
 ) -> None:
     """Подложить сливу ту же проверку, но с предложением модели у её записи.
 
-    Подменяется ровно одно — то, чего домен ещё не отдаёт. Оценка, разрешение
-    точки, транзакция и печать проверки остаются настоящими: подмена целого
-    состояния проверила бы только фантазию этого файла о домене.
+    Подменяется ровно одно — предложение к находке. Оценка, разрешение точки,
+    транзакция и печать проверки остаются настоящими: подмена целого состояния
+    проверила бы только фантазию этого файла о домене.
+
+    Раньше здесь стоял подкласс `Finding` с четырьмя полями по умолчанию: домен
+    предложения ещё не отдавал, и форму приходилось объявлять со стороны базы.
+    С T181 поля есть у самой находки (`domain.models.Finding`), и подкласс стал
+    вторым объявлением того же — `replace` берёт настоящее. Значения по-прежнему
+    ставятся руками: этот файл проверяет ЗАПИСЬ предложения в базу, включая те
+    значения, которых домен не пропустит (пустую строку, чужую шкалу).
     """
-    находки = [СПредложением(**находка.__dict__, **предложение) for находка in состояние.findings]
+    находки = [replace(находка, **предложение) for находка in состояние.findings]
     monkeypatch.setattr(
         "src.db.push.get_state", lambda chat_id: replace(состояние, findings=находки)
     )
@@ -277,9 +269,7 @@ def test_предложение_не_меняет_отпечаток_прове�
     с_предложением = compute_fingerprint(
         replace(
             состояние,
-            findings=[
-                СПредложением(**f.__dict__, suggested_code="CLN06") for f in состояние.findings
-            ],
+            findings=[replace(f, suggested_code="CLN06") for f in состояние.findings],
         ),
         оценка,
         tenant_code=АРЕНДАТОР,
