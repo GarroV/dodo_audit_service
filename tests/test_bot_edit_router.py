@@ -43,11 +43,6 @@ DINING_TITLE_RU = "Гостевой зал"
 FRIDGE_TITLE_RU = "Среднетемпературный шкаф"
 
 
-def _pct() -> str:
-    """Текущий процент проверки так же, как его печатает бот (`view.percent`)."""
-    return f"{domain.score(CHAT_ID).pct:.1f}"
-
-
 async def test_drop_button_removes_the_finding(domain_env: object) -> None:
     """Кнопка «Удалить» и правда убирает запись из состояния, а не только из чата."""
     domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
@@ -60,9 +55,12 @@ async def test_drop_button_removes_the_finding(domain_env: object) -> None:
     inspection = domain.get_state(CHAT_ID)
     assert inspection is not None
     assert inspection.finding(1) is None
-    pct = _pct()
-    assert pct == "100.0", "единственную запись убрали — накоплено должно вернуться к 100%"
-    assert session.last_text == t("edit.dropped", "ru", n=1, pct=pct)
+    assert domain.score(CHAT_ID).pct == 100.0, (
+        "единственную запись убрали — оценка вернулась к 100%"
+    )
+    # Процента в ответе нет намеренно (T162, D072): пересчёт живёт в движке, а
+    # аудитору по ходу обхода число не показывается.
+    assert session.last_text == t("edit.dropped", "ru", n=1)
 
 
 async def test_dropping_a_marked_record_does_not_move_its_mark(domain_env: object) -> None:
@@ -232,7 +230,6 @@ async def test_wording_edit_is_taken_from_the_next_plain_message(domain_env: obj
         code=finding.code,
         level=finding.level,
         zone=FRIDGE_TITLE_RU,
-        pct=_pct(),
     )
     assert session.last_text == expected
 
@@ -266,7 +263,7 @@ async def test_editing_a_gone_record_does_not_crash_the_bot(domain_env: object) 
 
     # Бот жив: следующее событие он всё ещё обрабатывает как обычно.
     await feed(dp, bot, callback_query("edit:1:drop"))
-    assert session.last_text == t("edit.dropped", "ru", n=1, pct=_pct())
+    assert session.last_text == t("edit.dropped", "ru", n=1)
 
 
 async def test_engine_refusal_reaches_the_auditor_in_his_own_words(domain_env: object) -> None:
@@ -326,7 +323,7 @@ async def test_malformed_button_code_does_not_crash_the_bot(domain_env: object) 
 
     # Бот жив: обычная правка следом проходит как ни в чём не бывало.
     await feed(dp, bot, callback_query("edit:1:drop"))
-    assert session.last_text == t("edit.dropped", "ru", n=1, pct=_pct())
+    assert session.last_text == t("edit.dropped", "ru", n=1)
 
 
 async def test_photo_instead_of_wording_cancels_the_question_and_is_still_taken(

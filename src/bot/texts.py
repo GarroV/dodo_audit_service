@@ -75,6 +75,23 @@ TEXTS: dict[str, dict[str, str]] = {
             "file name. Send a shorter one — as it should appear in the report."
         ),
     },
+    # Тот же предел, но по факту, а не по знакам (T128, issue #103): 60
+    # эмодзи — те же 60 знаков (в предел выше укладываются), но уже 240 байт,
+    # то есть одно название съедает больше, чем весь бюджет имени файла.
+    # Аудитору говорим не про байты — про то, что делать: короче название,
+    # меньше «тяжёлых» знаков.
+    "start.unit_too_long_bytes": {
+        "ru": (
+            "Название слишком длинное для имени файла отчёта — в нём слишком много "
+            "непростых знаков (например, эмодзи). Пришлите короче или замените часть "
+            "знаков обычными буквами."
+        ),
+        "en": (
+            "The name is too long for the report file name — it has too many heavy "
+            "characters (emoji, for example). Send a shorter one, or replace some "
+            "characters with plain letters."
+        ),
+    },
     "start.unit_expected": {
         "ru": "Жду название пиццерии текстом.",
         "en": "Waiting for the pizzeria name as text.",
@@ -97,6 +114,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "Вид: {kind}\n"
             "Язык отчёта: {lang}\n"
             "Проверяющий: {auditor}\n"
+            "{auditor_note}"
             "Дата: {date}\n\n"
             "Присылайте фотографии с комментариями."
         ),
@@ -106,9 +124,20 @@ TEXTS: dict[str, dict[str, str]] = {
             "Type: {kind}\n"
             "Report language: {lang}\n"
             "Auditor: {auditor}\n"
+            "{auditor_note}"
             "Date: {date}\n\n"
             "Send photos with comments."
         ),
+    },
+    # Обрезка имени аудитора по байтам молча не уезжает (T128, issue #103):
+    # имя приходит из профиля Telegram, а не от аудитора в этот момент, и
+    # отказать нельзя — значит, о подмене надо сказать отдельной строкой в
+    # `start.started`. `{auditor_note}` рядом пуст, когда обрезки не было —
+    # перевод строки этот текст несёт с собой сам (см. `routers/start.py`),
+    # каталог им не заведует.
+    "start.auditor_name_shortened": {
+        "ru": "Имя в профиле длиннее — для отчёта и имени файла оно сокращено.",
+        "en": "The profile name is longer — it was shortened for the report and the file name.",
     },
     # Тот же запрет, что и у отказа сборки, только на входе в проверку:
     # движок отвечает вызывающему из командной строки и присылает полный стек
@@ -349,12 +378,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "Not recorded. The photo is not lost — I will list it when you finish.",
     },
     "record.saved": {
-        "ru": "#{n} {code} · {level} · {zone} · {pct}%",
-        "en": "#{n} {code} · {level} · {zone} · {pct}%",
+        "ru": "#{n} {code} · {level} · {zone}",
+        "en": "#{n} {code} · {level} · {zone}",
     },
     "record.saved_info": {
-        "ru": "#{n} {code} · {level} замер · {zone} · {pct}%",
-        "en": "#{n} {code} · {level} measurement · {zone} · {pct}%",
+        "ru": "#{n} {code} · {level} замер · {zone}",
+        "en": "#{n} {code} · {level} measurement · {zone}",
     },
     "record.zone_unknown": {
         "ru": "зона не названа",
@@ -413,16 +442,16 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "Send the new wording for record #{n} in one message.",
     },
     "edit.changed": {
-        "ru": "Поправлено. #{n} {code} · {level} · {zone} · {pct}%",
-        "en": "Updated. #{n} {code} · {level} · {zone} · {pct}%",
+        "ru": "Поправлено. #{n} {code} · {level} · {zone}",
+        "en": "Updated. #{n} {code} · {level} · {zone}",
     },
     "edit.changed_info": {
-        "ru": "Поправлено. #{n} {code} · {level} замер · {zone} · {pct}%",
-        "en": "Updated. #{n} {code} · {level} measurement · {zone} · {pct}%",
+        "ru": "Поправлено. #{n} {code} · {level} замер · {zone}",
+        "en": "Updated. #{n} {code} · {level} measurement · {zone}",
     },
     "edit.dropped": {
-        "ru": "Запись #{n} удалена. Накоплено: {pct}%",
-        "en": "Record #{n} deleted. Score now: {pct}%",
+        "ru": "Запись #{n} удалена.",
+        "en": "Record #{n} deleted.",
     },
     "edit.text_dropped": {
         "ru": "Вопрос про формулировку записи #{n} снят — вы вернулись к работе.",
@@ -599,6 +628,99 @@ TEXTS: dict[str, dict[str, str]] = {
     "btn.skip": {"ru": "Не записывать", "en": "Skip"},
     "btn.model": {"ru": "Разобрать моделью", "en": "Analyze with the model"},
     "btn.more": {"ru": "Дальше", "en": "Next"},
+    # --- информационная часть в конце проверки (T158, D069, D070) ---
+    #
+    # Спрашивается она после подтверждения завершения и ДО сборки отчёта:
+    # собранный раньше документ этих полей уже не содержит. На оценку поля не
+    # влияют, но печатаются партнёру, и один из них (срок плана действий)
+    # читает письмо.
+    "info.intro": {
+        "ru": (
+            "Проверка завершена. Осталась информационная часть — она попадёт в отчёт "
+            "партнёру. Любой вопрос можно пропустить, после них соберу отчёт."
+        ),
+        "en": (
+            "The inspection is complete. What is left is the additional information — it goes "
+            "into the partner's report. Any question can be skipped; the report follows."
+        ),
+    },
+    # Вопрос — формулировкой методики (её же увидит партнёр в отчёте), подсказка
+    # — про способ ответа. Разделены пустой строкой: на телефоне это два абзаца,
+    # а не одна длинная строка.
+    "info.ask": {
+        "ru": "{n} из {total}. {question}\n{hint}",
+        "en": "{n} of {total}. {question}\n{hint}",
+    },
+    "info.hint_text": {
+        "ru": "Напишите или наговорите ответ.",
+        "en": "Type or dictate your answer.",
+    },
+    "info.hint_yes_no": {
+        "ru": "Ответьте кнопкой — или напишите своими словами.",
+        "en": "Answer with a button — or write it in your own words.",
+    },
+    "info.hint_date": {
+        "ru": "Дата в виде 14.09.2026, можно со временем: 14.09.2026 18:30.",
+        "en": "A date like 14.09.2026, optionally with a time: 14.09.2026 18:30.",
+    },
+    "info.saved": {
+        "ru": "Записал: {value}",
+        "en": "Recorded: {value}",
+    },
+    "info.not_saved": {
+        "ru": (
+            "Не записалось — подробности в журнале. Пришлите ответ ещё раз или пропустите "
+            "вопрос: остальная проверка от этого не пострадает."
+        ),
+        "en": (
+            "It was not recorded — details are in the log. Send the answer again or skip the "
+            "question: the rest of the inspection is unaffected."
+        ),
+    },
+    # Расшифровка показывается ДО записи и правится (D069). Это не противоречит
+    # D064: тот снял подтверждение с текста, потому что человек написал сам, а
+    # расшифровка может ослышаться.
+    "info.heard": {
+        "ru": "Услышал: {note}\n\nЗаписать так? Если не так — просто пришлите текстом.",
+        "en": "I heard: {note}\n\nRecord it as is? If not — just send the text instead.",
+    },
+    "info.bad_date": {
+        "ru": (
+            "Не понял дату в «{text}». Пришлите в виде 14.09.2026 (можно со временем) "
+            "или пропустите вопрос."
+        ),
+        "en": (
+            "I could not read a date in “{text}”. Send it as 14.09.2026 (a time may follow) "
+            "or skip the question."
+        ),
+    },
+    # Кадр в информационной части: в отчёт он не попадёт — там печатается текст,
+    # и врать об этом нельзя. Подпись при этом не теряется: она и есть ответ.
+    "info.photo_only_text": {
+        "ru": (
+            "Кадр принял, но в информационную часть отчёта попадает только текст — "
+            "фотографии прикладываются к записям нарушений. Ответ напишите или наговорите."
+        ),
+        "en": (
+            "Photo received, but the additional information section carries text only — "
+            "photos are attached to violation records. Type or dictate your answer."
+        ),
+    },
+    # Значение поля «да/нет», уезжающее в отчёт. Язык здесь — язык ОТЧЁТА, а не
+    # интерфейса: строку читает партнёр, а не аудитор.
+    "info.value_yes": {"ru": "Да", "en": "Yes"},
+    "info.value_no": {"ru": "Нет", "en": "No"},
+    "info.finished": {
+        "ru": "Информационная часть готова.",
+        "en": "Additional information is complete.",
+    },
+    # Описания команд в меню телеграма (T139). Меню — единственное место, где
+    # аудитор увидит команду, не зная о ней заранее: набирать `/records` по
+    # памяти на точке никто не будет.
+    "cmd.start": {"ru": "Начать проверку", "en": "Start an inspection"},
+    "cmd.records": {"ru": "Что записано", "en": "What is recorded"},
+    "cmd.undo": {"ru": "Снять последнюю запись", "en": "Undo the last record"},
+    "cmd.finish": {"ru": "Завершить и собрать отчёт", "en": "Finish and build the report"},
     # Кнопки мастера начала проверки (T131). До T131 их надписи стояли строками
     # в `keyboards.py` — единственные строки интерфейса мимо каталога, и потому
     # единственные, которые язык стенда не мог перекрасить.
@@ -610,6 +732,12 @@ TEXTS: dict[str, dict[str, str]] = {
     "btn.level": {"ru": "Класс", "en": "Class"},
     "btn.text": {"ru": "Формулировка", "en": "Wording"},
     "btn.drop": {"ru": "Удалить", "en": "Delete"},
+    # Кнопки информационной части (T158).
+    "btn.yes": {"ru": "Да", "en": "Yes"},
+    "btn.no": {"ru": "Нет", "en": "No"},
+    "btn.info_skip": {"ru": "Пропустить", "en": "Skip"},
+    "btn.info_done": {"ru": "Дальше к отчёту", "en": "On to the report"},
+    "btn.info_save": {"ru": "Записать так", "en": "Record as is"},
     "btn.build": {"ru": "Собрать отчёт", "en": "Build the report"},
     "btn.build_without_photos": {"ru": "Собрать без кадров", "en": "Build without photos"},
     "btn.edit": {"ru": "Поправить запись", "en": "Edit a record"},

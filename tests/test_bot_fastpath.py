@@ -52,8 +52,8 @@ from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.keyboards import EDIT_PREFIX, MODEL_CALLBACK, PICK_PREFIX
 from src.bot.texts import t
-from src.bot.view import percent, zone_title
-from src.domain import SOURCE_COMMENT, Finding, get_item, get_state, score, start_inspection
+from src.bot.view import zone_title
+from src.domain import SOURCE_COMMENT, Finding, get_item, get_state, start_inspection
 from src.recognize.fastpath import (
     NO_COLUMN,
     NO_CUE,
@@ -178,7 +178,6 @@ async def test_показ_записи_называет_пункт_словам�
             code="CLN05",
             level="D1",
             zone=zone_title("hot_kitchen", "ru"),
-            pct=percent(score(CHAT_ID).pct),
         ),
         title=question,
         note=CLEAR,

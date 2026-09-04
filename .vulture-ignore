@@ -37,6 +37,14 @@ on_level
 on_new_text
 on_anything_else
 on_finish
+on_records
+# Хендлеры информационной части в конце проверки (T158): те же правила,
+# что и у остальных — их зовёт диспетчер по фильтрам состояния.
+on_done
+on_yes_no
+on_save_heard
+on_voice
+on_text
 on_build
 on_build_without_photos
 on_resume

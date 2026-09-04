@@ -31,6 +31,7 @@ from pathlib import Path
 
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from src import db, domain
@@ -53,6 +54,7 @@ from ..keyboards import (
 from ..lang import chat_ui_lang
 from ..photos import download_all
 from ..texts import t
+from .records import show_records
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,12 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
     Тремя, а не одним: список записей и список кадров по отдельности читаются, а
     склеенные упираются в предел длины сообщения телеграма на первой же реальной
     проверке (двадцать записей — это уже за две тысячи знаков).
+
+    Список и кадры показывает `records.show_records` — та же функция, что и
+    команда «что записано» (T139). Одна на оба пути намеренно: две копии списка
+    разошлись бы молча, ровно как разошлась пометка нетипичной зоны в T147.
+    Здесь к ней добавляется то, чего в середине обхода быть не должно, — оценка
+    (T162, D072) и кнопки завершения.
     """
     inspection = read_inspection(chat_id)
     if inspection is None:
@@ -82,29 +90,7 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
         )
     )
 
-    notes = sidecar.read(chat_id)
-    if inspection.findings:
-        await message.answer(
-            t(
-                "finish.records",
-                lang,
-                lines=view.record_lines(inspection.findings, lang),
-            )
-        )
-    else:
-        await message.answer(t("finish.empty", lang))
-
-    used = {ref for finding in inspection.findings for ref in finding.photos}
-    orphans = tuple(frame for frame in notes.frames if frame.file_id not in used)
-    if orphans:
-        await message.answer(
-            t(
-                "finish.unclaimed",
-                lang,
-                count=len(orphans),
-                lines=view.unclaimed_lines(orphans, lang),
-            )
-        )
+    await show_records(message, chat_id, lang)
 
     await message.answer(
         t("finish.ask", lang),
@@ -307,16 +293,34 @@ def build_finish_router() -> Router:
         )
 
     @router.callback_query(F.data == FINISH_BUILD_CALLBACK)
-    async def on_build(callback: CallbackQuery) -> None:
+    async def on_build(callback: CallbackQuery, state: FSMContext) -> None:
+        """«Собрать отчёт» открывает информационную часть, а не собирает отчёт.
+
+        Порядок задан решениями D069 и D070 (задача T158): «Завершить» →
+        подтверждение → информационная часть → PDF и письмо. Собранный раньше
+        документ ответов на эти вопросы не содержит, и заметил бы это партнёр,
+        а не аудитор. Сама сборка стоит за последним вопросом — `deliver`
+        зовётся оттуда.
+
+        Импорт местный и намеренно: информационная часть зовёт `deliver` из
+        этого же модуля, и на верхнем уровне два модуля ссылались бы друг на
+        друга. Разрывается связь здесь, в одной строке, а не переносом сборки
+        отчёта в третий модуль — её подменяют тесты по имени
+        `src.bot.routers.finish.build_pdf`.
+        """
+        from .info import start_info
+
         await callback.answer()
         here = chat_of(callback)
         if here is None:
             return
         message, chat_id, lang = here
-        await deliver(message, chat_id, lang, allow_missing=False)
+        await start_info(message, state, chat_id, lang)
 
     @router.callback_query(F.data == FINISH_BUILD_NO_PHOTOS_CALLBACK)
     async def on_build_without_photos(callback: CallbackQuery) -> None:
+        """Пересборка без кадров. Информационную часть заново не спрашиваем:
+        она уже пройдена — эта кнопка появляется после неудавшейся сборки."""
         await callback.answer()
         here = chat_of(callback)
         if here is None:

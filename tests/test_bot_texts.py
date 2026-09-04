@@ -78,6 +78,9 @@ def test_parameter_named_lang_does_not_collide_with_interface_language() -> None
         kind="Плановая",
         lang="English",
         auditor="Владимир Гарро",
+        # Строка про обрезку имени (T128): пустая, когда обрезки не было, — но
+        # параметр обязателен, потому что `t()` отказывает на недостающем.
+        auditor_note="",
         date="2026-09-02",
     )
     assert "English" in text

@@ -21,6 +21,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from .errors import BotTextError
+from .info import KIND_YES_NO
 from .texts import t
 
 #: Код кнопки → вид проверки на каждом языке. Это же значение уходит в
@@ -166,6 +167,15 @@ FINISH_BUILD_NO_PHOTOS_CALLBACK = "fin:nophoto"
 FINISH_EDIT_CALLBACK = "fin:edit"
 FINISH_RESUME_CALLBACK = "fin:resume"
 FINISH_PICK_PREFIX = "fin:pick:"
+
+#: Информационная часть в конце проверки (T158, D069, D070). Пропуск есть у
+#: каждого поля — ни одно из них не обязательно; «дальше к отчёту» снимает
+#: сразу все оставшиеся, чтобы аудитор не упирался в семь вопросов подряд.
+INFO_SKIP_CALLBACK = "info:skip"
+INFO_DONE_CALLBACK = "info:done"
+INFO_YES_CALLBACK = "info:yes"
+INFO_NO_CALLBACK = "info:no"
+INFO_SAVE_CALLBACK = "info:save"
 
 #: Сколько пунктов показывать на странице ручного перечня. Больше десятка
 #: кнопок на телефоне превращаются в свиток, а перечень зоны — это 70+ пунктов.
@@ -327,4 +337,41 @@ def without_photos_keyboard(lang: str) -> InlineKeyboardMarkup:
     builder.button(
         text=t("btn.build_without_photos", lang), callback_data=FINISH_BUILD_NO_PHOTOS_CALLBACK
     )
+    return builder.as_markup()
+
+
+def info_keyboard(kind: str, lang: str) -> InlineKeyboardMarkup:
+    """Кнопки под вопросом информационной части (T158).
+
+    У поля «да/нет» кнопки и есть единственный удобный ответ, у остальных под
+    вопросом стоит только пропуск: текст и дату аудитор присылает сообщением
+    или голосом.
+
+    Пропуск виден всегда и у каждого поля — это допущение D070: аудитор в конце
+    обхода не должен упираться в семь обязательных вопросов. Рядом «дальше к
+    отчёту»: она снимает все оставшиеся вопросы разом, потому что шесть нажатий
+    «Пропустить» подряд — это тот же тупик, только длиннее.
+    """
+    builder = InlineKeyboardBuilder()
+    if kind == KIND_YES_NO:
+        builder.button(text=t("btn.yes", lang), callback_data=INFO_YES_CALLBACK)
+        builder.button(text=t("btn.no", lang), callback_data=INFO_NO_CALLBACK)
+    builder.button(text=t("btn.info_skip", lang), callback_data=INFO_SKIP_CALLBACK)
+    builder.button(text=t("btn.info_done", lang), callback_data=INFO_DONE_CALLBACK)
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def info_heard_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Под показанной расшифровкой голоса: записать так или пропустить (D069).
+
+    Расшифровка показывается ДО записи и правится — это не противоречит D064,
+    снявшему подтверждение с текста: там человек написал сам, а здесь машина
+    могла ослышаться. Поправить её можно, просто прислав текст: он и станет
+    ответом вместо услышанного.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("btn.info_save", lang), callback_data=INFO_SAVE_CALLBACK)
+    builder.button(text=t("btn.info_skip", lang), callback_data=INFO_SKIP_CALLBACK)
+    builder.adjust(2)
     return builder.as_markup()

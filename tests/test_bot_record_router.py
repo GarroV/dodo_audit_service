@@ -146,7 +146,11 @@ async def test_candidates_are_shown_but_nothing_is_recorded_yet(
 async def test_confirmation_records_and_answers_with_one_line(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Подтверждение — одна строка: пункт, класс, зона, накопленный процент (T055)."""
+    """Подтверждение — одна строка: пункт, класс, зона (T055).
+
+    Процента в ней больше нет: решение владельца D072 (задача T162) оставило
+    оценку только в итоге при завершении.
+    """
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen", "Печь в нагаре")))
     bot, session = make_bot()
@@ -160,8 +164,9 @@ async def test_confirmation_records_and_answers_with_one_line(
     assert len(saved) == 1
     line = session.texts[0]
     assert line.count("\n") == 0, "подтверждение обязано быть одной строкой, без таблицы"
-    for part in ("#1", "CLN05", "D1", "Тепловой участок", f"{score(CHAT_ID).pct:.1f}%"):
+    for part in ("#1", "CLN05", "D1", "Тепловой участок"):
         assert part in line
+    assert "%" not in line, "процент во время обхода не показывается (T162, D072)"
 
 
 async def test_frames_are_attached_to_the_record(

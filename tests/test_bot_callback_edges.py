@@ -51,6 +51,13 @@ EVERY_CALLBACK = [
     "fin:build",
     "fin:nophoto",
     "fin:resume",
+    # Информационная часть в конце проверки (T158): нажатия приходят в своём
+    # состоянии диалога, но и без него бот обязан остаться живым.
+    "info:skip",
+    "info:done",
+    "info:yes",
+    "info:no",
+    "info:save",
 ]
 
 

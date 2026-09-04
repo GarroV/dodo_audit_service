@@ -26,7 +26,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from bot_harness import AUDITOR_ID, CHAT_ID, feed, make_bot, text_message
+from bot_harness import AUDITOR_ID, CHAT_ID, build_report, feed, make_bot, text_message
 from bot_harness import callback_query as callback
 
 from src.bot.app import build_dispatcher
@@ -74,7 +74,7 @@ async def test_отказ_сборки_не_показывает_внутрен�
     bot, session = make_bot()
 
     with caplog.at_level("ERROR"):
-        await feed(build_dispatcher(SETTINGS), bot, callback("fin:build"))
+        await build_report(build_dispatcher(SETTINGS), bot)
 
     сказанное = "\n".join(session.texts)
     assert сказанное, "сборка не удалась, а бот промолчал"
@@ -95,7 +95,7 @@ async def test_служебный_префикс_не_удваивается(dom
     начать_с_записью()
     bot, session = make_bot()
 
-    await feed(build_dispatcher(SETTINGS), bot, callback("fin:build"))
+    await build_report(build_dispatcher(SETTINGS), bot)
 
     сказанное = session.last_text
     assert сказанное.lower().count("не собра") == 1, f"служебный префикс удвоился: «{сказанное}»"
@@ -111,7 +111,7 @@ async def test_отказ_сборки_говорит_что_делать(domain
     начать_с_записью()
     bot, session = make_bot()
 
-    await feed(build_dispatcher(SETTINGS), bot, callback("fin:build"))
+    await build_report(build_dispatcher(SETTINGS), bot)
 
     assert "/finish" in session.last_text, "аудитору не сказано, как попробовать снова"
 
@@ -135,7 +135,7 @@ async def test_неудача_письма_не_называется_несоб�
     monkeypatch.setattr("src.bot.routers.finish.build_letter", письмо_не_собралось)
     bot, session = make_bot()
 
-    await feed(build_dispatcher(SETTINGS), bot, callback("fin:build"))
+    await build_report(build_dispatcher(SETTINGS), bot)
 
     assert session.documents, "отчёт не дошёл до аудитора — проверять нечего"
     assert session.last_text == t("finish.letter_failed", "ru")

@@ -24,7 +24,7 @@ from src import domain
 from src.domain.errors import DomainError
 
 from .. import sidecar
-from ..auditor import auditor_name
+from ..auditor import auditor_name, auditor_name_was_shortened
 from ..config import BotSettings
 from ..inspection import read_inspection
 from ..keyboards import (
@@ -57,6 +57,17 @@ logger = logging.getLogger(__name__)
 #: фактическим прогоном: на 300 знаках сборка отчёта падает с «File name too
 #: long», и узнаёт об этом аудитор в конце проверки, когда переснимать поздно.
 UNIT_NAME_LIMIT = 60
+
+#: Тот же предел, но БАЙТАМИ (T128, переоткрытая часть, issue #103): в знаках
+#: он не ловит тяжёлые символы — 60 эмодзи это те же 60 знаков (в предел выше
+#: укладываются), но уже 240 байт, то есть одно название съедает больше, чем
+#: весь бюджет имени файла. Число — часть общего бюджета: постоянная часть
+#: формулы имени файла (слово, два разделителя, дата, «.pdf») занимает 31 байт
+#: (замерено, см. комментарий у `AUDITOR_NAME_BYTE_LIMIT` в `../auditor.py`),
+#: остаётся 224 байта на название точки и имя аудитора вместе. Точке — 120
+#: байт (ровно 60 кириллических знаков — старым живым названиям запрет не
+#: мешает, старое поведение не меняется), аудитору — 100.
+UNIT_NAME_BYTE_LIMIT = 120
 
 
 async def _offer_resume(message: Message, inspection: domain.Inspection, lang: str) -> None:
@@ -196,6 +207,11 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
             # аудитор уже уехал с точки, и переименовать пиццерию ему нечем.
             await message.answer(t("start.unit_too_long", lang, limit=UNIT_NAME_LIMIT))
             return
+        if len(unit.encode("utf-8")) > UNIT_NAME_BYTE_LIMIT:
+            # Предел в знаках это не ловит: 60 эмодзи проходят его же знаками,
+            # а по байтам уже почти весь бюджет имени файла разом (T128).
+            await message.answer(t("start.unit_too_long_bytes", lang))
+            return
         await state.update_data(unit=unit)
         await state.set_state(StartFlow.waiting_kind)
         await message.answer(t("start.ask_kind", lang), reply_markup=kind_keyboard(lang))
@@ -243,6 +259,12 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         auditor = auditor_name(
             callback.from_user.id, callback.from_user.full_name, settings.auditor_names
         )
+        # Считаем ДО обрезки, пока имя профиля ещё под рукой: `auditor` выше
+        # уже обрезан (это и есть контракт `auditor_name`), а обрезалось ли
+        # оно — узнать можно только сравнением с тем же необрезанным именем.
+        auditor_shortened = auditor_name_was_shortened(
+            callback.from_user.id, callback.from_user.full_name, settings.auditor_names
+        )
         try:
             # Подпроцесс — в поток: старт проверки не должен останавливать бота
             # для остальных аудиторов (T101).
@@ -282,14 +304,22 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         if pending is not None:
             pending.forget(message.chat.id)
 
+        started_lang = ui_lang_or_default(inspection.ui_lang)
+        # Обрезка не уезжает молча (T128): строка про неё — рядом с именем,
+        # той же строкой сообщения, что и старт проверки, а не отдельным
+        # сообщением, которое легко потерять среди присланных кадров.
+        auditor_note = (
+            f"{t('start.auditor_name_shortened', started_lang)}\n" if auditor_shortened else ""
+        )
         await message.answer(
             t(
                 "start.started",
-                ui_lang_or_default(inspection.ui_lang),
+                started_lang,
                 unit=inspection.unit,
                 kind=inspection.kind,
                 lang=LANG_LABELS[report_lang],
                 auditor=inspection.auditor,
+                auditor_note=auditor_note,
                 date=inspection.date,
             )
         )
