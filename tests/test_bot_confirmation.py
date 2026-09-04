@@ -34,7 +34,7 @@ from bot_harness import (
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.material import Material
-from src.bot.texts import t
+from src.bot.texts import t, with_photo_rule
 from src.domain import start_inspection
 from src.recognize.errors import TranscriptionFailed
 
@@ -118,4 +118,4 @@ async def test_album_timer_failure_is_logged_and_does_not_kill_the_bot(
     # Бот жив: следующее сообщение он всё ещё обрабатывает и отвечает на него.
     session.clear()
     await feed(dp, bot, text_message("комментарий без кадра"))
-    assert session.last_text == t("material.no_photo", "ru")
+    assert session.last_text == with_photo_rule(t("material.no_photo", "ru"), "ru")

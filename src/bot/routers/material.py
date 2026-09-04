@@ -35,7 +35,7 @@ from ..albums import ALBUM_WINDOW_SECONDS, AlbumBuffer, Frame
 from ..inspection import read_inspection
 from ..lang import chat_ui_lang
 from ..material import Comment, Material, MaterialStore, PhotoGroup
-from ..texts import t
+from ..texts import t, with_photo_rule
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +182,11 @@ def build_material_router(
             # равно появится только после подтверждения аудитором.
             material = queue.resolve_next(comment)
         if material is None:
-            await message.answer(t("material.no_photo", lang))
+            # Не «бот чего-то не увидел», а правило методики: фотофиксация
+            # обязательна всегда (T160, D078). Рядом с отказом стоит то же
+            # правило, что аудитор прочитал в начале проверки, — иначе отказ
+            # читается сбоем продукта, и человек пробует то же самое второй раз.
+            await message.answer(with_photo_rule(t("material.no_photo", lang), lang))
             return
 
         await on_material(message, material, lang)

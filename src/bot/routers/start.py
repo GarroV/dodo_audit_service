@@ -44,7 +44,7 @@ from ..keyboards import (
 from ..lang import chat_ui_lang
 from ..pending import PendingStore
 from ..states import StartFlow
-from ..texts import t, ui_lang_or_default
+from ..texts import t, ui_lang_or_default, with_photo_rule
 
 logger = logging.getLogger(__name__)
 
@@ -171,13 +171,19 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         if inspection is None:
             await message.answer(t("start.resume_gone", lang))
             return
+        # Правило фотофиксации повторяется и здесь (T160, D078): к прерванной
+        # проверке аудитор возвращается через день и другой сессией, и первого
+        # сообщения — того, где правило прозвучало заранее, — он мог не читать.
         await message.answer(
-            t(
-                "start.resumed",
+            with_photo_rule(
+                t(
+                    "start.resumed",
+                    lang,
+                    unit=inspection.unit,
+                    date=inspection.date,
+                    findings=len(inspection.findings),
+                ),
                 lang,
-                unit=inspection.unit,
-                date=inspection.date,
-                findings=len(inspection.findings),
             )
         )
 
@@ -311,16 +317,24 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         auditor_note = (
             f"{t('start.auditor_name_shortened', started_lang)}\n" if auditor_shortened else ""
         )
+        # Правило фотофиксации — заранее, первым же сообщением проверки (T160,
+        # решение D078). Это единственное место, где его можно сказать ДО
+        # первой ошибки: дальше остаётся только отвечать правилом на неё, а
+        # владелец просил не этого — «надо чтобы человек понял что фото должно
+        # быть».
         await message.answer(
-            t(
-                "start.started",
+            with_photo_rule(
+                t(
+                    "start.started",
+                    started_lang,
+                    unit=inspection.unit,
+                    kind=inspection.kind,
+                    lang=LANG_LABELS[report_lang],
+                    auditor=inspection.auditor,
+                    auditor_note=auditor_note,
+                    date=inspection.date,
+                ),
                 started_lang,
-                unit=inspection.unit,
-                kind=inspection.kind,
-                lang=LANG_LABELS[report_lang],
-                auditor=inspection.auditor,
-                auditor_note=auditor_note,
-                date=inspection.date,
             )
         )
 
