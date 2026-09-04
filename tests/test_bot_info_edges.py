@@ -30,7 +30,8 @@ from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.info import FIELDS, InfoField, fields_to_ask, parse_date, question
 from src.bot.texts import t
-from src.domain import add_finding, start_inspection
+from src.domain import add_finding, set_info, start_inspection
+from src.domain.errors import ValidationError
 from src.recognize.errors import TranscriptionFailed
 
 pytestmark = pytest.mark.asyncio
@@ -185,3 +186,44 @@ async def test_без_начатой_проверки_часть_не_начин
 
     assert session.last_text == t("material.no_inspection", "ru")
     assert session.documents == []
+
+
+async def test_методика_без_информационных_пунктов_сразу_собирает_отчёт(
+    domain_env: Path, data_copy: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Методика без `INF*` — законная методика, а не отказ в руках аудитора.
+
+    Тот же урок, что D068 и D075: недостающие необязательные данные превращают
+    шаг в пропущенный. Здесь это значит, что порядок возвращается к прежнему —
+    подтверждение сразу даёт отчёт, потому что спрашивать нечего.
+    """
+    чеклист = data_copy / "checklist.csv"
+    строки = [
+        line
+        for line in чеклист.read_text(encoding="utf-8").splitlines()
+        if not line.startswith(("INF01", "INF03", "INF04", "INF05", "INF06", "INF07", "INF08"))
+    ]
+    чеклист.write_text("\n".join(строки) + "\n", encoding="utf-8")
+    monkeypatch.setenv("AUDIT_DATA_DIR", str(data_copy))
+    начать()
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await дойти(dp, bot)
+
+    assert t("info.intro", "ru") not in session.texts, "спрошена часть, которой в методике нет"
+    assert len(session.documents) == 1, "отчёт не собрался, хотя спрашивать было нечего"
+
+
+async def test_пустое_поле_движку_не_отдаётся(domain_env: Path) -> None:
+    """Пропуск — это отсутствие вызова, а не вызов с пустой строкой (D070).
+
+    Проверяется на самой функции блока `domain`: она и есть то место, где
+    пустота обязана остановиться, — иначе пустая строка уедет в отчёт полем
+    без ответа.
+    """
+    начать()
+    with pytest.raises(ValidationError, match="INF01"):
+        set_info(CHAT_ID, "INF01", "   ")
+    with pytest.raises(ValidationError):
+        set_info(CHAT_ID, "  ", "сильные стороны")
