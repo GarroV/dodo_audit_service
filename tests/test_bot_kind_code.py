@@ -97,13 +97,15 @@ async def test_inspection_keeps_the_kind_as_a_code_whatever_the_report_language(
     ("report_lang", "word"),
     [("ru", "Плановая"), ("en", "Planned")],
 )
-async def test_engine_header_gets_the_word_on_the_report_language(
+async def test_engine_header_gets_the_code_not_the_word(
     domain_env: Path, monkeypatch: pytest.MonkeyPatch, report_lang: str, word: str
 ) -> None:
-    """Слово подставляется при печати и ровно на том языке, на котором печатают.
+    """В шапке движка стоит КОД вида, а слово подставляется при печати (T177).
 
-    Шапку `meta` читает движок и печатает партнёру; сопоставлять там строки
-    больше не с чем — вид уже стоит на языке отчёта (`meta.lang`).
+    Раньше сюда клалось слово на языке отчёта, и это ломалось на пересборке:
+    документ, собранный на другом языке, переводить слово нечем — партнёр
+    получал в русском письме английское. Теперь язык печати решает всё, а
+    шапка хранит то, что не переводится.
     """
     monkeypatch.setenv(UI_LANG_VAR, "en")
     bot, _ = make_bot()
@@ -113,7 +115,10 @@ async def test_engine_header_gets_the_word_on_the_report_language(
 
     meta = meta_of()
     assert meta["lang"] == report_lang
-    assert meta["type"] == word
+    assert meta["kind"] == PLANNED, "в шапку уехало слово вместо кода"
+    assert meta.get("type", "") == "", "слово в шапке — то самое, что ломало пересборку"
+    # А слово появляется там, где документ печатается, и на его языке.
+    assert kind_title(PLANNED, report_lang) == word
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,7 @@ from src.bot.keyboards import NEW_INSPECTION_CALLBACK
 from src.bot.texts import default_ui_lang, t
 from src.domain import check_environment, get_state
 from src.domain.engine import state_file
+from src.domain.kinds import kind_title
 
 ROOT = Path(__file__).resolve().parent.parent
 ENV_EXAMPLE = ROOT / ".env.example"
@@ -201,9 +202,17 @@ async def test_started_inspection_outranks_the_deployment_language(
 
 
 def header_type() -> str:
-    """Вид проверки так, как его прочитает движок, — из шапки файла состояния."""
+    """Вид проверки так, как его НАПЕЧАТАЕТ движок — по коду из шапки (T177).
+
+    В шапке с T177 лежит код, а не слово: слово, записанное при заведении
+    проверки, невозможно перевести при печати на другом языке. Поэтому тест
+    спрашивает то же, что спросит движок при печати, — слово по коду и языку
+    отчёта, а не готовую строку из файла.
+    """
     raw: dict[str, Any] = json.loads(state_file(CHAT_ID, check_environment()).read_text("utf-8"))
-    return str(raw["meta"]["type"])
+    meta = raw["meta"]
+    assert not meta.get("type"), "в шапке снова слово — ровно то, что ломало пересборку"
+    return kind_title(str(meta["kind"]), str(meta["lang"]))
 
 
 @pytest.mark.asyncio
