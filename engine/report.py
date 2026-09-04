@@ -18,7 +18,8 @@ from urllib.parse import quote
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from audit import (  # noqa: E402
-    compute, inspection_date, load_cfg, load_checklist, load_state, load_zones, state_dir,
+    compute, inspection_date, kind_title, load_cfg, load_checklist, load_state, load_zones,
+    state_dir,
 )
 
 # Каталог вывода по умолчанию — рядом с состоянием проверки, но не в соседи
@@ -77,8 +78,6 @@ T = {
         "no_photo": "No photo taken",
     },
 }
-TYPE_EN = {"Плановая": "Scheduled", "Повторная": "Follow-up", "Внеплановая": "Unscheduled",
-           "Платная после комитета": "Paid, post-committee"}
 GRADE_COLOR = {"A": "#1E7A45", "B": "#7A6A17", "C": "#B4610F", "D": "#A81E1E"}
 
 
@@ -261,9 +260,6 @@ def build_html(res, lang, photos, src=None):
     t = T[lang]
     src = Photos() if src is None else src
     m = res["meta"]
-    itype = m.get("type", "")
-    if lang == "en":
-        itype = TYPE_EN.get(itype, itype)
     cl = {r["id"]: r for r in load_checklist()}
     qk = "question_en" if lang == "en" else "question_ru"
     pk = "process_en" if lang == "en" else "process_ru"
@@ -599,6 +595,39 @@ def plan_due_date(res):
     return (inspection_date(res) + timedelta(days=days)).isoformat()
 
 
+def inspection_kind(meta, lang):
+    """Вид проверки словом на языке ПЕЧАТИ, а не на языке заведения проверки (T177).
+
+    Код — сущность, слово — перевод, и подставляется он здесь. Раньше слово
+    записывалось в проверку при её заведении, по языку отчёта того дня, а письмо
+    на другом языке переводилось сопоставлением строк (`TYPE_EN`) с молчаливым
+    возвратом исходника: за одним видом стояло два разных английских слова, и
+    одно уходило партнёру.
+
+    Проверка, заведённая до этой правки, хранит вместо кода готовое слово. На её
+    собственном языке оно печатается как записано — документ не меняется ни в
+    знаке. На чужом языке — отказ: подставить в английское письмо слово,
+    записанное по-русски, значит повторить ровно тот дефект, ради которого всё
+    затевалось, а угадать код по формулировке нельзя — формулировки правятся и
+    переводятся, коды нет. Чинится одной командой, и она названа в отказе.
+    """
+    code = (meta.get("kind") or "").strip()
+    if code:
+        return kind_title(code, lang)
+    word = (meta.get("type") or "").strip()
+    if not word:
+        return ""
+    recorded = (meta.get("lang") or "ru").strip().lower()
+    if recorded != lang:
+        sys.exit(
+            f"Вид проверки записан словом «{word}» на языке «{recorded}», а документ "
+            f"собирается на «{lang}» — перевести нечем: слово это не код. "
+            f"Свяжите вид проверки кодом: audit.py meta --kind КОД "
+            f"(коды показывает audit.py kinds)"
+        )
+    return word
+
+
 def build_letter(res, lang):
     m = res["meta"]
     c = res["counts"]
@@ -624,8 +653,7 @@ def build_letter(res, lang):
     return template.format(
         unit=m.get("unit", ""), date=fmt_date(m.get("date")),
         city=(f", {m['city']}" if m.get("city") else ""),
-        type=(TYPE_EN.get(m.get("type", ""), m.get("type", "")) if lang == "en"
-              else m.get("type", "")),
+        type=inspection_kind(m, lang),
         grade=res["grade"], pct=f"{res['pct']:g}",
         grade_note=GRADE_NOTE[lang].get(res["grade"], ""),
         summary_lines=summary_lines(res, lang, clean), critical_block=crit,
