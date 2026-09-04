@@ -30,6 +30,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import checklist as store_api
+from . import photo_cues as cues_api
 from .checklist import Outcome, Store
 from .errors import ChecklistError
 
@@ -431,3 +432,97 @@ def publish_checklist_version(*, tenant: str, store: Store, version: str) -> dic
     """
     итог = store_api.publish(store, tenant=tenant, version=version)
     return {"tenant": tenant, **итог}
+
+
+# --- карта слов (T144) --------------------------------------------------------
+
+
+def photo_cues(*, tenant: str, store: Store, version: str | None = None) -> dict[str, Any]:
+    """Карта слов версии методики: разделы и строки «фраза → коды пунктов».
+
+    Читается как её видит продукт: раздел порогов классов подсказками не
+    считается, потому что разборщик быстрого пути его пропускает.
+    """
+    del tenant  # право на методику проверено на входе, по коду арендатора
+    return cues_api.read(store, version=version)
+
+
+def add_photo_cue(
+    *,
+    tenant: str,
+    store: Store,
+    section: str,
+    phrase: str,
+    codes: list[str],
+    version_name: str | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Завести строку карты слов в новой версии методики.
+
+    По этой карте быстрый путь записывает находку БЕЗ подтверждения аудитора
+    (T113), поэтому коды сверяются с чек-листом той же версии: подсказка на
+    несуществующий пункт вывела бы модели код, которого в методике нет.
+    """
+    return _accepted(
+        cues_api.add(
+            store,
+            tenant=tenant,
+            section=section,
+            phrase=phrase,
+            codes=codes,
+            version_name=version_name,
+            note=_note(note),
+        )
+    )
+
+
+def edit_photo_cue(
+    *,
+    tenant: str,
+    store: Store,
+    phrase: str,
+    codes: list[str] | None = None,
+    new_phrase: str | None = None,
+    version_name: str | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Поправить строку карты слов: её коды, её фразу или и то и другое.
+
+    Строка называется своей фразой целиком и дословно. Похожая не подставляется:
+    правка не той строки меняет то, что записывается без подтверждения аудитора.
+    """
+    return _accepted(
+        cues_api.edit(
+            store,
+            tenant=tenant,
+            phrase=phrase,
+            codes=codes,
+            new_phrase=new_phrase,
+            version_name=version_name,
+            note=_note(note),
+        )
+    )
+
+
+def remove_photo_cue(
+    *,
+    tenant: str,
+    store: Store,
+    phrase: str,
+    version_name: str | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Снять строку карты слов в новой версии методики.
+
+    Прежние версии не удаляются никогда (D050), поэтому вернуть строку — это
+    публикация прежней версии, а не поиск копии файла.
+    """
+    return _accepted(
+        cues_api.remove(
+            store,
+            tenant=tenant,
+            phrase=phrase,
+            version_name=version_name,
+            note=_note(note),
+        )
+    )

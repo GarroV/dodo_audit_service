@@ -49,6 +49,20 @@ SCORING = {
 
 ЗОНЫ = "code,name_ru,name_en,share_pct\nfridge,Холодильник,Fridge,50\ndough,Тесто,Dough,50\n"
 
+#: Карта слов — тот же синтетический набор (T144). Файл необязательный
+#: (`OPTIONAL_DATA_FILES`), но в отпечаток версии он входит с 04.09.2026,
+#: поэтому его правка обязана давать новую версию, и тестам он нужен настоящим:
+#: разбирает его тот же `src.recognize.cues`, что работает в продукте.
+КАРТА_СЛОВ = (
+    "# Что искать на фото и какие пункты предлагать\n"
+    "\n## Пороги классов\n"
+    "\n| Пункт | D1 | D2 |\n|---|---|---|\n| CLN01 пол | пятна | слой грязи |\n"
+    "\n## Чистота\n"
+    "\n| Что видно | Кандидаты |\n|---|---|\n"
+    "| Пол в разводах, лужа на полу | CLN01 |\n"
+    "| Стена в подтёках | CLN02 |\n"
+)
+
 КРИТЕРИИ = (
     "# Критерии нарушений по вопросам\n"
     "\n## CLN01\nD1: пятна\nD2: слой грязи\n"
@@ -62,5 +76,6 @@ def build_methodology(where: Path) -> Path:
     (where / "checklist.csv").write_text(ЧЕКЛИСТ, encoding="utf-8")
     (where / "zones.csv").write_text(ЗОНЫ, encoding="utf-8")
     (where / "criteria.md").write_text(КРИТЕРИИ, encoding="utf-8")
+    (where / "photo-cues.md").write_text(КАРТА_СЛОВ, encoding="utf-8")
     (where / "scoring.json").write_text(json.dumps(SCORING, ensure_ascii=False), encoding="utf-8")
     return where
