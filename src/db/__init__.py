@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .errors import ConfigError, DbError, PushError, StorageError
+from .errors import ConfigError, DbError, PushError, StorageError, VersionMismatchError
 from .models import FindingRow, InspectionDetail, InspectionRow
 
 # `apply_migrations` (src.db.migrate) и `check_environment` (src.db.config)
@@ -46,6 +46,7 @@ __all__ = [
     "PushError",
     "StorageError",
     "Unit",
+    "VersionMismatchError",
     "findings_by_unit",
     "get_inspection",
     "list_inspections",

@@ -23,12 +23,12 @@ from psycopg.types.json import Json
 
 from src.domain import get_state
 from src.domain import score as domain_score
-from src.domain.errors import DomainError
+from src.domain.errors import ChecklistVersionMismatch, DomainError
 from src.domain.models import Inspection, Score
 
 from .config import check_environment
 from .directory import resolve_unit_id
-from .errors import PushError
+from .errors import PushError, VersionMismatchError
 from .fingerprint import compute_fingerprint
 from .units import normalize_unit_name
 
@@ -81,8 +81,13 @@ returning id
 _INSERT_TENANT_SQL = "insert into tenants (code) values (%s) on conflict (code) do nothing"
 
 _INSERT_FINDING_SQL = """
-insert into findings (inspection_id, n, code, level, zone, zone_unusual, source)
-values (%(inspection_id)s, %(n)s, %(code)s, %(level)s, %(zone)s, %(zone_unusual)s, %(source)s)
+insert into findings (
+    inspection_id, n, code, level, zone, zone_unusual, source,
+    suggested_code, suggested_level, suggested_zone, suggested_confidence
+) values (
+    %(inspection_id)s, %(n)s, %(code)s, %(level)s, %(zone)s, %(zone_unusual)s, %(source)s,
+    %(suggested_code)s, %(suggested_level)s, %(suggested_zone)s, %(suggested_confidence)s
+)
 returning id
 """
 
@@ -127,6 +132,73 @@ def _by_zone_payload(score: Score) -> dict[str, object]:
 
 def _tenant_code(inspection: Inspection) -> str:
     return inspection.tenant or DEFAULT_TENANT
+
+
+def _suggested_text(finding: object, field: str) -> str | None:
+    """Одно текстовое поле предложения модели. Пусто — предложения нет.
+
+    Пустая строка и `None` склеены намеренно: «модель не называла пункта» не
+    бывает двух разных видов, а пустая строка в колонке выглядела бы ответом
+    модели и попала бы в выборку для управляющей компании как промах.
+    """
+    значение = getattr(finding, field, None)
+    if значение is None:
+        return None
+    текст = str(значение).strip()
+    return текст or None
+
+
+def _suggested_confidence(finding: object, *, n: int) -> float | None:
+    """Уверенность модели: доля от нуля до единицы — или явный отказ.
+
+    Не разбирается — не записывается. Записанное «непонятно что» неотличимо в
+    базе от настоящего значения (тот же довод, что у `domain.read_sources`), а
+    подстановка нуля хуже всего: «модель ни в чём не уверена» — осмысленное
+    утверждение, и оно было бы ложью.
+
+    Диапазон проверяется здесь, а не только ограничением схемы, чтобы отказ
+    назвал число и запись: у нарушенного `check` в тексте psycopg стоит имя
+    ограничения, а не то, что чинить.
+    """
+    значение = getattr(finding, "suggested_confidence", None)
+    if значение is None:
+        return None
+    if isinstance(значение, bool) or not isinstance(значение, int | float | str):
+        raise PushError(
+            f"Уверенность модели в записи #{n} — «{значение!r}», а ожидается доля от 0 до 1. "
+            f"Записать непонятное значение нельзя: в базе оно неотличимо от настоящего"
+        )
+    try:
+        доля = float(значение)
+    except ValueError as exc:
+        raise PushError(
+            f"Уверенность модели в записи #{n} — «{значение}», а ожидается доля от 0 до 1. "
+            f"Записать непонятное значение нельзя: в базе оно неотличимо от настоящего"
+        ) from exc
+    if not 0.0 <= доля <= 1.0:
+        raise PushError(
+            f"Уверенность модели в записи #{n} равна {доля} — это не доля от 0 до 1. "
+            f"Чужая шкала (проценты вместо доли) обесценила бы порог отбора предложений "
+            f"для управляющей компании на всей выборке разом"
+        )
+    return доля
+
+
+def _suggestion(finding: object) -> dict[str, object]:
+    """Предложение модели к одной записи (T164, D077).
+
+    Читается через `getattr` по той же причине и тем же приёмом, что и
+    `source`: форма заложена со стороны базы раньше, чем домен начнёт отдавать
+    значение. Пока не отдаёт — во всех четырёх колонках `NULL`, и это честно
+    означает «модель не предлагала ничего».
+    """
+    номер = int(getattr(finding, "n", 0))
+    return {
+        "suggested_code": _suggested_text(finding, "suggested_code"),
+        "suggested_level": _suggested_text(finding, "suggested_level"),
+        "suggested_zone": _suggested_text(finding, "suggested_zone"),
+        "suggested_confidence": _suggested_confidence(finding, n=номер),
+    }
 
 
 def _push(conn: psycopg.Connection[Any], inspection: Inspection, result: Score) -> str:
@@ -197,6 +269,7 @@ def _push(conn: psycopg.Connection[Any], inspection: Inspection, result: Score) 
                     "zone": finding.zone,
                     "zone_unusual": finding.zone_unusual,
                     "source": getattr(finding, "source", None),
+                    **_suggestion(finding),
                 },
             )
             finding_id = _require_row(cur)[0]
@@ -271,6 +344,18 @@ def push_inspection(chat_id: int, *, allow_unknown_version: bool = False) -> str
             return _push(conn, inspection, result)
     except PushError:
         raise
+    except ChecklistVersionMismatch as exc:
+        # Методику переиздали между итогом и сливом (T178). База здесь ни при
+        # чём, и общий отказ слива отправил бы человека чинить не то: бот
+        # разбирает исходы слива по ТИПУ, и в ветке «база не приняла» этот
+        # случай выглядел бы отказом связи. Обе версии уходят полями — по ним
+        # показывающий соберёт человеку выбор, не разбирая текст.
+        raise VersionMismatchError(
+            f"Проверку чата {chat_id} не слили: {exc} Файл проверки не тронут — "
+            f"после того, как выбор сделан, слить можно тем же вызовом",
+            recorded=exc.recorded,
+            current=exc.current,
+        ) from exc
     except (psycopg.Error, DomainError) as exc:
         # Причина — в тексте, а не только в типе: движок с T106 отказывается
         # считать проверку с нечитаемой датой раньше, чем сюда дойдёт `_parse_date`,
