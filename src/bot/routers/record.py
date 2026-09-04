@@ -397,19 +397,21 @@ async def _save(
             logger.exception("кадр %s не прикрепился к записи #%s", file_id, finding.n)
     sidecar.remember_zone(chat_id, zone)
     # `get_state` — чтение файла, 0.1 мс: в поток не выносится, обёртка стоила
-    # бы дороже самой операции. `score` — подпроцесс, выносится.
+    # бы дороже самой операции. Оценка здесь больше не считается вовсе (T162,
+    # D072): процент по ходу обхода не показывается, а считать его ради
+    # выброшенного числа значило бы платить подпроцессом (26 мс) за каждую
+    # запись впустую.
     saved = read_inspection(chat_id)
     current = None if saved is None else saved.finding(finding.n)
-    pct = (await asyncio.to_thread(domain.score, chat_id)).pct
     shown = current or finding
     if auto is None:
         await message.answer(
-            view.confirm_line(shown, pct, lang), reply_markup=edit_keyboard(finding.n, lang)
+            view.confirm_line(shown, lang), reply_markup=edit_keyboard(finding.n, lang)
         )
     else:
         await message.answer(
             view.fixed_block(
-                shown, pct, lang, title=auto.title, cue=auto.cue, zone_guessed=zone_guessed
+                shown, lang, title=auto.title, cue=auto.cue, zone_guessed=zone_guessed
             ),
             reply_markup=fixed_keyboard(finding.n, lang),
         )

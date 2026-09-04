@@ -349,12 +349,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "Not recorded. The photo is not lost — I will list it when you finish.",
     },
     "record.saved": {
-        "ru": "#{n} {code} · {level} · {zone} · {pct}%",
-        "en": "#{n} {code} · {level} · {zone} · {pct}%",
+        "ru": "#{n} {code} · {level} · {zone}",
+        "en": "#{n} {code} · {level} · {zone}",
     },
     "record.saved_info": {
-        "ru": "#{n} {code} · {level} замер · {zone} · {pct}%",
-        "en": "#{n} {code} · {level} measurement · {zone} · {pct}%",
+        "ru": "#{n} {code} · {level} замер · {zone}",
+        "en": "#{n} {code} · {level} measurement · {zone}",
     },
     "record.zone_unknown": {
         "ru": "зона не названа",
@@ -413,16 +413,16 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "Send the new wording for record #{n} in one message.",
     },
     "edit.changed": {
-        "ru": "Поправлено. #{n} {code} · {level} · {zone} · {pct}%",
-        "en": "Updated. #{n} {code} · {level} · {zone} · {pct}%",
+        "ru": "Поправлено. #{n} {code} · {level} · {zone}",
+        "en": "Updated. #{n} {code} · {level} · {zone}",
     },
     "edit.changed_info": {
-        "ru": "Поправлено. #{n} {code} · {level} замер · {zone} · {pct}%",
-        "en": "Updated. #{n} {code} · {level} measurement · {zone} · {pct}%",
+        "ru": "Поправлено. #{n} {code} · {level} замер · {zone}",
+        "en": "Updated. #{n} {code} · {level} measurement · {zone}",
     },
     "edit.dropped": {
-        "ru": "Запись #{n} удалена. Накоплено: {pct}%",
-        "en": "Record #{n} deleted. Score now: {pct}%",
+        "ru": "Запись #{n} удалена.",
+        "en": "Record #{n} deleted.",
     },
     "edit.text_dropped": {
         "ru": "Вопрос про формулировку записи #{n} снят — вы вернулись к работе.",

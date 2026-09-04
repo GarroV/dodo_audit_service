@@ -107,11 +107,17 @@ def zone_unusual_mark(finding: domain.Finding, lang: str) -> str:
     return t("record.zone_unusual", lang) if finding.zone_unusual else ""
 
 
-def confirm_line(finding: domain.Finding, pct: float, lang: str) -> str:
+def confirm_line(finding: domain.Finding, lang: str) -> str:
     """Подтверждение фиксации — одна строка (T055).
 
-    Пункт, класс, зона, накопленный процент. Ни таблицы после каждого кадра, ни
-    пересказа формулировки пункта: `docs/06-mvp-bot.md`, шаг 5.
+    Пункт, класс, зона. Ни таблицы после каждого кадра, ни пересказа
+    формулировки пункта: `docs/06-mvp-bot.md`, шаг 5.
+
+    **Накопленного процента здесь больше нет** (T162, решение владельца D072:
+    «показывать только в конце»). Во время обхода число аудитору ничего не
+    даёт, а соблазн не записывать мелочь создаёт — и такое влияние не видно ни
+    в отчёте, ни в базе. Оценка целиком показывается при завершении
+    (`finish.summary`), и это единственное место, где она нужна.
     """
     key = "record.saved_info" if finding.level == INFO_LEVEL else "record.saved"
     line = t(
@@ -121,14 +127,12 @@ def confirm_line(finding: domain.Finding, pct: float, lang: str) -> str:
         code=finding.code,
         level=finding.level,
         zone=zone_title(finding.zone, lang),
-        pct=percent(pct),
     )
     return line + zone_unusual_mark(finding, lang)
 
 
 def fixed_block(
     finding: domain.Finding,
-    pct: float,
     lang: str,
     *,
     title: str,
@@ -156,7 +160,7 @@ def fixed_block(
     return t(
         "record.fixed",
         lang,
-        line=confirm_line(finding, pct, lang),
+        line=confirm_line(finding, lang),
         guess=t("record.fixed_zone_guess", lang) if zone_guessed else "",
         title=title,
         note=shorten(finding.text, FAST_NOTE_LIMIT),
@@ -164,8 +168,11 @@ def fixed_block(
     )
 
 
-def changed_line(finding: domain.Finding, pct: float, lang: str) -> str:
-    """Та же строка после правки — с пересчитанным процентом (T056).
+def changed_line(finding: domain.Finding, lang: str) -> str:
+    """Та же строка после правки (T056).
+
+    Процент пересчитывается движком, как и раньше, но аудитору по ходу обхода
+    не показывается (T162, D072) — как и в `confirm_line`.
 
     Пометка «замер» держится и здесь: смена зоны у информационной записи не
     превращает её в нарушение, а строка без пометки читалась бы именно так.
@@ -180,7 +187,6 @@ def changed_line(finding: domain.Finding, pct: float, lang: str) -> str:
         code=finding.code,
         level=finding.level,
         zone=zone_title(finding.zone, lang),
-        pct=percent(pct),
     )
     return line + zone_unusual_mark(finding, lang)
 

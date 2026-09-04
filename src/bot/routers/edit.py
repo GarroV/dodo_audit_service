@@ -5,9 +5,10 @@
 одна: `/undo` снимает последнюю запись, когда подтверждение уже уехало вверх по
 переписке.
 
-Процент после любой правки берётся заново из `domain.score()` — он зовёт
-движок. Пересчитывать его здесь нельзя ни в каком виде: это методика, и вторая
-копия правил разошлась бы с первой незаметно для всех, кроме партнёра.
+Процент после правки аудитору не показывается (T162, решение владельца D072:
+«показывать только в конце»). Пересчитывается он по-прежнему движком и виден в
+итоге при завершении; считать его здесь нельзя ни в каком виде — это методика,
+и вторая копия правил разошлась бы с первой незаметно для всех, кроме партнёра.
 
 Ни одна правка не делается молча. Движок отказывает содержательно — пара
 «пункт + зона» занята, класс не разрешён пункту, — и его отказ уходит аудитору
@@ -60,12 +61,11 @@ async def show_changed(message: Message, chat_id: int, n: int, lang: str) -> Non
     if finding is None:
         await message.answer(t("edit.gone", lang, n=n))
         return
-    # `score` ходит подпроцессом (26 мс) — в цикле событий это остановка бота
-    # целиком, замер T101. `get_state` выше — чтение файла, 0.1 мс, обёртка
-    # стоила бы дороже операции.
-    pct = (await asyncio.to_thread(domain.score, chat_id)).pct
+    # Оценка здесь не считается: процент по ходу обхода не показывается (T162,
+    # D072), а `score` — подпроцесс на 26 мс (замер T101). Пересчёт от этого не
+    # пропадает: он живёт в движке и виден в итоге при завершении.
     await message.answer(
-        view.changed_line(finding, pct, lang),
+        view.changed_line(finding, lang),
         reply_markup=edit_keyboard(n, lang),
     )
 
@@ -137,8 +137,7 @@ def build_edit_router() -> Router:
             return
         # Источник записи чистить не надо: он лежит в самой записи (T108), и
         # `domain.drop_finding` уносит его вместе с ней.
-        pct = (await asyncio.to_thread(domain.score, chat_id)).pct
-        await message.answer(t("edit.dropped", lang, n=n, pct=view.percent(pct)))
+        await message.answer(t("edit.dropped", lang, n=n))
 
     @router.callback_query(F.data.startswith(EDIT_PREFIX))
     async def on_edit(callback: CallbackQuery, state: FSMContext) -> None:
