@@ -30,10 +30,9 @@ from collections.abc import Awaitable, Callable
 from aiogram import F, Router
 from aiogram.types import Message
 
-from src import domain
-
 from .. import sidecar
 from ..albums import ALBUM_WINDOW_SECONDS, AlbumBuffer, Frame
+from ..inspection import read_inspection
 from ..lang import chat_ui_lang
 from ..material import Comment, Material, MaterialStore, PhotoGroup
 from ..texts import t
@@ -89,7 +88,7 @@ def build_material_router(
     async def register(message: Message, group: PhotoGroup) -> None:
         """Принять закрытую группу кадров: либо она уже с подписью, либо ждёт комментарий."""
         lang = chat_ui_lang(group.chat_id)
-        if domain.get_state(group.chat_id) is None:
+        if read_inspection(group.chat_id) is None:
             await message.answer(t("material.no_inspection", lang))
             return
         # Кадры запоминаются до всякого разбора и независимо от подписи: список
@@ -163,7 +162,7 @@ def build_material_router(
         await close_open_album(message, chat_id)
 
         lang = chat_ui_lang(chat_id)
-        if domain.get_state(chat_id) is None:
+        if read_inspection(chat_id) is None:
             await message.answer(t("material.no_inspection", lang))
             return
 

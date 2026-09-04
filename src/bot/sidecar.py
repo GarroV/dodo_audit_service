@@ -5,7 +5,9 @@
 * все кадры, присланные за проверку (задача T068) — в конце проверки нужно
   показать те, что не попали ни в одну запись, иначе они бесследно исчезают;
 * последняя названная зона (решение D048) — подставляется догадкой к
-  следующему кадру.
+  следующему кадру;
+* сколько записей было в проверке, когда бот отдал по ней отчёт (задача
+  T153) — по этому и видно, что проверка сдана.
 
 Источник записи (решение D044) здесь когда-то тоже лежал и уехал отсюда
 задачей T108: он оказался нужен не одному боту, а всем — в базу источник
@@ -41,7 +43,15 @@ from src.domain.engine import chat_dir
 from .errors import BotNotesError
 
 NOTES_FILE_NAME = "bot.json"
-SCHEMA = 1
+#: Второе издание формата: добавлен `handed_over_findings` (T153). Заметки
+#: первого издания читаются как прежде — отсутствующий ключ означает «отчёт по
+#: этой проверке не отдавался», что для них и есть правда.
+SCHEMA = 2
+
+#: «Отчёт по этой проверке не отдавался». Не `0`: ноль записей — законная
+#: сданная проверка (чистая точка), и спутать эти два состояния значило бы
+#: снова назвать сданную проверку незавершённой.
+NEVER_HANDED_OVER = -1
 
 
 @dataclass(frozen=True)
@@ -60,6 +70,14 @@ class Notes:
     frames: tuple[SeenFrame, ...]
     #: Последняя названная зона; пустая строка — её не было или её забыли.
     zone: str
+    #: Сколько записей было в проверке, когда бот отдал аудитору отчёт.
+    #: `NEVER_HANDED_OVER` — отчёт не отдавался.
+    #:
+    #: Хранится число, а не «да/нет», и это существенно: аудитор вправе
+    #: продолжить сданную проверку и дописать запись — отчёт у него на руках
+    #: этой записи уже не содержит, и звать такую проверку сданной нельзя.
+    #: Признак так сверяется с делом сам, без обнуления из пяти мест.
+    handed_over_findings: int = NEVER_HANDED_OVER
 
 
 def notes_path(chat_id: int) -> Path:
@@ -79,6 +97,22 @@ def _frames_from_raw(raw: Any, path: Path) -> tuple[SeenFrame, ...]:
         raise BotNotesError(f"Список кадров в заметках {path} не похож на список кадров") from exc
 
 
+def _handed_over_from_raw(raw: Any, path: Path) -> int:
+    """Признак сдачи из файла. Непонятное значение — отказ, а не «не сдавалась».
+
+    Молчаливое умолчание здесь вернуло бы ровно ту неправду, ради которой
+    задача T153 и заведена: сданная проверка снова назвалась бы незавершённой.
+    """
+    if raw is None:
+        return NEVER_HANDED_OVER
+    try:
+        return int(raw)
+    except (TypeError, ValueError) as exc:
+        raise BotNotesError(
+            f"Признак сдачи в заметках {path} не похож на число записей: {raw!r}"
+        ) from exc
+
+
 def _decode(path: Path) -> dict[str, Any]:
     try:
         data: Any = json.loads(path.read_text(encoding="utf-8"))
@@ -96,6 +130,7 @@ def _parse(raw: dict[str, Any], path: Path) -> Notes:
     return Notes(
         frames=_frames_from_raw(raw.get("frames"), path),
         zone=str(raw.get("zone") or ""),
+        handed_over_findings=_handed_over_from_raw(raw.get("handed_over_findings"), path),
     )
 
 
@@ -105,6 +140,15 @@ def read(chat_id: int) -> Notes:
     if not path.is_file():
         return Notes(frames=(), zone="")
     return _parse(_decode(path), path)
+
+
+def handed_over(chat_id: int, findings: int) -> bool:
+    """Отдан ли аудитору отчёт по проверке, в которой сейчас `findings` записей.
+
+    Сверяется не только факт сдачи, но и число записей: дописанная после сдачи
+    запись в отданный отчёт не попала, и проверка снова в работе.
+    """
+    return read(chat_id).handed_over_findings == findings
 
 
 def _write(chat_id: int, notes: Notes) -> None:
@@ -120,6 +164,7 @@ def _write(chat_id: int, notes: Notes) -> None:
         "schema": SCHEMA,
         "zone": notes.zone,
         "frames": [{"message_id": f.message_id, "file_id": f.file_id} for f in notes.frames],
+        "handed_over_findings": notes.handed_over_findings,
     }
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".bot-notes-", suffix=".tmp")
     try:
@@ -159,6 +204,16 @@ def remember_zone(chat_id: int, zone: str) -> None:
     """Запомнить последнюю названную зону. Пустая строка стирает память о ней."""
     notes = read(chat_id)
     _write(chat_id, replace(notes, zone=zone))
+
+
+def mark_handed_over(chat_id: int, findings: int) -> None:
+    """Запомнить, что отчёт по этой проверке отдан аудитору (T153).
+
+    Зовётся ПОСЛЕ того, как PDF действительно ушёл в чат, а не по нажатию
+    кнопки: сданной проверку делает отданный отчёт, а не намерение его собрать.
+    """
+    notes = read(chat_id)
+    _write(chat_id, replace(notes, handed_over_findings=findings))
 
 
 def unclaimed(chat_id: int, used: Container[str]) -> tuple[SeenFrame, ...]:

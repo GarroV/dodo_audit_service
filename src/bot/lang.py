@@ -9,8 +9,15 @@
 Поэтому здесь чтение состояния защищено, и защищено намеренно узко: **только
 ради выбора языка**. Ошибка не глохнет — работа, которой состояние нужно
 по-настоящему (показать проверку, добавить запись, собрать отчёт), читает его
-обычным вызовом `domain.get_state` и падает, как падала. Испорченный файл
-по-прежнему остаётся отказом; но отказ этот теперь можно произнести.
+обычным вызовом `inspection.read_inspection` и падает, как падала. Испорченный
+файл по-прежнему остаётся отказом; но отказ этот теперь можно произнести.
+
+**Ловится любое исключение, а не только `DomainError`.** Первая попытка T126
+ловила только его, и защита оказалась уже задачи: нечитаемый по правам файл
+даёт `PermissionError`, двоичный мусор — `UnicodeDecodeError`, и на них бот
+немел ровно так же, как до задачи. Здесь единственное место во всём блоке, где
+такая широкая ловля уместна: у выбора языка есть честное умолчание, а у ответа
+аудитору о сбое замены нет.
 """
 
 from __future__ import annotations
@@ -18,21 +25,36 @@ from __future__ import annotations
 import logging
 
 from src import domain
-from src.domain.errors import DomainError
 
-from .texts import ui_lang_or_default
+from .inspection import read_inspection
+from .texts import DEFAULT_UI_LANG, ui_lang_or_default
 
 logger = logging.getLogger(__name__)
 
 
 def _state(chat_id: int) -> domain.Inspection | None:
     try:
-        return domain.get_state(chat_id)
-    except DomainError:
+        return read_inspection(chat_id)
+    except Exception:
         # В журнал — с разбором: путь к файлу и причина нужны тому, кто будет
         # чинить, и не нужны аудитору на точке.
         logger.exception("состояние чата %s не читается — язык взят по умолчанию", chat_id)
         return None
+
+
+def _lang(value: str | None) -> str:
+    """Язык интерфейса или умолчание — и ни одного отказа наружу.
+
+    `ui_lang_or_default` спрашивает язык стенда (`BOT_UI_LANG`) и на неизвестном
+    значении отказывает. Отказ законный и приходит на старте бота (T131), но
+    здесь он означал бы, что опечатка в переменной окружения снова делает бота
+    немым — а немота и есть то, от чего защищает весь этот модуль.
+    """
+    try:
+        return ui_lang_or_default(value)
+    except Exception:
+        logger.exception("язык стенда непригоден — взят %s", DEFAULT_UI_LANG)
+        return DEFAULT_UI_LANG
 
 
 def chat_ui_lang(chat_id: int) -> str:
@@ -42,7 +64,7 @@ def chat_ui_lang(chat_id: int) -> str:
     шагом мастера спека не просит, а падать на приветствии нельзя.
     """
     inspection = _state(chat_id)
-    return ui_lang_or_default(None if inspection is None else inspection.ui_lang)
+    return _lang(None if inspection is None else inspection.ui_lang)
 
 
 def chat_langs(chat_id: int) -> tuple[str, str]:
@@ -53,5 +75,5 @@ def chat_langs(chat_id: int) -> tuple[str, str]:
     """
     inspection = _state(chat_id)
     if inspection is None:
-        return ui_lang_or_default(None), ui_lang_or_default(None)
-    return ui_lang_or_default(inspection.ui_lang), inspection.report_lang
+        return _lang(None), _lang(None)
+    return _lang(inspection.ui_lang), inspection.report_lang
