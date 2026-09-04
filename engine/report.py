@@ -727,6 +727,30 @@ def report_path(out, out_dir, meta, lang):
     return os.path.join(d, default_name(meta, lang))
 
 
+def report_lang(asked, meta):
+    """Язык собираемого документа: `--lang`, иначе язык из шапки, иначе русский.
+
+    Незнакомый язык — отказ с ненулевым кодом (T175). Раньше он молча заменялся
+    русским, и вызов заканчивался нулём: письмо, запрошенное на немецком,
+    приходило русским, и узнать об этом можно было, только прочитав результат.
+    Опечатка в коде языка отправляла партнёру не тот документ.
+
+    Шапка проверки проверяется наравне с аргументом, хотя язык в ней валидирует
+    `init`/`meta`: состояние — обычный JSON на диске, и в расчёт приходят
+    проверки, начатые до появления валидации шапки, и файлы, поправленные
+    руками. Тот же довод, что и у нечитаемой даты проверки (T106).
+    """
+    raw = asked if asked is not None else meta.get("lang")
+    lang = str(raw or "ru").strip().lower()
+    if lang not in T:
+        where = ("передан в --lang" if asked is not None
+                 else "записан в шапке проверки; поправить: audit.py meta --lang")
+        sys.exit(f"Язык «{raw}» не заведён — {where}. Доступны: {', '.join(T)}. "
+                 f"Молчаливой замены на русский больше нет: партнёр получил бы "
+                 f"документ не на том языке, которым его просили")
+    return lang
+
+
 def main():
     p = argparse.ArgumentParser()
     s = p.add_subparsers(dest="cmd", required=True)
@@ -739,10 +763,10 @@ def main():
     a3.add_argument("--photo-map", help="JSON-карта «ссылка на кадр: путь к файлу»")
     a = p.parse_args()
     st = load_state()
+    # Язык проверяется до расчёта: он пришёл из командной строки, и отвечать
+    # на промах разбором методики значит показать человеку не ту причину.
+    lang = report_lang(a.lang, st["meta"])
     res = compute(st, load_checklist(), load_zones(), load_cfg())
-    lang = a.lang or st["meta"].get("lang") or "ru"
-    if lang not in T:
-        lang = "ru"
     if a.cmd == "letter":
         text = build_letter(res, lang)
         bad = letter_problems(text, res)
