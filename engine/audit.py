@@ -9,9 +9,13 @@
         полные критерии D1/D2/D3 по указанным вопросам
   audit.py zones
         список физических зон с долями
-  audit.py init --unit "..." [--city ...] [--partner ...] [--auditor ...] [--type ...] [--date ...] [--lang ru|en]
-        создать новую проверку (inspection.json в текущей папке)
-  audit.py meta [--unit ...] [--city ...] [--partner ...] [--auditor ...] [--date ...] [--lang ...]
+  audit.py kinds
+        виды проверки: код и слово на каждом языке печати
+  audit.py init --unit "..." [--city ...] [--partner ...] [--auditor ...] [--kind planned|repeat|unscheduled] [--date ...] [--lang ru|en]
+        создать новую проверку (inspection.json в текущей папке). Вид проверки
+        задаётся КОДОМ (--kind); словом (--type) — только для проверок,
+        заведённых до T177, и на другой язык такое слово не переводится
+  audit.py meta [--unit ...] [--city ...] [--partner ...] [--auditor ...] [--kind ...] [--date ...] [--lang ...]
         поправить шапку уже начатой проверки, не трогая зафиксированные записи
   audit.py add --qid PRD01 --level D2 --zone fridge [--photo путь] [--comment "..."] [--evidence "..."]
         зафиксировать нарушение (можно повторять одно и то же qid в разных зонах).
@@ -23,8 +27,10 @@
   audit.py photo N --add путь1,путь2 [--clear]
         доснять фото к уже зафиксированному нарушению #N
   audit.py drop N            удалить нарушение по номеру
-  audit.py info --qid INF01 --text "..."
-        заполнить информационный пункт (сильные стороны, зоны роста, вид проверки и т.п.)
+  audit.py info --qid INF01 --text "..." [--photo путь] [--clear-photos]
+        заполнить информационный пункт (сильные стороны, зоны роста и т.п.).
+        --photo можно указать несколько раз или через запятую; без него прежние
+        кадры поля остаются на месте, снимает их --clear-photos
   audit.py list              показать зафиксированное
   audit.py score             посчитать процент, букву и разбивку (JSON)
 
@@ -313,8 +319,44 @@ def cmd_zones(a):
         print(f"{z['code']} | {z['name_ru']} | {z['name_en']} | {z['share_pct']:g}%")
 
 
+def cmd_kinds(a):
+    """Виды проверки: код и слово на каждом языке печати."""
+    for code, titles in INSPECTION_KINDS.items():
+        words = " | ".join(f"{lang}={title}" for lang, title in titles.items())
+        print(f"{code} | {words}")
+
+
 LANGS = ("ru", "en")
-META_FIELDS = ("unit", "city", "partner", "contact", "auditor", "type", "date", "lang")
+META_FIELDS = ("unit", "city", "partner", "contact", "auditor", "kind", "type", "date", "lang")
+
+#: Вид проверки: код — сущность, слово — перевод (T152, T177).
+#:
+#: Слово подставляется ПРИ ПЕЧАТИ и по языку печати. Раньше оно записывалось в
+#: проверку при её заведении — по языку отчёта, выбранному тогда, — и письмо на
+#: другом языке переводить было нечем: движок сопоставлял строки таблицей
+#: `TYPE_EN` и молча возвращал исходник, если строка не совпала. За одним видом
+#: оказывалось закреплено два разных английских слова, и одно уходило партнёру.
+#:
+#: **Почему таблица в коде, а не в данных методики.** `data/` — методика
+#: управляющей компании: она лежит вне git (D002), приезжает на каждую машину
+#: отдельно и версионируется целиком отпечатком (D050). Вида проверки там нет и
+#: быть не должно — его не знают ни чек-лист, ни зоны, ни ставки, ни критерии, —
+#: а положить его туда значило бы: на свежей копии письмо не собрать вовсе,
+#: таблицу не увидеть ни в ревью, ни в тесте, на каждой машине она своя, и
+#: переименование английского слова издавало бы новую версию МЕТОДИКИ, по
+#: которой проверка якобы посчитана. Ничего из этого к виду проверки отношения
+#: не имеет, поэтому — код.
+#:
+#: Тот же перечень ведёт предметная область (`src/domain/kinds.py`): движок не
+#: импортирует `src` по контракту слоёв, поэтому таблица здесь своя. Дубль
+#: держит честным тест `test_engine_kind_code.py`, а команда `kinds` — его
+#: единственный способ прочитать эту таблицу, не импортируя движок.
+INSPECTION_KINDS = {
+    "planned": {"ru": "Плановая", "en": "Planned"},
+    "repeat": {"ru": "Повторная", "en": "Repeat"},
+    "unscheduled": {"ru": "Внеплановая", "en": "Unscheduled"},
+}
+DEFAULT_KIND = "planned"
 
 
 def clean_unit(v):
@@ -337,6 +379,49 @@ def clean_lang(v):
     if v not in LANGS:
         sys.exit(f"Язык «{v}» не поддерживается. Доступны: {', '.join(LANGS)}")
     return v
+
+
+def clean_kind(v):
+    v = (v or "").strip().lower()
+    if v not in INSPECTION_KINDS:
+        sys.exit(f"Вид проверки «{v}» неизвестен. Вид связывается кодом, а не формулировкой; "
+                 f"известные коды: {', '.join(INSPECTION_KINDS)}")
+    return v
+
+
+def kind_title(code, lang):
+    """Вид проверки словом на языке ПЕЧАТИ. Язык — параметр, а не константа.
+
+    Незнакомый код и незаведённый язык — отказ, а не откат на русский: русское
+    слово в шапке английского письма заметил бы партнёр, а не мы.
+    """
+    titles = INSPECTION_KINDS.get(code)
+    if titles is None:
+        sys.exit(f"Вид проверки «{code}» в шапке проверки неизвестен. Известные коды: "
+                 f"{', '.join(INSPECTION_KINDS)}. Файл: {os.path.abspath(STATE)}")
+    title = titles.get(lang)
+    if title is None:
+        sys.exit(f"Вид проверки «{code}» не заведён на языке «{lang}». "
+                 f"Доступны: {', '.join(titles)}")
+    return title
+
+
+def kind_fields(kind, type_word, default=None):
+    """Поля вида проверки для шапки: либо код (`kind`), либо старое слово (`type`).
+
+    Вид проверки — один факт, и хранится он в одном поле. Оба сразу означали бы,
+    что движку решать, которое из них правда; правда одна и она у вызывающего,
+    поэтому здесь отказ. `None` — «поле не названо, не трогаем».
+    """
+    if kind is not None and type_word is not None:
+        sys.exit("--kind и --type указаны вместе: вид проверки — это один факт. "
+                 "--kind задаёт код (по нему вид переводится при печати), --type остался "
+                 "для проверок, заведённых словом; оставьте один")
+    if kind is not None:
+        return {"kind": clean_kind(kind), "type": ""}
+    if type_word is not None:
+        return {"kind": "", "type": type_word}
+    return None if default is None else {"kind": default, "type": ""}
 
 
 def inspection_date(st):
@@ -369,7 +454,8 @@ def inspection_date(st):
 def cmd_init(a):
     st = {"meta": {"unit": clean_unit(a.unit), "city": a.city or "", "partner": a.partner or "",
                    "contact": a.contact or "",
-                   "auditor": a.auditor or "", "type": a.type or "Плановая",
+                   "auditor": a.auditor or "",
+                   **kind_fields(a.kind, a.type, default=DEFAULT_KIND),
                    "date": clean_date(a.date or date.today().isoformat()),
                    "lang": clean_lang(a.lang or "ru")},
           "findings": [], "info": {}, "seq": 0}
@@ -390,6 +476,12 @@ def cmd_meta(a):
         given["date"] = clean_date(given["date"])
     if "lang" in given:
         given["lang"] = clean_lang(given["lang"])
+    # Вид проверки — одно поле на один факт: назвали код, значит старое слово
+    # рядом с ним не остаётся, и наоборот. Иначе после правки в шапке лежали бы
+    # оба, и что из них печатать, решал бы порядок проверок в коде.
+    pair = kind_fields(given.pop("kind", None), given.pop("type", None))
+    if pair:
+        given.update(pair)
     st["meta"].update(given)
     save_state(st)
     print(json.dumps(st["meta"], ensure_ascii=False))
@@ -532,9 +624,42 @@ def cmd_drop(a):
     print("удалено")
 
 
+def info_field(v):
+    """Информационное поле как пара «текст + кадры» (T172).
+
+    До T172 поле хранилось строкой, и места под снимок в этой структуре не было:
+    бот кадр принимал и честно говорил аудитору, что в отчёт попадёт только
+    текст. Форма стала парой, а строка осталась читаемой — состояние это обычный
+    JSON на диске, и проверки, заведённые раньше, приходят какими есть.
+
+    Одна функция на чтение состояния и на печать отчёта, по прецеденту
+    `is_comment_row`: разойдись они, поле старой проверки читалось бы в одном
+    месте и терялось в другом.
+    """
+    if isinstance(v, dict):
+        return {"text": str(v.get("text") or ""),
+                "photos": [str(x) for x in (v.get("photos") or []) if x]}
+    return {"text": str(v or ""), "photos": []}
+
+
 def cmd_info(a):
+    """Записать информационное поле: текст и, если он есть, кадр рядом с ним.
+
+    `--photo` не передан — прежние кадры остаются: расшифровку голоса правят
+    повторной записью того же поля (D069), и кадр к этой правке отношения не
+    имеет. Снять приложенный по ошибке кадр — `--clear-photos`; без неё кадр
+    уехал бы партнёру, и снять его было бы нечем.
+    """
+    if a.photo and a.clear_photos:
+        sys.exit("--photo и --clear-photos указаны вместе: непонятно, приложить кадры "
+                 "или снять. Оставьте одно")
     st = load_state()
-    st.setdefault("info", {})[a.qid.strip().upper()] = a.text
+    info = st.setdefault("info", {})
+    qid = a.qid.strip().upper()
+    shots = split_photos(a.photo)
+    if not shots and not a.clear_photos:
+        shots = info_field(info.get(qid))["photos"]
+    info[qid] = {"text": a.text, "photos": shots}
     save_state(st)
     print("ок")
 
@@ -550,7 +675,10 @@ def cmd_list(a):
         ph = f" 📷×{n_ph}" if n_ph else ""
         print(f"#{f['n']} {f['level']} | {zn.get(f['zone'], f['zone'])} | {f['qid']} {q[:80]}{ph}")
     for k, v in (st.get("info") or {}).items():
-        print(f"[инфо] {k}: {v[:120]}")
+        поле = info_field(v)
+        n_ph = len(поле["photos"])
+        ph = f" 📷×{n_ph}" if n_ph else ""
+        print(f"[инфо] {k}: {поле['text'][:120]}{ph}")
 
 
 def compute(st, cl_rows, zones, cfg):
@@ -639,7 +767,9 @@ def compute(st, cl_rows, zones, cfg):
             "grade_label_ru": grade.get("label_ru", ""), "grade_label_en": grade.get("label_en", ""),
             "counts": counts, "deductions": round(deductions, 2),
             "zones": per_zone, "by_process": by_process, "findings": items,
-            "info": st.get("info", {})}
+            # Форма поля приводится к паре «текст + кадры» здесь, один раз: дальше
+          # её читают и отчёт, и письмо, и вызывающий через `score --json`.
+          "info": {k: info_field(v) for k, v in (st.get("info") or {}).items()}}
 
 
 def cmd_score(a):
@@ -667,8 +797,9 @@ def main():
     i = s.add_parser("index"); i.add_argument("--zone"); i.add_argument("--process"); i.add_argument("--q"); i.set_defaults(fn=cmd_index)
     d = s.add_parser("detail"); d.add_argument("ids"); d.set_defaults(fn=cmd_detail)
     z = s.add_parser("zones"); z.set_defaults(fn=cmd_zones)
+    k = s.add_parser("kinds"); k.set_defaults(fn=cmd_kinds)
     n = s.add_parser("init")
-    for f in ("unit", "city", "partner", "contact", "auditor", "type", "date", "lang"):
+    for f in META_FIELDS:
         n.add_argument(f"--{f}")
     n.set_defaults(fn=cmd_init)
     mt = s.add_parser("meta")
@@ -693,7 +824,11 @@ def main():
     ph.add_argument("--add", action="append"); ph.add_argument("--clear", action="store_true")
     ph.set_defaults(fn=cmd_photo)
     dr = s.add_parser("drop"); dr.add_argument("n", type=int); dr.set_defaults(fn=cmd_drop)
-    inf = s.add_parser("info"); inf.add_argument("--qid", required=True); inf.add_argument("--text", required=True); inf.set_defaults(fn=cmd_info)
+    inf = s.add_parser("info"); inf.add_argument("--qid", required=True); inf.add_argument("--text", required=True)
+    inf.add_argument("--photo", action="append",
+                     help="путь к кадру поля; можно указать несколько раз или через запятую")
+    inf.add_argument("--clear-photos", action="store_true", help="снять приложенные кадры")
+    inf.set_defaults(fn=cmd_info)
     ls = s.add_parser("list"); ls.set_defaults(fn=cmd_list)
     sc = s.add_parser("score"); sc.add_argument("--json", action="store_true"); sc.set_defaults(fn=cmd_score)
 

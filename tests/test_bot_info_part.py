@@ -74,9 +74,15 @@ def начать(report_lang: str = "ru", ui_lang: str = "ru") -> None:
 
 
 def записано() -> dict[str, str]:
-    """Блок `info` проверки так, как его видит движок и отчёт."""
+    """Тексты полей блока `info` так, как их видит отчёт.
+
+    С T172 поле хранится парой «текст + кадры» — под снимок в прежней строке
+    места не было. Здесь берётся текст: про кадры этот набор ничего не
+    утверждает, и его проверки от смены формы поля не зависят.
+    """
     state = json.loads(state_path(CHAT_ID).read_text(encoding="utf-8"))
-    return dict(state.get("info") or {})
+    поля = dict(state.get("info") or {})
+    return {code: (v["text"] if isinstance(v, dict) else v) for code, v in поля.items()}
 
 
 async def дойти_до_информационной_части(dp: object, bot: object) -> None:

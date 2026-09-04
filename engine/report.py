@@ -18,7 +18,8 @@ from urllib.parse import quote
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from audit import (  # noqa: E402
-    compute, inspection_date, load_cfg, load_checklist, load_state, load_zones, state_dir,
+    compute, info_field, inspection_date, kind_title, load_cfg, load_checklist, load_state,
+    load_zones, state_dir,
 )
 
 # Каталог вывода по умолчанию — рядом с состоянием проверки, но не в соседи
@@ -77,8 +78,6 @@ T = {
         "no_photo": "No photo taken",
     },
 }
-TYPE_EN = {"Плановая": "Scheduled", "Повторная": "Follow-up", "Внеплановая": "Unscheduled",
-           "Платная после комитета": "Paid, post-committee"}
 GRADE_COLOR = {"A": "#1E7A45", "B": "#7A6A17", "C": "#B4610F", "D": "#A81E1E"}
 
 
@@ -239,10 +238,10 @@ tr.z0 td { background:#FCEFEF; }
 .f .h { font-weight:600; }
 .f .m { color:#6F6880; font-size:9pt; margin-top:.8mm; }
 .f .c { margin-top:1mm; font-size:9.5pt; }
-.f .shots { margin-top:1.5mm; }
-.f .miss { display:inline-block; box-sizing:border-box; width:78mm; padding:9mm 4mm; margin:0 2mm 2mm 0; text-align:center; color:#A81E1E; background:#FCEFEF; border:1pt dashed #D08A8A; border-radius:1.5mm; font-size:9pt; }
+.f .shots, .info .shots { margin-top:1.5mm; }
+.f .miss, .info .miss { display:inline-block; box-sizing:border-box; width:78mm; padding:9mm 4mm; margin:0 2mm 2mm 0; text-align:center; color:#A81E1E; background:#FCEFEF; border:1pt dashed #D08A8A; border-radius:1.5mm; font-size:9pt; }
 .f .nophoto { display:inline-block; margin-top:1.5mm; padding:.9mm 2.5mm; color:#6F6880; background:#F6F4FA; border:.6pt solid #E0DAEA; border-radius:1.2mm; font-size:8.8pt; }
-.f img { max-width:78mm; max-height:70mm; margin:0 2mm 2mm 0; border:1pt solid #E0DAEA; border-radius:1.5mm; }
+.f img, .info img { max-width:78mm; max-height:70mm; margin:0 2mm 2mm 0; border:1pt solid #E0DAEA; border-radius:1.5mm; }
 .zh { margin:4.5mm 0 1mm 0; font-weight:bold; color:#3F2A63; font-size:11pt; page-break-after:avoid; page-break-inside:avoid; }
 .note { color:#6F6880; font-size:8.8pt; margin-top:3mm; line-height:1.35; }
 .info p { margin:1.2mm 0; }
@@ -261,9 +260,6 @@ def build_html(res, lang, photos, src=None):
     t = T[lang]
     src = Photos() if src is None else src
     m = res["meta"]
-    itype = m.get("type", "")
-    if lang == "en":
-        itype = TYPE_EN.get(itype, itype)
     cl = {r["id"]: r for r in load_checklist()}
     qk = "question_en" if lang == "en" else "question_ru"
     pk = "process_en" if lang == "en" else "process_ru"
@@ -354,7 +350,21 @@ def build_html(res, lang, photos, src=None):
                 # Маркер класса срезаем так же, как у формулировки нарушения
                 # ниже: партнёру он не адресован, а до T159 поля не печатались
                 # вовсе, и увидеть это было негде.
-                h.append(f'<p><span class="k">{esc(clean_q(q))}:</span> {esc(v)}</p>')
+                поле = info_field(v)
+                h.append(f'<p><span class="k">{esc(clean_q(q))}:</span> {esc(поле["text"])}</p>')
+                # Кадр поля печатается всегда, как и кадры записей приложения:
+                # режим `--photos` управляет разделом нарушений, а приложение
+                # показывает доказательства независимо от него (T163).
+                #
+                # Пометки «Без фотофиксации» (D074) у поля НЕТ намеренно: она
+                # отвечает на вопрос «где фотография» у записи, которая обычно
+                # с кадром, а информационное поле — это текстовый ответ, и у
+                # большинства полей (даты, «да/нет», зоны роста) кадра не
+                # бывает по сути. Пометка на каждом из них стала бы шумом и
+                # обесценила бы себя там, где значит дело.
+                if поле["photos"]:
+                    h.append('<div class="shots">'
+                             + "".join(src.html(x, t) for x in поле["photos"]) + "</div>")
             h.append("</div>")
         for f in sorted(notes, key=lambda x: x["n"]):
             if True:
@@ -594,9 +604,42 @@ def plan_due_date(res):
     for k, v in (res.get("info") or {}).items():
         if v and (re.search(r"план\w* действий", (cl.get(k, {}).get("question_ru") or "").lower())
                   or "action plan" in (cl.get(k, {}).get("question_en") or "").lower()):
-            return str(v)
+            return str(info_field(v)["text"])
     days = int(load_cfg().get("plan_due_days", 10))
     return (inspection_date(res) + timedelta(days=days)).isoformat()
+
+
+def inspection_kind(meta, lang):
+    """Вид проверки словом на языке ПЕЧАТИ, а не на языке заведения проверки (T177).
+
+    Код — сущность, слово — перевод, и подставляется он здесь. Раньше слово
+    записывалось в проверку при её заведении, по языку отчёта того дня, а письмо
+    на другом языке переводилось сопоставлением строк (`TYPE_EN`) с молчаливым
+    возвратом исходника: за одним видом стояло два разных английских слова, и
+    одно уходило партнёру.
+
+    Проверка, заведённая до этой правки, хранит вместо кода готовое слово. На её
+    собственном языке оно печатается как записано — документ не меняется ни в
+    знаке. На чужом языке — отказ: подставить в английское письмо слово,
+    записанное по-русски, значит повторить ровно тот дефект, ради которого всё
+    затевалось, а угадать код по формулировке нельзя — формулировки правятся и
+    переводятся, коды нет. Чинится одной командой, и она названа в отказе.
+    """
+    code = (meta.get("kind") or "").strip()
+    if code:
+        return kind_title(code, lang)
+    word = (meta.get("type") or "").strip()
+    if not word:
+        return ""
+    recorded = (meta.get("lang") or "ru").strip().lower()
+    if recorded != lang:
+        sys.exit(
+            f"Вид проверки записан словом «{word}» на языке «{recorded}», а документ "
+            f"собирается на «{lang}» — перевести нечем: слово это не код. "
+            f"Свяжите вид проверки кодом: audit.py meta --kind КОД "
+            f"(коды показывает audit.py kinds)"
+        )
+    return word
 
 
 def build_letter(res, lang):
@@ -624,8 +667,7 @@ def build_letter(res, lang):
     return template.format(
         unit=m.get("unit", ""), date=fmt_date(m.get("date")),
         city=(f", {m['city']}" if m.get("city") else ""),
-        type=(TYPE_EN.get(m.get("type", ""), m.get("type", "")) if lang == "en"
-              else m.get("type", "")),
+        type=inspection_kind(m, lang),
         grade=res["grade"], pct=f"{res['pct']:g}",
         grade_note=GRADE_NOTE[lang].get(res["grade"], ""),
         summary_lines=summary_lines(res, lang, clean), critical_block=crit,
@@ -699,6 +741,30 @@ def report_path(out, out_dir, meta, lang):
     return os.path.join(d, default_name(meta, lang))
 
 
+def report_lang(asked, meta):
+    """Язык собираемого документа: `--lang`, иначе язык из шапки, иначе русский.
+
+    Незнакомый язык — отказ с ненулевым кодом (T175). Раньше он молча заменялся
+    русским, и вызов заканчивался нулём: письмо, запрошенное на немецком,
+    приходило русским, и узнать об этом можно было, только прочитав результат.
+    Опечатка в коде языка отправляла партнёру не тот документ.
+
+    Шапка проверки проверяется наравне с аргументом, хотя язык в ней валидирует
+    `init`/`meta`: состояние — обычный JSON на диске, и в расчёт приходят
+    проверки, начатые до появления валидации шапки, и файлы, поправленные
+    руками. Тот же довод, что и у нечитаемой даты проверки (T106).
+    """
+    raw = asked if asked is not None else meta.get("lang")
+    lang = str(raw or "ru").strip().lower()
+    if lang not in T:
+        where = ("передан в --lang" if asked is not None
+                 else "записан в шапке проверки; поправить: audit.py meta --lang")
+        sys.exit(f"Язык «{raw}» не заведён — {where}. Доступны: {', '.join(T)}. "
+                 f"Молчаливой замены на русский больше нет: партнёр получил бы "
+                 f"документ не на том языке, которым его просили")
+    return lang
+
+
 def main():
     p = argparse.ArgumentParser()
     s = p.add_subparsers(dest="cmd", required=True)
@@ -711,10 +777,10 @@ def main():
     a3.add_argument("--photo-map", help="JSON-карта «ссылка на кадр: путь к файлу»")
     a = p.parse_args()
     st = load_state()
+    # Язык проверяется до расчёта: он пришёл из командной строки, и отвечать
+    # на промах разбором методики значит показать человеку не ту причину.
+    lang = report_lang(a.lang, st["meta"])
     res = compute(st, load_checklist(), load_zones(), load_cfg())
-    lang = a.lang or st["meta"].get("lang") or "ru"
-    if lang not in T:
-        lang = "ru"
     if a.cmd == "letter":
         text = build_letter(res, lang)
         bad = letter_problems(text, res)
