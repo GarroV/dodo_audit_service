@@ -327,15 +327,15 @@ TEXTS: dict[str, dict[str, str]] = {
     # бывает: текстом стала формулировка модели, и звать её словами аудитора
     # было бы враньём. Таблицы после каждого кадра нет (`docs/06-mvp-bot.md`).
     "record.confirmed": {
-        "ru": "{line}\n{title}\n\nВ отчёт: «{note}»",
-        "en": "{line}\n{title}\n\nInto the report: “{note}”",
+        "ru": "{line}{guess}\n{title}\n\nВ отчёт: «{note}»",
+        "en": "{line}{guess}\n{title}\n\nInto the report: “{note}”",
     },
     # Тот же показ, когда формулировкой записи стал сам вопрос пункта: так
     # ложится ручной выбор пункта по кадру без комментария (`_save_manual`).
     # Показать одно и то же дважды — выдать за две вещи одну.
     "record.confirmed_plain": {
-        "ru": "{line}\n{title}",
-        "en": "{line}\n{title}",
+        "ru": "{line}{guess}\n{title}",
+        "en": "{line}{guess}\n{title}",
     },
     "record.fixed": {
         "ru": (
