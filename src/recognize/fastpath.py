@@ -17,21 +17,32 @@
 2. **Слова покрывают строку карты целиком.** Не «задели общим словом», а
    произнесли подсказку `data/photo-cues.md` полностью. Порог сужения (два
    слова или одно различающее) для решения за человека слишком мягкий:
-   «Пол в курьерской зоне» задевает строку «Пол, стены, потолок, двери на
-   кухне» одним словом из пяти.
-3. **Строка даёт ровно один код.** Карта различает грязь и поломку одного
-   объекта колонками («Печь | CLN05 | TEH05») и сама объясняет разницу —
-   значит, слова должны сказать, о чём речь. Не сказали или сказали и то и
-   другое — не однозначно. Слово при отрицании при этом не считается: «печь
-   без нагара» и «нагара нет» — не про нагар. Строка вида «PRD09, PRD11» —
-   выбор из двух пунктов, предложенный самой картой, и быстрым путём не
-   проходит никогда.
+   комментарий про пол в подсобной зоне задевает перечислительную строку карты
+   про полы и стены производственных помещений одним словом из пяти, и по
+   такому касанию показывать готовый пункт нельзя.
+3. **Строка даёт ровно один код — в названной зоне.** Карта различает грязь и
+   поломку одного объекта колонками («Печь | CLN05 | TEH05») и сама объясняет
+   разницу — значит, слова должны сказать, о чём речь. Не сказали или сказали
+   и то и другое — не однозначно. Слово при отрицании при этом не считается:
+   «печь без нагара» и «нагара нет» — не про нагар. Слова колонок берутся из
+   встроенного минимума **и из самой карты**: какими словами говорят аудиторы,
+   знает управляющая компания (T143, D066), и дописывать их выпуском кода
+   значило бы держать её словарь в чужих руках.
 4. **У пункта единственный допустимый класс.** Где классов несколько, разницу
    задаёт то, чего в словах нет: сколько упаковок, как долго, насколько
    массово. «Живые насекомые» — это D1 или D3 по массовости, и решает её
    человек.
 5. **Пункт применим к названной зоне и не служебный.** Расхождение слов и
    места — работа для модели, а не повод показать кнопку.
+
+**Зона участвует в решении, а не проверяется в конце (T143).** Названная
+человеком зона сужает коды **внутри** покрытой строки — и только те, чьи
+перечни зон не пересекаются: тогда строка не предлагает выбор, а перечисляет
+один объект по местам («пол на кухне» и «пол в зале» — разные пункты). Строка
+вида «PRD09, PRD11» остаётся выбором самой карты и быстрым путём не проходит
+никогда — теперь как следствие этого правила, а не отдельным запретом. Сами
+покрытые строки зоной **не отбрасываются**: строка, которая в названной зоне
+не ведёт никуда, — это громкий отказ, а не повод ответить по соседней.
 
 Формулировку быстрый путь не пишет вообще: на кнопке стоит вопрос чек-листа,
 текстом записи остаются слова самого аудитора. Правила 2–4 (масштаб за кадром,
@@ -46,6 +57,7 @@ from src.domain import allowed_levels, get_item, list_items
 
 from .config import DEFAULT_LANG
 from .cues import Cue, load_cues, stems, tokens
+from .cues import column_words as map_column_words
 from .shortlist import MANUAL_ONLY
 
 #: Почему быстрый путь не сработал. Строки, а не флаги: их видно в замере
@@ -132,13 +144,28 @@ def _column_words(note: str) -> set[str]:
     return picked
 
 
-#: Заголовок колонки → словарь, которым она выбирается. Заголовок, которого
-#: здесь нет («Кандидаты»), словами не выбирается никогда: строка с двумя
-#: такими колонками останется неоднозначной, и это правильный отказ.
-COLUMN_VOCABULARY: dict[str, frozenset[str]] = {
+#: Заголовок колонки → **встроенный минимум** слов, которым она выбирается.
+#: Заголовок, которого нет ни здесь, ни в карте («Кандидаты»), словами не
+#: выбирается никогда: строка с двумя такими колонками останется неоднозначной,
+#: и это правильный отказ.
+BUILTIN_COLUMN_VOCABULARY: dict[str, frozenset[str]] = {
     "грязь": _vocabulary(DIRT_WORDS),
     "поломка": _vocabulary(BREAKAGE_WORDS),
 }
+
+
+def _vocabulary_now() -> dict[str, frozenset[str]]:
+    """Словарь колонок: встроенный минимум плюс слова из карты (T143).
+
+    Сложение, а не замена: раздел, забытый в новой версии карты, не должен
+    молча отключать различение грязи и поломки, а владелец про этот механизм
+    сказал «дополняем наш список терминов» (D077). Карта читается на каждом
+    вызове по той же причине, что и подсказки: методику подкладывают снаружи.
+    """
+    merged = dict(BUILTIN_COLUMN_VOCABULARY)
+    for header, words in map_column_words().items():
+        merged[header] = merged.get(header, frozenset()) | words
+    return merged
 
 
 @dataclass(frozen=True)
@@ -167,7 +194,7 @@ def _covered(words: set[str]) -> list[Cue]:
     return [cue for cue in load_cues() if (phrase := stems(cue.phrase)) and phrase <= words]
 
 
-def _resolve(cue: Cue, column_words: set[str]) -> tuple[str, ...]:
+def _resolve(cue: Cue, spoken: set[str], vocabulary: dict[str, frozenset[str]]) -> tuple[str, ...]:
     """Коды строки после разбора колонок. Пусто — колонка не выбрана словами."""
     distinct = {column[1] for column in cue.by_column}
     if len(distinct) == 1:
@@ -175,9 +202,48 @@ def _resolve(cue: Cue, column_words: set[str]) -> tuple[str, ...]:
     matched = [
         codes
         for header, codes in cue.by_column
-        if COLUMN_VOCABULARY.get(header.strip().lower(), frozenset()) & column_words
+        if vocabulary.get(header.strip().lower(), frozenset()) & spoken
     ]
     return matched[0] if len(matched) == 1 else ()
+
+
+def _offered(codes: tuple[str, ...]) -> bool:
+    """Все ли коды строки вообще предлагаются разбором.
+
+    Смешанная строка (служебный пункт рядом с нарушением) — не повод показать
+    нарушение и промолчать про остальное: это ошибка карты, и она должна быть
+    видна отказом, а не тихим отбрасыванием половины строки.
+    """
+    return all(get_item(c).kind == "violation" and c not in MANUAL_ONLY for c in codes)
+
+
+def _separable_by_zone(codes: tuple[str, ...]) -> bool:
+    """Перечисляет ли строка один объект по местам — или предлагает выбор (T143).
+
+    Зона вправе развести коды строки только тогда, когда их перечни зон **не
+    пересекаются**: тогда строка не выбирает между двумя вопросами, а называет,
+    как один объект заведён в методике в разных местах («пол на кухне» и «пол в
+    зале» — разные пункты про одно и то же).
+
+    Пересеклись — это выбор, предложенный самой картой («PRD09, PRD11»), и зона
+    его не решает: там, где применимы оба, строка честно неоднозначна, и
+    отвечать однозначно в соседней зоне значило бы дать разный ответ на один
+    комментарий по причине, которой человеку не видно.
+
+    Пункт без перечня зон применим везде (`ChecklistItem.applies_to`), поэтому
+    развести его зоной нельзя ни с чем.
+    """
+    zone_sets: list[set[str]] = []
+    for code in codes:
+        zones = get_item(code).zones
+        if not zones or zones == ["*"]:
+            return False
+        zone_sets.append(set(zones))
+    return all(
+        not (first & second)
+        for index, first in enumerate(zone_sets)
+        for second in zone_sets[index + 1 :]
+    )
 
 
 def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> FastPath:
@@ -186,6 +252,13 @@ def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> 
     Возвращает либо пункт (`item`), либо причину отказа (`reason`). Отказ —
     обычный ответ, а не сбой: он означает «дальше как раньше, спрашиваем
     модель», и на боевых данных так заканчивается большинство записей.
+
+    **Зона участвует в решении, а не проверяется последней (T143).** Она
+    сужает коды **внутри** покрытой строки — но не отбрасывает саму строку:
+    строка, которая в названной зоне не ведёт никуда, остаётся отказом
+    `WRONG_ZONE`. Замер объясняет, почему именно так: на боевых записях
+    отбрасывание строк по зоне даёт одно лишнее срабатывание из семнадцати, и
+    оно неверное.
     """
     if zone_hint is None:
         return FastPath(None, NO_ZONE)
@@ -197,33 +270,38 @@ def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> 
     if not covered:
         return FastPath(None, NO_CUE)
 
-    column_words = _column_words(note)
+    spoken = _column_words(note)
+    vocabulary = _vocabulary_now()
     picked: dict[str, str] = {}
     for cue in covered:
-        codes = _resolve(cue, column_words)
+        codes = _resolve(cue, spoken, vocabulary)
         if not codes:
             return FastPath(None, NO_COLUMN)
-        if len(codes) > 1:
+        # Вид пункта — раньше зоны: сводная строка процесса применима во всех
+        # зонах сразу, и зональный отказ подменил бы правило 8 неверной причиной.
+        if not _offered(codes):
+            return FastPath(None, NOT_OFFERED)
+        if len(codes) > 1 and not _separable_by_zone(codes):
             return FastPath(None, SEVERAL_ITEMS)
-        picked.setdefault(codes[0], cue.phrase)
+        applicable = tuple(code for code in codes if code in zone_codes)
+        if not applicable:
+            return FastPath(None, WRONG_ZONE)
+        if len(applicable) > 1:
+            return FastPath(None, SEVERAL_ITEMS)
+        picked.setdefault(applicable[0], cue.phrase)
     if len(picked) > 1:
         return FastPath(None, SEVERAL_ITEMS)
 
     code, phrase = next(iter(picked.items()))
-    item = get_item(code)
-    if item.kind != "violation" or code in MANUAL_ONLY:
-        return FastPath(None, NOT_OFFERED)
     levels = allowed_levels(code)
     if len(levels) != 1:
         return FastPath(None, SEVERAL_LEVELS)
-    if code not in zone_codes:
-        return FastPath(None, WRONG_ZONE)
     return FastPath(
         FastItem(
             code=code,
             level=levels[0],
             zone=zone_hint,
-            title=item.question(lang),
+            title=get_item(code).question(lang),
             cue=phrase,
         ),
         "",
