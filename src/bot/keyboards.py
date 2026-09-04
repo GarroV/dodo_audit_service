@@ -185,6 +185,11 @@ MANUAL_PAGE_SIZE = 8
 #: телефоне в три строки.
 BUTTON_TITLE_LIMIT = 34
 
+#: Сколько кнопок выбора кандидата ставить в ряд. Было пять — под голую цифру.
+#: С надписью «Записать №1» (T136) пять в ряд на телефоне сжимаются в нечитаемое,
+#: а кандидатов модель возвращает единицы, так что ряд почти всегда один.
+PICK_BUTTONS_PER_ROW = 3
+
 
 def _short(text: str, limit: int = BUTTON_TITLE_LIMIT) -> str:
     text = " ".join(text.split())
@@ -204,16 +209,29 @@ def analyze_keyboard(anchor_id: int, lang: str) -> InlineKeyboardMarkup:
 
 
 def candidates_keyboard(count: int, lang: str) -> InlineKeyboardMarkup:
-    """Кандидаты номерами плюс выход на ручной перечень и отказ.
+    """Кандидаты действием плюс выход на ручной перечень и отказ.
 
-    Номер, а не формулировка: в `callback_data` едет место в показанном списке,
-    и переводить его не надо. Сами формулировки — в тексте сообщения, кнопке
-    такой длины не влезть.
+    В `callback_data` едет место в показанном списке — его переводить не надо, и
+    менялось здесь не оно. Менялась НАДПИСЬ (T136, issue #107): она была голой
+    цифрой, и ряд читался как «1 // Выбрать пункт // Не записывать» — номер
+    рядом с двумя глаголами, то есть подпись к чему-то, а не действие.
+
+    Номер в надписи остаётся ровно там, где он что-то связывает: кандидатов
+    несколько, и надо понять, какая кнопка какой строке перечня отвечает. При
+    единственном кандидате его нет — номер, у которого нет второго, лишний.
+
+    Сама формулировка на кнопку не выносится: в тексте сообщения она занимает
+    две строки, а в кнопку не влезает и обрезается до неузнаваемости.
     """
     builder = InlineKeyboardBuilder()
     for index in range(count):
-        builder.button(text=str(index + 1), callback_data=f"{PICK_PREFIX}{index}")
-    builder.adjust(min(count, 5) or 1)
+        builder.button(
+            text=t("btn.pick_single", lang)
+            if count == 1
+            else t("btn.pick_numbered", lang, index=index + 1),
+            callback_data=f"{PICK_PREFIX}{index}",
+        )
+    builder.adjust(min(count, PICK_BUTTONS_PER_ROW) or 1)
     builder.row(InlineKeyboardButton(text=t("btn.manual", lang), callback_data=MANUAL_CALLBACK))
     builder.row(InlineKeyboardButton(text=t("btn.skip", lang), callback_data=SKIP_CALLBACK))
     return builder.as_markup()
