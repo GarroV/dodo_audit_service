@@ -177,16 +177,34 @@ async def _show_candidates(message: Message, proposal: Proposal, lang: str) -> N
 
 
 async def _show_manual_page(message: Message, proposal: Proposal, page: int, lang: str) -> None:
-    """Страница ручного перечня: 70+ пунктов зоны кнопками разом не показать."""
+    """Страница ручного перечня: 70+ пунктов зоны кнопками разом не показать.
+
+    Занятые пары «пункт + зона» помечаются здесь же (T173), но не на кнопке:
+    под формулировку там отведено 34 знака, и пометка съела бы ровно то, ради
+    чего аудитор перечень открыл. Она уходит в текст над клавиатурой — у
+    ручного перечня он до сих пор нёс только номер страницы, тогда как у
+    перечня модели там стоит сам список.
+
+    Пометка нужна тут по той же причине, что и в перечне модели: занятый пункт
+    попадает в перечень штатно (на кадре бывает второе нарушение), и
+    непомеченным он неотличим от остальных — нажатие даёт отказ по поводу, о
+    котором бот уже говорил.
+    """
     pages = max(1, ceil(len(proposal.manual) / MANUAL_PAGE_SIZE))
     page = max(0, min(page, pages - 1))
     start = page * MANUAL_PAGE_SIZE
-    titles = [
-        (start + shift, item.code, item.title)
-        for shift, item in enumerate(proposal.manual[start : start + MANUAL_PAGE_SIZE])
-    ]
+    shown = proposal.manual[start : start + MANUAL_PAGE_SIZE]
+    titles = [(start + shift, item.code, item.title) for shift, item in enumerate(shown)]
+    # Зона перечня — та, по которой он собран: пара, а не код. Тот же пункт в
+    # другой зоне законен, и пометить его значило бы отговаривать от верного.
+    taken = view.manual_taken_line(
+        [item.code for item in shown],
+        proposal.zone_hint,
+        lang,
+        refusal.occupied_pairs(message.chat.id),
+    )
     await message.answer(
-        t("record.manual_page", lang, page=page + 1, pages=pages),
+        t("record.manual_page", lang, page=page + 1, pages=pages) + taken,
         reply_markup=manual_keyboard(titles, page, pages, lang),
     )
 
