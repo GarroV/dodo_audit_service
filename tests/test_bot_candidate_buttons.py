@@ -67,7 +67,7 @@ async def test_в_ряду_предложения_нет_кнопки_из_од�
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Сам дефект: цифра рядом с двумя глаголами читается как номер, а не действие."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -81,7 +81,7 @@ async def test_единственный_кандидат_подписан_гла
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Номер, у которого нет второго, не связывает ни с чем — он просто шум."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -95,7 +95,7 @@ async def test_нескольких_кандидатов_кнопка_назыв
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Номер нужен, чтобы связать кнопку со строкой перечня, — но при глаголе."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -111,7 +111,7 @@ async def test_код_кнопки_не_изменился_и_запись_по_
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Надпись — для человека, `callback_data` — для связи: менялось только первое."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -129,7 +129,7 @@ async def test_надписи_кнопок_переводятся(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Язык — параметр и на кнопке: русский глагол в английском разговоре недопустим."""
-    start_inspection(CHAT_ID, "Belgrade 2", "Planned", "en", ui_lang="en")
+    start_inspection(CHAT_ID, "Belgrade 2", "planned", "en", ui_lang="en")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 

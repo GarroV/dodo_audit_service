@@ -31,7 +31,7 @@ pytestmark = requires_db
 
 
 def _начать(chat_id: int, unit: str = "Белград-1") -> None:
-    start_inspection(chat_id, unit=unit, kind="Плановая", report_lang="ru")
+    start_inspection(chat_id, unit=unit, kind="planned", report_lang="ru")
     add_finding(chat_id, code="CLN05", level="D1", zone="hot_kitchen", text="нагар на печи")
     add_finding(chat_id, code="CLN06", level="D1", zone="hot_kitchen", text="течь под мойкой")
 

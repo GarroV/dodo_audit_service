@@ -46,6 +46,7 @@ from typing import Any
 
 from ..db.models import InspectionDetail
 from ..domain.config import DATA_FILES
+from ..domain.kinds import kind_title
 from ..domain.models import TEXT_LANGS
 from ..domain.version import compose
 from .checklist import (
@@ -206,7 +207,12 @@ def state_json(detail: InspectionDetail, *, lang: str) -> str:
                 "partner": шапка["partner"],
                 "contact": шапка["contact"],
                 "auditor": шапка["auditor"],
-                "type": строка.kind,
+                # Вид проверки в базе лежит кодом (T152), а движок печатает
+                # шапку словом. Слово подставляется здесь и по языку ПИСЬМА:
+                # письмо по одной и той же проверке собирается на разных
+                # языках, и слово, записанное однажды, было бы верным ровно на
+                # одном из них.
+                "type": kind_title(строка.kind, lang),
                 "date": строка.inspection_date.isoformat(),
                 "lang": lang,
             },

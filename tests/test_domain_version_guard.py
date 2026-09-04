@@ -77,7 +77,7 @@ def издать_заново(data_dir: Path) -> None:
 
 def начать(методика: Path) -> tuple[str, str, str]:
     """Начатая проверка с одной штрафной записью. Возвращает пункт, зону, класс."""
-    start_inspection(CHAT, unit="Тестовая", kind="full", report_lang="ru")
+    start_inspection(CHAT, unit="Тестовая", kind="planned", report_lang="ru")
     код, зона, класс = штрафной_пункт(методика)
     add_finding(CHAT, код, класс, зона, "формулировка теста")
     return код, зона, класс

@@ -53,7 +53,7 @@ async def test_four_bare_frames_then_four_comments_pair_up_by_fifo_order(
     domain_env: object,
 ) -> None:
     """Четыре кадра без подписи, затем четыре комментария — i-й комментарий достаётся i-му кадру."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -73,7 +73,7 @@ async def test_captioned_frames_in_the_middle_do_not_steal_the_bare_frames_comme
     domain_env: object,
 ) -> None:
     """Кадры с подписью связались сами собой, комментарий достался кадру без подписи."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -99,7 +99,7 @@ async def test_reply_to_middle_frame_then_plain_comment_takes_oldest_remaining(
     domain_env: object,
 ) -> None:
     """Reply забирает свой кадр, обычный комментарий — старейший из оставшихся, не тот же снова."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -128,7 +128,7 @@ async def test_album_plus_two_singles_then_three_comments_keep_arrival_order(
     domain_env: object,
 ) -> None:
     """Альбом остаётся одним материалом с первым комментарием, одиночные — вторым и третьим."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -158,7 +158,7 @@ async def test_album_plus_two_singles_then_three_comments_keep_arrival_order(
 
 async def test_extra_frame_without_a_matching_comment_is_not_lost(domain_env: object) -> None:
     """Кадров больше комментариев — лишний ждёт и достаётся комментарию, пришедшему позже."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -179,7 +179,7 @@ async def test_extra_frame_without_a_matching_comment_is_not_lost(domain_env: ob
 
 async def test_extra_comment_without_a_frame_gets_no_photo_reply(domain_env: object) -> None:
     """Комментариев больше кадров — лишний не связан ни с чем, бот отвечает про отсутствие кадра."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, session = make_bot()
     dp = dispatcher_with(caught)
@@ -198,7 +198,7 @@ async def test_extra_comment_without_a_frame_gets_no_photo_reply(domain_env: obj
 
 async def test_burst_of_voice_comments_link_to_frames_in_order(domain_env: object) -> None:
     """Пачка голосовых комментариев после пачки кадров расходится по кадрам в том же порядке."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)

@@ -152,7 +152,7 @@ def test_ставки_вычетов_берутся_из_методики_а_н�
     monkeypatch.setenv("AUDIT_DATA_DIR", str(data_copy))
     monkeypatch.setenv("STATE_DIR", str(tmp_path / "state"))
     monkeypatch.chdir(tmp_path)
-    start_inspection(1, unit="Проба", kind="full", report_lang="ru")
+    start_inspection(1, unit="Проба", kind="planned", report_lang="ru")
     for код, зона in ПЯТЬ_ЗАПИСЕЙ_D1:
         add_finding(1, код, "D1", зона, "формулировка теста")
 

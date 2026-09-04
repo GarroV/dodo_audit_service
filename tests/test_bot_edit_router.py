@@ -45,7 +45,7 @@ FRIDGE_TITLE_RU = "Среднетемпературный шкаф"
 
 async def test_drop_button_removes_the_finding(domain_env: object) -> None:
     """Кнопка «Удалить» и правда убирает запись из состояния, а не только из чата."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -71,7 +71,7 @@ async def test_dropping_a_marked_record_does_not_move_its_mark(domain_env: objec
     Разметка по месту в списке, а не по записи, здесь и вскрывается — после
     удаления первой строки соседняя встала бы на её место вместе с пометкой.
     """
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "догадка", source=domain.SOURCE_PHOTO)
     domain.add_finding(
         CHAT_ID, "PRD01", "D1", "hot_kitchen", "со слов", source=domain.SOURCE_COMMENT
@@ -92,7 +92,7 @@ async def test_dropping_a_marked_record_does_not_move_its_mark(domain_env: objec
 
 async def test_undo_removes_the_last_record_not_the_first(domain_env: object) -> None:
     """`/undo` снимает последнюю запись: аудитор поправляет то, что сказал только что."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "первая")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "cold_kitchen", "вторая")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "hot_kitchen", "третья")
@@ -109,7 +109,7 @@ async def test_undo_removes_the_last_record_not_the_first(domain_env: object) ->
 
 async def test_undo_on_empty_inspection_says_nothing_to_remove(domain_env: object) -> None:
     """`/undo` без единой записи — отказ словами, а не попытка снять несуществующее."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -132,7 +132,7 @@ async def test_undo_without_started_inspection(domain_env: object) -> None:
 
 async def test_zone_button_lists_the_whole_zone_catalogue(domain_env: object) -> None:
     """Кнопка «Зона» предлагает весь справочник, а не подмножество из пункта."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -145,7 +145,7 @@ async def test_zone_button_lists_the_whole_zone_catalogue(domain_env: object) ->
 
 async def test_zone_change_updates_the_finding(domain_env: object) -> None:
     """Смена зоны кнопкой меняет запись, и в ответе видно название, а не код."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -162,7 +162,7 @@ async def test_zone_change_updates_the_finding(domain_env: object) -> None:
 
 async def test_zone_change_is_remembered_as_the_last_named_zone(domain_env: object) -> None:
     """Правка зоны кнопкой запоминается как последняя названная (решение D048)."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
     bot, _ = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -174,7 +174,7 @@ async def test_zone_change_is_remembered_as_the_last_named_zone(domain_env: obje
 
 async def test_level_button_offers_only_levels_allowed_for_the_item(domain_env: object) -> None:
     """`CLN05` разрешает только `D1` — кнопки не должны предлагать весь перечень методики."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "текст")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -186,7 +186,7 @@ async def test_level_button_offers_only_levels_allowed_for_the_item(domain_env: 
 
 async def test_level_change_recomputes_the_percent(domain_env: object) -> None:
     """Смена класса на более тяжёлый уменьшает процент — движок пересчитывает заново."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
     pct_before = domain.score(CHAT_ID).pct
     bot, _ = make_bot()
@@ -208,7 +208,7 @@ async def test_wording_edit_is_taken_from_the_next_plain_message(domain_env: obj
     бы приём материала как комментарий к кадру — правка формулировки существует
     только благодаря тому, что роутер правок стоит раньше в диспетчере.
     """
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "старая формулировка")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -236,7 +236,7 @@ async def test_wording_edit_is_taken_from_the_next_plain_message(domain_env: obj
 
 async def test_empty_wording_is_not_accepted(domain_env: object) -> None:
     """Формулировка из одних пробелов не проходит — вопрос звучит снова, запись не портится."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "исходная формулировка")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -253,7 +253,7 @@ async def test_empty_wording_is_not_accepted(domain_env: object) -> None:
 
 async def test_editing_a_gone_record_does_not_crash_the_bot(domain_env: object) -> None:
     """Правка исчезнувшей записи — вежливый отказ, и бот продолжает работать дальше."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -277,7 +277,7 @@ async def test_engine_refusal_reaches_the_auditor_in_his_own_words(domain_env: o
     строки, а у аудитора её нет. Разбор — `tests/test_bot_refusal.py`; здесь
     важно, что отказ дошёл и запись не испортилась.
     """
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "текст")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -299,7 +299,7 @@ async def test_engine_refusal_reaches_the_auditor_in_his_own_words(domain_env: o
 
 async def test_edit_buttons_return_after_a_successful_change(domain_env: object) -> None:
     """Кнопки правок возвращаются после любой правки: они редко приходят по одной."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -313,7 +313,7 @@ async def test_edit_buttons_return_after_a_successful_change(domain_env: object)
 
 async def test_malformed_button_code_does_not_crash_the_bot(domain_env: object) -> None:
     """Битый номер записи в `callback_data` не роняет бота — следующее событие он обрабатывает."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -335,7 +335,7 @@ async def test_photo_instead_of_wording_cancels_the_question_and_is_still_taken(
     следующий комментарий аудитора становится формулировкой старой записи, и
     узнаёт об этом партнёр из отчёта.
     """
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "прежний текст")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -355,7 +355,7 @@ async def test_photo_instead_of_wording_cancels_the_question_and_is_still_taken(
 
 async def test_command_instead_of_wording_still_runs(domain_env: object) -> None:
     """Команда вместо формулировки исполняется, а не становится текстом записи."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "прежний текст")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -383,7 +383,7 @@ async def test_engine_refusing_to_delete_is_reported_not_swallowed(
     написано для того, кто чинит. Аудитору называется запись, которая осталась
     на месте, а разбор уходит в журнал — и проверяются оба конца.
     """
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
 
     def отказ(*_a: object, **_k: object) -> None:
@@ -411,7 +411,7 @@ async def test_record_gone_between_the_edit_and_the_answer_is_reported(
     Так бывает при работе с двух устройств: правку приняли, а запись успели
     снять. Собрать строку подтверждения не из чего, и врать про неё нельзя.
     """
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "PRD01", "D1", "fridge", "текст")
     настоящая_правка = domain.edit_finding
 

@@ -144,7 +144,7 @@ def испортить(domain_env: Path) -> Iterator[Callable[[str], Path]]:
         elif прежний.exists():
             прежний.chmod(0o644)
             прежний.unlink()
-        start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru", date="2026-08-21", auditor="Гарро")
+        start_inspection(CHAT_ID, "Белград 2", "planned", "ru", date="2026-08-21", auditor="Гарро")
         файл = state_file(CHAT_ID, check_environment())
         ФОРМЫ[форма](файл)
         испорченные.append(файл)

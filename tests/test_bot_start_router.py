@@ -27,7 +27,6 @@ from src.bot.keyboards import (
     NEW_INSPECTION_CALLBACK,
     RESUME_CONTINUE_CALLBACK,
     RESUME_NEW_CALLBACK,
-    kind_title,
 )
 from src.domain import get_state, start_inspection
 
@@ -96,8 +95,9 @@ async def test_wizard_creates_inspection_with_typed_unit(domain_env: object) -> 
     inspection = get_state(CHAT_ID)
     assert inspection is not None
     assert inspection.unit == "Белград 2"
-    # Вид проверки записан на языке отчёта (T131): мастер прошли с русским.
-    assert inspection.kind == kind_title("planned", "ru")
+    # Вид проверки записан КОДОМ (T152): слово живёт только в шапке для
+    # движка и на кнопке мастера, а сама проверка связывается кодом.
+    assert inspection.kind == "planned"
     assert inspection.report_lang == "ru"
 
 
@@ -141,7 +141,7 @@ async def test_empty_unit_is_asked_again_not_accepted(domain_env: object) -> Non
 
 async def test_unfinished_inspection_is_shown_not_overwritten(domain_env: object) -> None:
     """T052: чужую незавершённую проверку не затирать молча."""
-    start_inspection(CHAT_ID, "Белград 1", "Плановая", "ru", auditor="Пётр Петров")
+    start_inspection(CHAT_ID, "Белград 1", "planned", "ru", auditor="Пётр Петров")
 
     bot, session = make_bot()
     dp = build_dispatcher(settings())
@@ -157,7 +157,7 @@ async def test_unfinished_inspection_is_shown_not_overwritten(domain_env: object
 
 
 async def test_new_inspection_button_also_warns_about_unfinished_one(domain_env: object) -> None:
-    start_inspection(CHAT_ID, "Белград 1", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 1", "planned", "ru")
 
     bot, session = make_bot()
     dp = build_dispatcher(settings())
@@ -168,7 +168,7 @@ async def test_new_inspection_button_also_warns_about_unfinished_one(domain_env:
 
 
 async def test_continue_keeps_the_inspection(domain_env: object) -> None:
-    start_inspection(CHAT_ID, "Белград 1", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 1", "planned", "ru")
 
     bot, session = make_bot()
     dp = build_dispatcher(settings())
@@ -183,7 +183,7 @@ async def test_continue_keeps_the_inspection(domain_env: object) -> None:
 async def test_start_new_asks_unit_and_replaces_only_after_full_wizard(
     domain_env: object,
 ) -> None:
-    start_inspection(CHAT_ID, "Белград 1", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 1", "planned", "ru")
 
     bot, session = make_bot()
     dp = build_dispatcher(settings())

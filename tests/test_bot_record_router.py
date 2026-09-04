@@ -57,7 +57,7 @@ SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_I
 
 
 def started() -> None:
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
 
 
 def findings() -> list[Finding]:

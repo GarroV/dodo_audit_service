@@ -44,7 +44,7 @@ SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_I
 
 def начать() -> None:
     start_inspection(
-        CHAT_ID, "Белград 2", "Плановая", "ru", date="2026-08-21", auditor="Владимир Гарро"
+        CHAT_ID, "Белград 2", "planned", "ru", date="2026-08-21", auditor="Владимир Гарро"
     )
 
 

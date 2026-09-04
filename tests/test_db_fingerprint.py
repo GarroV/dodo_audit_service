@@ -32,7 +32,7 @@ def _inspection(**kw: object) -> Inspection:
     base: dict[str, object] = {
         "chat_id": 1,
         "unit": "Белград-1",
-        "kind": "Плановая",
+        "kind": "planned",
         "date": "2026-08-21",
         "report_lang": "ru",
         "ui_lang": "ru",

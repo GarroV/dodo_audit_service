@@ -57,7 +57,7 @@ def кнопки_под(session: Any, начало: str) -> list[str]:
 
 def начата(lang: str = "ru") -> None:
     domain.start_inspection(
-        CHAT_ID, "Белград 2", "Плановая", lang, ui_lang=lang, date="2026-08-21", auditor="Гарро"
+        CHAT_ID, "Белград 2", "planned", lang, ui_lang=lang, date="2026-08-21", auditor="Гарро"
     )
 
 

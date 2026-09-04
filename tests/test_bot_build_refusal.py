@@ -61,7 +61,7 @@ def стенд_без_рендерера(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def начать_с_записью() -> None:
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru", date="2026-08-21", auditor="Гарро")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru", date="2026-08-21", auditor="Гарро")
     add_finding(CHAT_ID, code="CLN05", level="D1", zone="hot_kitchen", text="нагар на поду")
 
 

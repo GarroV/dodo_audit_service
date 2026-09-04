@@ -64,7 +64,7 @@ EVERY_CALLBACK = [
 @pytest.mark.parametrize("data", EVERY_CALLBACK)
 async def test_callback_without_a_message_is_survived(domain_env: object, data: str) -> None:
     """Нажатие без сообщения не роняет бота и не заставляет его молчать дальше."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар на подине печи")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -93,7 +93,7 @@ async def test_callback_without_a_message_is_survived(domain_env: object, data: 
 )
 async def test_broken_callback_data_is_ignored_quietly(domain_env: object, data: str) -> None:
     """Нечисловой номер в коде кнопки — молчание, а не падение на `int()`."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     domain.add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар на подине печи")
     bot, _ = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -110,7 +110,7 @@ async def test_broken_callback_data_is_ignored_quietly(domain_env: object, data:
 
 async def test_pick_record_that_is_gone_says_so(domain_env: object) -> None:
     """Номер записи из старого итога, которой уже нет, — честный ответ, не пустота."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -121,7 +121,7 @@ async def test_pick_record_that_is_gone_says_so(domain_env: object) -> None:
 
 async def test_edit_from_summary_without_records_says_it_is_empty(domain_env: object) -> None:
     """«Поправить запись» в пустой проверке — не пустой список кнопок, а объяснение."""
-    domain.start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    domain.start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 

@@ -35,10 +35,16 @@ default_ui_lang(env=None) -> str                 # язык стенда: BOT_UI
 ui_lang_or_default(lang: str | None) -> str      # язык проверки, иначе язык стенда
 
 # src/bot/keyboards.py
-kind_title(code: str, lang: str) -> str          # вид проверки словами (T131).
+kind_title(code: str, lang: str) -> str          # вид проверки словами (T131, T152).
+KIND_TITLES                                      # = domain.INSPECTION_KINDS, своей копии нет
 # Язык тут не всегда язык интерфейса: на кнопке — интерфейса, в шапке отчёта —
 # отчёта. Клавиатуры мастера (`new_inspection_keyboard`, `kind_keyboard`,
-# `resume_keyboard`) с T131 принимают язык параметром
+# `resume_keyboard`) с T131 принимают язык параметром.
+# Сама таблица с T152 живёт в предметной области (`src/domain/kinds.py`): вид
+# проверки нужен ещё и базе, и письму по записанной проверке. Здесь остался
+# тонкий переходник, приводящий отказ к `BotTextError`. В проверку, в базу и в
+# отпечаток уходит КОД (`start_inspection(kind="planned")`), слово подставляется
+# при печати — и в чате, и в шапке для движка
 
 # src/bot/material.py                            # связывание кадров с комментарием
 PhotoGroup, Comment, Material, ChatMaterialQueue, MaterialStore

@@ -52,7 +52,7 @@ def dispatcher_with(caught: Caught, album_window: float = 5.0) -> object:
 
 async def test_caption_links_immediately(domain_env: object) -> None:
     """Способ 1 — подпись к фотографии."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -65,7 +65,7 @@ async def test_caption_links_immediately(domain_env: object) -> None:
 
 async def test_next_message_links_to_waiting_photo(domain_env: object) -> None:
     """Способ 2 — комментарий отдельным сообщением следом."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, session = make_bot()
     dp = dispatcher_with(caught)
@@ -82,7 +82,7 @@ async def test_next_message_links_to_waiting_photo(domain_env: object) -> None:
 
 async def test_reply_links_to_the_replied_photo_not_the_oldest(domain_env: object) -> None:
     """Способ 3 — ответ на конкретный кадр сильнее очереди ожидания."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -98,7 +98,7 @@ async def test_reply_links_to_the_replied_photo_not_the_oldest(domain_env: objec
 
 
 async def test_voice_comment_is_linked_as_voice(domain_env: object) -> None:
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -113,7 +113,7 @@ async def test_voice_comment_is_linked_as_voice(domain_env: object) -> None:
 
 async def test_biggest_photo_size_is_taken(domain_env: object) -> None:
     """Telegram присылает несколько размеров кадра — в отчёт должен идти крупный."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -124,7 +124,7 @@ async def test_biggest_photo_size_is_taken(domain_env: object) -> None:
 
 
 async def test_comment_without_any_photo_says_so(domain_env: object) -> None:
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, session = make_bot()
     dp = dispatcher_with(caught)
@@ -141,7 +141,7 @@ async def test_reply_to_a_bot_message_falls_back_to_the_waiting_photo(
     domain_env: object,
 ) -> None:
     """Ответить на своё же сообщение бота — обычное дело; комментарий терять нельзя."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -177,7 +177,7 @@ async def test_comment_without_inspection_is_refused(domain_env: object) -> None
 
 async def test_command_is_not_taken_for_a_comment(domain_env: object) -> None:
     """`/start` при ждущем кадре обязан остаться командой, а не стать формулировкой."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, session = make_bot()
     dp = dispatcher_with(caught)
@@ -191,7 +191,7 @@ async def test_command_is_not_taken_for_a_comment(domain_env: object) -> None:
 
 async def test_second_comment_takes_the_second_photo(domain_env: object) -> None:
     """Очередь ожидания — FIFO: два кадра подряд получают комментарии по порядку."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)

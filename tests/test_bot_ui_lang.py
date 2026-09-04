@@ -31,7 +31,8 @@ from src.bot.config import UI_LANG_VAR, BotSettings, load_bot_settings
 from src.bot.errors import BotConfigError, BotTextError
 from src.bot.keyboards import NEW_INSPECTION_CALLBACK
 from src.bot.texts import default_ui_lang, t
-from src.domain import get_state
+from src.domain import check_environment, get_state
+from src.domain.engine import state_file
 
 ROOT = Path(__file__).resolve().parent.parent
 ENV_EXAMPLE = ROOT / ".env.example"
@@ -199,6 +200,12 @@ async def test_started_inspection_outranks_the_deployment_language(
     ]
 
 
+def header_type() -> str:
+    """Вид проверки так, как его прочитает движок, — из шапки файла состояния."""
+    raw: dict[str, Any] = json.loads(state_file(CHAT_ID, check_environment()).read_text("utf-8"))
+    return str(raw["meta"]["type"])
+
+
 @pytest.mark.asyncio
 async def test_kind_of_inspection_follows_the_report_language_not_the_interface(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
@@ -207,6 +214,9 @@ async def test_kind_of_inspection_follows_the_report_language_not_the_interface(
 
     Языка два разных, и путать их нельзя: на английском стенде с русским
     отчётом в шапке обязана стоять «Плановая», а не «Planned».
+
+    Сама проверка при этом не помнит ни того, ни другого слова: она помнит код
+    (T152). Слово живёт только в шапке для движка — там, где его печатают.
     """
     monkeypatch.setenv(UI_LANG_VAR, "en")
     bot, _ = make_bot()
@@ -217,7 +227,8 @@ async def test_kind_of_inspection_follows_the_report_language_not_the_interface(
 
     inspection = get_state(CHAT_ID)
     assert inspection is not None
-    assert inspection.kind == "Плановая"
+    assert inspection.kind == "planned"
+    assert header_type() == "Плановая"
 
 
 @pytest.mark.asyncio
@@ -233,7 +244,8 @@ async def test_english_report_gets_an_english_kind_in_its_header(
 
     inspection = get_state(CHAT_ID)
     assert inspection is not None
-    assert inspection.kind == "Planned"
+    assert inspection.kind == "planned"
+    assert header_type() == "Planned"
 
 
 # --- переменная описана там, где описаны остальные ---------------------------

@@ -56,7 +56,7 @@ CLEAR = "печь грязная"
 
 
 def started() -> None:
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
 
 
 def findings() -> list[Finding]:

@@ -68,7 +68,7 @@ SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_I
 def начать(report_lang: str = "ru", ui_lang: str = "ru") -> None:
     """Проверка с одной записью — чтобы отчёту было что собирать."""
     start_inspection(
-        CHAT_ID, "Белград 2", "Плановая", report_lang, ui_lang=ui_lang, speech_lang=ui_lang
+        CHAT_ID, "Белград 2", "planned", report_lang, ui_lang=ui_lang, speech_lang=ui_lang
     )
     add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар на подине печи")
 

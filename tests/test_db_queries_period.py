@@ -39,7 +39,7 @@ pytestmark = requires_db
 def _проверка(chat_id: int, *, арендатор: str, дата: str, точка: str = "Белград-1") -> str:
     """Завершённая проверка нужного арендатора через официальный контракт домена."""
     start_inspection(
-        chat_id, unit=точка, kind="Плановая", report_lang="ru", tenant=арендатор, date=дата
+        chat_id, unit=точка, kind="planned", report_lang="ru", tenant=арендатор, date=дата
     )
     add_finding(chat_id, code="CLN05", level="D1", zone="hot_kitchen", text="нагар на печи")
     return push_inspection(chat_id)
@@ -72,7 +72,7 @@ insert into inspections (
     pushed_at
 )
 select
-    %(tenant)s, т.id, 1, 'Плановая', %(начало)s::date + g, 'ru',
+    %(tenant)s, т.id, 1, 'planned', %(начало)s::date + g, 'ru',
     'ru', 'ru', 'v1', 97.5, 'A', %(tenant)s || '-' || g,
     %(слив)s::timestamptz
 from generate_series(0, %(сколько)s - 1) g

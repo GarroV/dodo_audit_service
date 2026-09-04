@@ -53,7 +53,7 @@ def started() -> None:
     start_inspection(
         CHAT_ID,
         "Белград 2",
-        "Плановая",
+        "planned",
         "ru",
         date="2026-08-21",
         auditor="Владимир Гарро",

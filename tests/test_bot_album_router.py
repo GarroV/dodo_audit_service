@@ -55,7 +55,7 @@ def dispatcher_with(caught: Caught, album_window: float = 5.0) -> object:
 
 async def test_album_of_three_without_caption_becomes_one_material(domain_env: object) -> None:
     """Три кадра без подписи — один материал с тремя кадрами, а не три материала."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -77,7 +77,7 @@ async def test_caption_on_first_frame_of_album_links_without_extra_comment(
     domain_env: object,
 ) -> None:
     """Подпись на первом кадре — материал собран без отдельного сообщения-комментария."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught, album_window=0.01)
@@ -95,7 +95,7 @@ async def test_caption_on_first_frame_of_album_links_without_extra_comment(
 
 async def test_caption_on_second_frame_still_becomes_the_comment(domain_env: object) -> None:
     """Telegram кладёт подпись на один кадр из всех — не обязательно на первый."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught, album_window=0.01)
@@ -115,7 +115,7 @@ async def test_album_without_caption_plus_separate_comment_becomes_one_material(
     domain_env: object,
 ) -> None:
     """Способ 2 на альбоме: комментарий отдельным сообщением собирает все кадры."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -135,7 +135,7 @@ async def test_album_without_caption_plus_voice_comment_is_linked_as_voice(
     domain_env: object,
 ) -> None:
     """Способ 2 на альбоме, но комментарий голосовой — тот же путь связывания."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -156,7 +156,7 @@ async def test_two_albums_in_a_row_get_comments_in_order_without_mixing(
     domain_env: object,
 ) -> None:
     """Два альбома подряд, потом два комментария: каждый уходит своему альбому по FIFO."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -182,7 +182,7 @@ async def test_two_albums_in_a_row_get_comments_in_order_without_mixing(
 
 async def test_album_closes_by_timer_when_nothing_else_arrives(domain_env: object) -> None:
     """Ничего не пришло следом — альбом закрывается сам по истечении окна."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, session = make_bot()
     dp = dispatcher_with(caught, album_window=0.01)
@@ -199,7 +199,7 @@ async def test_album_closes_by_timer_when_nothing_else_arrives(domain_env: objec
 
 async def test_reply_to_second_frame_links_the_whole_album(domain_env: object) -> None:
     """Ответ на один кадр альбома связывает комментарий со всем альбомом, не с одним кадром."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)
@@ -223,7 +223,7 @@ async def test_reply_to_second_frame_links_the_whole_album(domain_env: object) -
 
 async def test_single_photo_between_two_albums_does_not_merge(domain_env: object) -> None:
     """Одиночный кадр между двумя альбомами не склеивается ни с одним из них."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
     dp = dispatcher_with(caught)

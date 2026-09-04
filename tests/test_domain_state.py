@@ -22,13 +22,13 @@ from src.domain import (
     get_state,
     start_inspection,
 )
-from src.domain.errors import DomainError, EngineError
+from src.domain.errors import DomainError, EngineError, ValidationError
 
 
 def начать(chat_id: int = 42, **kw: str) -> Inspection:
     params: dict[str, str] = {
         "unit": "Белград-1",
-        "kind": "Плановая",
+        "kind": "planned",
         "report_lang": "ru",
     }
     params.update(kw)
@@ -49,7 +49,7 @@ def test_старт_создаёт_папку_на_чат_и_файл_состо
     состояние = get_state(42)
     assert состояние is not None
     assert состояние.unit == "Белград-1"
-    assert состояние.kind == "Плановая"
+    assert состояние.kind == "planned"
     assert состояние.chat_id == 42
 
 
@@ -81,7 +81,8 @@ def test_язык_отчёта_доезжает_до_движка(domain_env: Pa
 
 
 def test_язык_отчёта_вне_методики_отклоняется(domain_env: Path) -> None:
-    with pytest.raises(EngineError) as e:
+    """Отказ идёт ДО движка (T152): на этом языке нечем назвать даже вид проверки."""
+    with pytest.raises(ValidationError) as e:
         начать(report_lang="sr")
     assert "sr" in str(e.value)
     assert get_state(42) is None, "проверка всё-таки начата с языком, которого нет в отчёте"

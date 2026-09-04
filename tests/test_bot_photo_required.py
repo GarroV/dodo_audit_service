@@ -87,7 +87,7 @@ async def test_комментарий_без_кадра_читается_пра�
     domain_env: object,
 ) -> None:
     """Отказ несёт то же правило, что и приветствие, и записи после него нет."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -104,7 +104,7 @@ async def test_продолжение_прерванной_проверки_по
     domain_env: object,
 ) -> None:
     """Возврат через день — то же начало работы, и правило звучит снова."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 

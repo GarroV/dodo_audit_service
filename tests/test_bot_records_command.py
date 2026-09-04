@@ -44,7 +44,7 @@ COMMAND = "/records"
 
 
 def начать_с_записью() -> None:
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     add_finding(CHAT_ID, "PRD01", "D1", "fridge", "Ярлык без даты вскрытия")
 
 
@@ -79,7 +79,7 @@ async def test_процента_в_показе_нет(domain_env: object) -> No
 
 async def test_пустая_проверка_отвечает_словами_а_не_молчанием(domain_env: object) -> None:
     """Ни одной записи — это ответ, а не повод промолчать."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 

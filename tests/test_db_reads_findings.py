@@ -58,7 +58,7 @@ def _проверка_с_находками(
     start_inspection(
         chat_id,
         unit=unit,
-        kind="Плановая",
+        kind="planned",
         report_lang="ru",
         speech_lang=speech_lang,
         date=дата,
@@ -88,7 +88,7 @@ def test_шапка_проверки_совпадает_с_записанным(
     assert прочитанная is not None
     шапка = прочитанная.inspection
     assert шапка.unit_name == "Белград-1"
-    assert шапка.kind == "Плановая"
+    assert шапка.kind == "planned"
     assert шапка.inspection_date == date(2026, 3, 1)
     assert шапка.report_lang == "ru"
     assert шапка.checklist_version == ожидаемая_версия
@@ -173,7 +173,7 @@ def test_source_пусто_без_записи_и_comment_со_слов_ауди
     или подменённый `source` стирает это заявление и для записи без источника
     (проверки до D044), и для записанной со слов человека."""
     chat_id = 505
-    start_inspection(chat_id, unit="Белград-1", kind="Плановая", report_lang="ru", tenant=АРЕНДАТОР)
+    start_inspection(chat_id, unit="Белград-1", kind="planned", report_lang="ru", tenant=АРЕНДАТОР)
     add_finding(chat_id, code="CLN05", level="D1", zone="hot_kitchen", text="без источника")
     add_finding(
         chat_id,

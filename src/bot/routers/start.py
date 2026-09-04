@@ -278,11 +278,13 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
                 domain.start_inspection,
                 message.chat.id,
                 unit=unit,
-                # Вид проверки — на языке ОТЧЁТА, а не интерфейса (T131): на
-                # кнопке аудитор прочитал его сам, а отсюда он уезжает в шапку
-                # документа партнёру. На кнопке было «Planned», в русском
-                # отчёте обязана стоять «Плановая».
-                kind=kind_title(kind_code, report_lang),
+                # Вид проверки уходит КОДОМ, а не словом (T152): словом он
+                # жил как данные — в проверке, в колонке базы, в отпечатке — и
+                # переводился обратно сопоставлением строк. Перевод по языку
+                # отчёта делает сам `domain` в тот момент, когда шапку
+                # заполняет для движка: на кнопке аудитор прочитал вид сам, а
+                # партнёру в документ он уезжает на языке отчёта.
+                kind=kind_code,
                 report_lang=report_lang,
                 # Языка в проверке три, и до T128 из бота не задавался ни один
                 # из двух остальных: аудитор выбирал английский отчёт, а
@@ -328,7 +330,10 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
                     "start.started",
                     started_lang,
                     unit=inspection.unit,
-                    kind=inspection.kind,
+                    # В проверке лежит код, аудитору показывается слово. Язык
+                    # тут язык начатой проверки, а не язык кнопки: сообщение о
+                    # старте читает он же, но уже внутри проверки.
+                    kind=kind_title(inspection.kind, started_lang),
                     lang=LANG_LABELS[report_lang],
                     auditor=inspection.auditor,
                     auditor_note=auditor_note,
