@@ -30,7 +30,12 @@ from src.db.queries import MAX_LIMIT
 from src.db.queries import list_inspections as db_list_inspections
 from src.domain import add_finding, score, start_inspection
 from src.mcp.errors import ToolError
-from src.mcp.tools import list_inspections, network_summary, unit_history
+from src.mcp.tools import (
+    inspection_letter,
+    list_inspections,
+    network_summary,
+    unit_history,
+)
 
 pytestmark = requires_db
 
@@ -341,3 +346,61 @@ def test_сводка_собирает_точки_и_находки(domain_env: 
     assert сводка["units"] == 2
     assert сводка["findings_total"] == 5
     assert sum(сводка["grades"].values()) == 2
+
+
+# --- письмо партнёру по записанной проверке (T171) ---------------------------
+
+
+def test_письмо_собирается_по_записанной_проверке_и_несёт_её_оценку(
+    domain_env: Path, db_env: str
+) -> None:
+    """Проверка уже завершена и слита, состояния чата под неё больше нет —
+    письмо собирается из записанного, и оценка в нём та, что записал движок."""
+    ident = _проверка(230, арендатор=АРЕНДАТОР_А, точка="Белград-1")
+    записано = db_list_inspections(tenant=АРЕНДАТОР_А, unit="Белград-1")[0]
+
+    ответ = inspection_letter(tenant=АРЕНДАТОР_А, id=ident)
+
+    assert ответ["found"] is True
+    assert ответ["score_verified"] is True
+    assert ответ["pct"] == записано.pct
+    assert ответ["grade"] == записано.grade
+    assert ответ["checklist_version"] == записано.checklist_version
+    письмо = ответ["letter"]
+    assert isinstance(письмо, str)
+    assert "Белград-1" in письмо
+    assert "нагар на печи" in письмо, "формулировка аудитора уезжает как записана"
+
+
+def test_письмо_собирается_на_другом_языке(domain_env: Path, db_env: str) -> None:
+    """«Собрать заново на другом языке» — ради этого аргумент и заведён:
+    отчёт выпущен по-русски, а головной офис партнёра читает по-английски."""
+    ident = _проверка(231, арендатор=АРЕНДАТОР_А)
+
+    ответ = inspection_letter(tenant=АРЕНДАТОР_А, id=ident, lang="en")
+
+    assert ответ["lang"] == "en"
+    assert ответ["report_lang"] == "ru", "язык записи от языка пересборки не зависит"
+    письмо = ответ["letter"]
+    assert isinstance(письмо, str) and "Hello" in письмо
+
+
+def test_письмо_чужой_проверки_не_отдаётся_даже_по_настоящему_идентификатору(
+    domain_env: Path, db_env: str
+) -> None:
+    """Граница арендаторов у нового инструмента — та же, что у остальных:
+    идентификатор настоящий, проверка соседа, ответа с письмом быть не может."""
+    чужой = _проверка(232, арендатор=АРЕНДАТОР_Б, точка="Ниш-9")
+
+    ответ = inspection_letter(tenant=АРЕНДАТОР_А, id=чужой)
+
+    assert ответ["found"] is False
+    assert ответ["letter"] is None
+    assert "no inspection" in ответ["status"]
+
+
+def test_письма_нет_у_несуществующей_проверки(domain_env: Path, db_env: str) -> None:
+    ответ = inspection_letter(tenant=АРЕНДАТОР_А, id="00000000-0000-0000-0000-000000000009")
+
+    assert ответ["found"] is False
+    assert ответ["letter"] is None

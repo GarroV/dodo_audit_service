@@ -278,6 +278,8 @@ def test_перечень_инструментов_отдаётся_целико
         "network_summary",
         "get_inspection",
         "findings_by_unit",
+        # письмо партнёру по записанной проверке — пересборка движком, не запись (T171)
+        "inspection_letter",
         # методика — чтение версий и правка (T098), закрыта отдельной настройкой
         "checklist_versions",
         "checklist_items",

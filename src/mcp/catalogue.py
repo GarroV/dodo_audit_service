@@ -300,6 +300,45 @@ TOOLS: tuple[ToolSpec, ...] = (
         },
         handler=tools.findings_by_unit,
     ),
+    ToolSpec(
+        name="inspection_letter",
+        description=(
+            "Rebuild the partner letter for one recorded inspection of the "
+            "caller's tenant and return its text, ready for a human to paste "
+            "into mail and send. The letter is written by the audit engine, "
+            "not here, and it is rebuilt on the exact methodology version the "
+            "inspection was scored by — never on today's methodology, which "
+            "would silently restate the partner's grade. The score the engine "
+            "computes is checked against the one recorded in the inspection: "
+            "a mismatch is refused, not returned. 'lang' picks the language "
+            "of the letter (the auditor's own wording of each finding is "
+            "never translated); omit it for the language the report was "
+            "issued in. Read 'ready_to_send' and 'not_restored' before "
+            "passing the text on: fields the read layer cannot return leave "
+            "gaps that the engine fills with a blank line. Returns "
+            "found: false, with no error, when the id does not match any "
+            "inspection of this tenant."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "id": _INSPECTION_ID_PROPERTY,
+                "lang": {
+                    "type": "string",
+                    "description": (
+                        "Language of the letter, as a two-letter code (for "
+                        "example 'ru' or 'en'). Omit to use the language the "
+                        "report was issued in. A language the methodology "
+                        "does not carry is rejected with an explicit error "
+                        "rather than quietly answered in another language."
+                    ),
+                },
+            },
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        handler=tools.inspection_letter,
+    ),
     # --- методика: чтение --------------------------------------------------
     ToolSpec(
         name="checklist_versions",

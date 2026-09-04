@@ -31,6 +31,7 @@ from src.mcp.catalogue import KIND_CHECKLIST, KIND_INSPECTIONS, TOOLS, as_list, 
     "network_summary",
     "get_inspection",
     "findings_by_unit",
+    "inspection_letter",
 }
 
 ИМЕНА_ИНСТРУМЕНТОВ_МЕТОДИКИ = {
@@ -49,10 +50,10 @@ from src.mcp.catalogue import KIND_CHECKLIST, KIND_INSPECTIONS, TOOLS, as_list, 
 ИМЕНА_ИНСТРУМЕНТОВ = ИМЕНА_ИНСТРУМЕНТОВ_ПРОВЕРОК | ИМЕНА_ИНСТРУМЕНТОВ_МЕТОДИКИ
 
 
-def test_каталог_содержит_ровно_пятнадцать_инструментов_с_ожидаемыми_именами() -> None:
+def test_каталог_содержит_ровно_шестнадцать_инструментов_с_ожидаемыми_именами() -> None:
     """Лишний инструмент в каталоге — не описанный обработчик, снятый —
     инструмент, к которому агент внезапно теряет доступ."""
-    assert len(TOOLS) == 15
+    assert len(TOOLS) == 16
     assert {spec.name for spec in TOOLS} == ИМЕНА_ИНСТРУМЕНТОВ
 
 
@@ -153,7 +154,7 @@ def test_as_list_отдаёт_ровно_три_нужных_ключа_на_з�
     """Протокол MCP `tools/list` ждёт camelCase `inputSchema` — лишний ключ
     или `input_schema` вместо него не разберёт клиент на другой стороне."""
     перечень = as_list()
-    assert len(перечень) == 15
+    assert len(перечень) == 16
     for запись in перечень:
         assert set(запись) == {"name", "description", "inputSchema"}
 

@@ -427,6 +427,46 @@ def get_inspection(*, tenant: str, id: str) -> dict[str, object]:
     }
 
 
+def inspection_letter(*, tenant: str, id: str, lang: str | None = None) -> dict[str, object]:
+    """Текст письма партнёру по уже записанной проверке (T171).
+
+    Письмо отправляет человек руками из почты (Q010), и в системе оно нигде не
+    лежит: бот показывает его один раз, при завершении проверки. Поэтому здесь
+    оно собирается заново — движком, по методике ТОЙ версии, которой помечена
+    проверка, и только если посчитанное движком сошлось с записанным. Разбор —
+    `src/mcp/letters.py`; здесь тонкая обёртка, потому что обработчик
+    инструмента проверок обязан лежать в этом модуле (`tests/test_mcp_server.py`).
+
+    Записью это не является ни в каком виде: проверка не меняется, боевая
+    методика открывается только на чтение, а состояние для движка собирается во
+    временном каталоге, который тут же исчезает.
+
+    Набор ключей ответа одинаков в обоих исходах — как у `get_inspection`.
+    """
+    ident = _require_inspection_id(id)
+    from ..db.queries import get_inspection as db_get_inspection
+
+    detail = db_get_inspection(ident, tenant=tenant)
+    if detail is None:
+        return {
+            "tenant": tenant,
+            "id": ident,
+            "found": False,
+            "status": "no inspection found with that id",
+            "letter": None,
+        }
+    from .letters import build, sources
+
+    return {
+        "tenant": tenant,
+        "id": ident,
+        "found": True,
+        "unit": detail.inspection.unit_name,
+        "inspection_date": detail.inspection.inspection_date.isoformat(),
+        **build(detail, lang=lang, papers=sources()),
+    }
+
+
 def findings_by_unit(*, tenant: str, unit: str, limit: int | None = None) -> dict[str, object]:
     """Записанные находки одной точки по всем её проверкам, свежие проверки первыми.
 
