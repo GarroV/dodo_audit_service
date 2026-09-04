@@ -435,8 +435,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "Recorded:\n{lines}",
     },
     "finish.record_line": {
-        "ru": "#{n} {code} · {level} · {zone}{source} — {text}",
-        "en": "#{n} {code} · {level} · {zone}{source} — {text}",
+        "ru": "#{n} {code} · {level} · {zone}{source} — {text}{unusual}",
+        "en": "#{n} {code} · {level} · {zone}{source} — {text}{unusual}",
     },
     "finish.source_photo": {
         "ru": " · по кадру",

@@ -90,6 +90,23 @@ def candidate_lines(candidates: Sequence[Candidate], lang: str) -> str:
     return "\n".join(lines)
 
 
+def zone_unusual_mark(finding: domain.Finding, lang: str) -> str:
+    """Пометка «зона не из списка пункта» — или пусто (T147).
+
+    Движок такую запись пропускает и лишь помечает флагом (`zone_unusual`,
+    `docs/04-engine.md`), а в отчёт партнёру пометка не попадает вовсе.
+    Значит, единственное место, где нетипичную зону видно, — чат, и показать
+    её обязан бот.
+
+    Одной функцией на все три строки записи намеренно. Пометка стояла только в
+    первичной фиксации, а правка зоны — самый частый способ увести запись туда,
+    где пункта нет, — молчала, как молчал и список перед сборкой отчёта.
+    Раздельные условия в трёх местах и есть причина, по которой два из трёх
+    оказались забыты.
+    """
+    return t("record.zone_unusual", lang) if finding.zone_unusual else ""
+
+
 def confirm_line(finding: domain.Finding, pct: float, lang: str) -> str:
     """Подтверждение фиксации — одна строка (T055).
 
@@ -106,11 +123,7 @@ def confirm_line(finding: domain.Finding, pct: float, lang: str) -> str:
         zone=zone_title(finding.zone, lang),
         pct=percent(pct),
     )
-    if finding.zone_unusual:
-        # Движок такую запись пропускает и лишь помечает. Показать пометку
-        # обязан бот, иначе о ней узнает только партнёр.
-        return line + t("record.zone_unusual", lang)
-    return line
+    return line + zone_unusual_mark(finding, lang)
 
 
 def fixed_block(
@@ -156,8 +169,11 @@ def changed_line(finding: domain.Finding, pct: float, lang: str) -> str:
 
     Пометка «замер» держится и здесь: смена зоны у информационной записи не
     превращает её в нарушение, а строка без пометки читалась бы именно так.
+
+    Пометка нетипичной зоны — тем более (T147): именно правка чаще всего и
+    уводит запись в зону, где этого пункта нет.
     """
-    return t(
+    line = t(
         "edit.changed_info" if finding.level == INFO_LEVEL else "edit.changed",
         lang,
         n=finding.n,
@@ -166,6 +182,7 @@ def changed_line(finding: domain.Finding, pct: float, lang: str) -> str:
         zone=zone_title(finding.zone, lang),
         pct=percent(pct),
     )
+    return line + zone_unusual_mark(finding, lang)
 
 
 def counts_line(counts: Mapping[str, int]) -> str:
@@ -187,6 +204,10 @@ def record_lines(findings: Sequence[domain.Finding], lang: str) -> str:
     Пометку несёт сама запись (`Finding.source`, задача T108). Пустой источник
     — это «неизвестно», а не «со слов аудитора»: так выглядят проверки,
     начатые до D044, и выдавать их за чьи-то слова нельзя.
+
+    Нетипичная зона называется здесь же (T147). Это предвычитка — последний
+    момент, когда ошибку в зоне ещё можно поймать: дальше отчёт уходит
+    партнёру, а в нём пометки нет.
     """
     titles = zone_titles(lang)
     lines = []
@@ -202,6 +223,7 @@ def record_lines(findings: Sequence[domain.Finding], lang: str) -> str:
                 zone=zone_title(finding.zone, lang, titles),
                 source=mark,
                 text=shorten(finding.text),
+                unusual=zone_unusual_mark(finding, lang),
             )
         )
     return "\n".join(lines)
