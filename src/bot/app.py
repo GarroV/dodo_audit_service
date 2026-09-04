@@ -36,6 +36,7 @@ from .pending import PendingStore
 from .routers import (
     build_edit_router,
     build_finish_router,
+    build_info_router,
     build_material_router,
     build_record_router,
     build_records_router,
@@ -152,6 +153,10 @@ def build_dispatcher(
     dispatcher.include_router(build_edit_router())
     dispatcher.include_router(build_records_router())
     dispatcher.include_router(build_finish_router())
+    # Информационная часть ждёт обычный текст, голос и кадр в своём состоянии
+    # диалога (T158), поэтому идёт раньше приёма материала: иначе ответ на
+    # вопрос уехал бы в разбор как комментарий к кадру.
+    dispatcher.include_router(build_info_router())
     dispatcher.include_router(build_record_router(store=store, pending=pending))
     dispatcher.include_router(
         build_material_router(

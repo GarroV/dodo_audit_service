@@ -252,6 +252,18 @@ async def feed(dp: Dispatcher, bot: Bot, event: Message | CallbackQuery) -> None
         await dp.feed_update(bot, Update(update_id=update_id, callback_query=event))
 
 
+async def build_report(dp: Dispatcher, bot: Bot) -> None:
+    """Собрать отчёт так, как это делает аудитор.
+
+    Между кнопкой «Собрать отчёт» и документом с T158 стоит информационная
+    часть (D069): нажатие открывает вопросы, а сборка идёт за последним из них.
+    «Дальше к отчёту» проходит их насквозь — тестам, которые проверяют сам
+    отчёт, отвечать на них нечего.
+    """
+    await feed(dp, bot, callback_query("fin:build"))
+    await feed(dp, bot, callback_query("info:done"))
+
+
 # --- подмена разбора: до модели тесты не ходят ---
 
 
@@ -305,6 +317,13 @@ def stub_classify(monkeypatch: Any, result: Suggestion | Exception) -> Calls:
 
 
 def stub_transcribe(monkeypatch: Any, result: str | Exception) -> Calls:
+    """Подменить расшифровку голоса — в обоих местах, где бот её зовёт.
+
+    Голосовое приходит и комментарием к кадру (`routers/record.py`), и ответом
+    в информационной части (`routers/info.py`, T158). Подмена одна на оба: это
+    одно и то же действие продукта, и тест, забывший подменить второе место,
+    ушёл бы в сеть — то есть провалился бы не там, где причина.
+    """
     calls = Calls()
 
     def fake(audio: bytes, **kw: object) -> str:
@@ -314,6 +333,7 @@ def stub_transcribe(monkeypatch: Any, result: str | Exception) -> Calls:
         return result
 
     monkeypatch.setattr("src.bot.routers.record.transcribe", fake)
+    monkeypatch.setattr("src.bot.routers.info.transcribe", fake)
     return calls
 
 

@@ -31,6 +31,7 @@ from pathlib import Path
 
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from src import db, domain
@@ -292,16 +293,34 @@ def build_finish_router() -> Router:
         )
 
     @router.callback_query(F.data == FINISH_BUILD_CALLBACK)
-    async def on_build(callback: CallbackQuery) -> None:
+    async def on_build(callback: CallbackQuery, state: FSMContext) -> None:
+        """«Собрать отчёт» открывает информационную часть, а не собирает отчёт.
+
+        Порядок задан решениями D069 и D070 (задача T158): «Завершить» →
+        подтверждение → информационная часть → PDF и письмо. Собранный раньше
+        документ ответов на эти вопросы не содержит, и заметил бы это партнёр,
+        а не аудитор. Сама сборка стоит за последним вопросом — `deliver`
+        зовётся оттуда.
+
+        Импорт местный и намеренно: информационная часть зовёт `deliver` из
+        этого же модуля, и на верхнем уровне два модуля ссылались бы друг на
+        друга. Разрывается связь здесь, в одной строке, а не переносом сборки
+        отчёта в третий модуль — её подменяют тесты по имени
+        `src.bot.routers.finish.build_pdf`.
+        """
+        from .info import start_info
+
         await callback.answer()
         here = chat_of(callback)
         if here is None:
             return
         message, chat_id, lang = here
-        await deliver(message, chat_id, lang, allow_missing=False)
+        await start_info(message, state, chat_id, lang)
 
     @router.callback_query(F.data == FINISH_BUILD_NO_PHOTOS_CALLBACK)
     async def on_build_without_photos(callback: CallbackQuery) -> None:
+        """Пересборка без кадров. Информационную часть заново не спрашиваем:
+        она уже пройдена — эта кнопка появляется после неудавшейся сборки."""
         await callback.answer()
         here = chat_of(callback)
         if here is None:

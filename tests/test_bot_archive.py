@@ -24,6 +24,7 @@ from bot_harness import (
     CHAT_ID,
     Calls,
     RecordingSession,
+    build_report,
     candidate,
     feed,
     make_bot,
@@ -69,7 +70,7 @@ async def проверка_через_бота(monkeypatch: pytest.MonkeyPatch) 
 
     await feed(dp, bot, photo_message("frame-1", caption="нагар на подине печи"))
     await feed(dp, bot, callback("rec:pick:0"))
-    await feed(dp, bot, callback("fin:build"))
+    await build_report(dp, bot)
     return session
 
 
@@ -144,7 +145,7 @@ async def test_повторная_сборка_отчёта_не_плодит_в
     await проверка_через_бота(monkeypatch)
 
     bot, session = make_bot()
-    await feed(build_dispatcher(SETTINGS), bot, callback("fin:build"))
+    await build_report(build_dispatcher(SETTINGS), bot)
 
     assert отправленные_документы(session), "второй отчёт не собрался — сравнивать нечего"
     assert len(db.list_inspections(tenant="default")) == 1
@@ -196,7 +197,7 @@ async def test_слив_идёт_после_того_как_отчёт_отда�
 
     await feed(dp, bot, photo_message("frame-1", caption="нагар на подине печи"))
     await feed(dp, bot, callback("rec:pick:0"))
-    await feed(dp, bot, callback("fin:build"))
+    await build_report(dp, bot)
 
     assert "SendDocument" in видел, "слив пошёл раньше, чем аудитор получил отчёт"
 

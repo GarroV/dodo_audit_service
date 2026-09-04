@@ -26,7 +26,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from bot_harness import AUDITOR_ID, CHAT_ID, feed, make_bot, text_message
+from bot_harness import AUDITOR_ID, CHAT_ID, build_report, feed, make_bot, text_message
 from bot_harness import callback_query as callback
 
 from src.bot import sidecar
@@ -57,7 +57,7 @@ async def сдать(bot: object, session: object) -> None:
     """Довести проверку до отданного отчёта — так, как это делает аудитор."""
     dp = build_dispatcher(SETTINGS)
     await feed(dp, bot, text_message("/finish"))  # type: ignore[arg-type]
-    await feed(dp, bot, callback("fin:build"))  # type: ignore[arg-type]
+    await build_report(dp, bot)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

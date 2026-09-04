@@ -38,6 +38,12 @@ MGM23,violation,Документы,Paperwork,(D2) График уборки по
 SFT03,aggregate,Охрана труда,Labour safety,Сводная строка по процессу «Охрана труда»,Roll-up line for the Labour safety process,,,1
 SFT08,violation,Охрана труда,Labour safety,(D1) Аптечка укомплектована по описи,(D1) The first-aid kit matches its inventory list,D1,*,14
 INF01,info,Замеры,Measurements,Справочная строка: состав смены,Reference line: shift roster,,,1
+INF03,info,Замеры,Measurements,Справочная строка: пометка да/нет о предписании,Reference line: yes/no note about an order,,,0
+INF04,info,Замеры,Measurements,Справочная строка: пометка да/нет о закрытии точки,Reference line: yes/no note about closing the point,,,0
+INF05,info,Замеры,Measurements,Справочная строка: дата и время созвона,Reference line: date and time of the call,,,1
+INF06,info,Замеры,Measurements,Справочная строка: что улучшить,Reference line: what to improve,,,1
+INF07,info,Замеры,Measurements,Справочная строка: срок плана действий,Reference line: action plan deadline,,,1
+INF08,info,Замеры,Measurements,Справочная строка: отзыв о тестовом заказе,Reference line: test order feedback,,,1
 INF09,violation,Замеры,Measurements,(D0) Замер температуры теплового шкафа,(D0) Heat cabinet temperature measurement,D0,hot_kitchen,0
 INF10,violation,Замеры,Measurements,"(D0) Замер, который не влияет на процент",(D0) A measurement that does not move the score,D0,*,0
 INF11,violation,Замеры,Measurements,(D0) Снимок настроек оборудования,(D0) A snapshot of the equipment settings,D0,*,0

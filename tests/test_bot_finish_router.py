@@ -18,7 +18,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from bot_harness import AUDITOR_ID, CHAT_ID, feed, make_bot, photo_message, text_message
+from bot_harness import (
+    AUDITOR_ID,
+    CHAT_ID,
+    build_report,
+    feed,
+    make_bot,
+    photo_message,
+    text_message,
+)
 from bot_harness import callback_query as callback
 
 from src.bot import sidecar
@@ -215,7 +223,7 @@ async def test_report_is_delivered_as_a_file_and_the_letter_as_a_message(
 
     await feed(dp, bot, text_message("/finish"))
     session.clear()
-    await feed(dp, bot, callback("fin:build"))
+    await build_report(dp, bot)
 
     документы = session.documents
     assert len(документы) == 1, "отчёт не доехал файлом"
@@ -240,7 +248,7 @@ async def test_lost_photo_stops_the_build_and_leaves_the_choice_to_the_auditor(
 
     await feed(dp, bot, text_message("/finish"))
     session.clear()
-    await feed(dp, bot, callback("fin:build"))
+    await build_report(dp, bot)
 
     assert session.documents == [], "отчёт собрался, потеряв кадр, — этого делать нельзя"
     assert "запись №1" in session.last_text
@@ -274,7 +282,7 @@ async def test_failed_build_is_reported_not_passed_off_as_a_report(
     await feed(dp, bot, text_message("/finish"))
     session.clear()
     with caplog.at_level("ERROR"):
-        await feed(dp, bot, callback("fin:build"))
+        await build_report(dp, bot)
 
     assert session.documents == []
     # Существо — раньше сверки с каталогом: внутренности не в чате, причина не
@@ -303,7 +311,7 @@ async def test_build_without_an_inspection_says_so_instead_of_calling_the_engine
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
-    await feed(dp, bot, callback("fin:build"))
+    await build_report(dp, bot)
 
     assert session.documents == []
     assert session.last_text == t("material.no_inspection", "ru")
@@ -330,7 +338,7 @@ async def test_failed_letter_is_reported_after_the_pdf_was_already_sent(
     await feed(dp, bot, text_message("/finish"))
     session.clear()
     with caplog.at_level("ERROR"):
-        await feed(dp, bot, callback("fin:build"))
+        await build_report(dp, bot)
 
     assert len(session.documents) == 1, "отчёт обязан был доехать: он собрался"
     assert "шаблон письма не прочитался" not in session.last_text, "текст отказа ушёл аудитору"
