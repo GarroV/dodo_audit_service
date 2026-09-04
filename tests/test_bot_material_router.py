@@ -22,6 +22,7 @@ from bot_harness import (
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.material import Material
+from src.bot.texts import t
 from src.domain import start_inspection
 
 pytestmark = pytest.mark.asyncio
@@ -131,7 +132,9 @@ async def test_comment_without_any_photo_says_so(domain_env: object) -> None:
     await feed(dp, bot, text_message("тут просто мысль вслух"))
 
     assert caught.materials == []
-    assert "не вижу кадра" in session.last_text.lower()
+    # Раньше здесь стояло «не вижу кадра» — жалоба продукта на себя. С T160
+    # (D078) отказ несёт правило методики: фотофиксация обязательна всегда.
+    assert t("material.photo_required", "ru") in session.last_text
 
 
 async def test_reply_to_a_bot_message_falls_back_to_the_waiting_photo(

@@ -26,7 +26,7 @@ from bot_harness import (
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.material import Material
-from src.bot.texts import t
+from src.bot.texts import t, with_photo_rule
 from src.domain import start_inspection
 
 pytestmark = pytest.mark.asyncio
@@ -191,7 +191,9 @@ async def test_extra_comment_without_a_frame_gets_no_photo_reply(domain_env: obj
     assert len(caught.materials) == 1
     assert caught.materials[0].photo_file_ids == ("only-frame",)
     assert caught.materials[0].comment.text == "первый комментарий"
-    assert session.last_text == t("material.no_photo", "ru")
+    # Рядом с отказом стоит правило фотофиксации (T160, D078): без него отказ
+    # читается сбоем продукта, а не порядком работы.
+    assert session.last_text == with_photo_rule(t("material.no_photo", "ru"), "ru")
 
 
 async def test_burst_of_voice_comments_link_to_frames_in_order(domain_env: object) -> None:

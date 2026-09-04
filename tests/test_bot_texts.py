@@ -12,7 +12,7 @@ from string import Formatter
 import pytest
 
 from src.bot.errors import BotTextError
-from src.bot.texts import TEXTS, UI_LANGS, t
+from src.bot.texts import TEXTS, UI_LANGS, t, with_photo_rule
 
 
 def _params(template: str) -> set[str]:
@@ -45,6 +45,19 @@ def test_every_language_of_a_key_takes_the_same_parameters() -> None:
         if len({frozenset(_params(text)) for text in langs.values()}) > 1
     }
     assert mismatched == {}, f"наборы параметров разошлись между языками: {mismatched}"
+
+
+@pytest.mark.parametrize("lang", UI_LANGS)
+def test_правило_фотофиксации_дописывается_из_одного_источника(lang: str) -> None:
+    """Правило звучит в трёх местах (T160, D078), а формулировка у него одна.
+
+    Скопированная в два места, она разъезжается молча: в отказе поправили, в
+    приветствии забыли — и человек читает в одном продукте два разных правила.
+    """
+    note = with_photo_rule(t("material.no_photo", lang), lang)
+    assert note.startswith(t("material.no_photo", lang))
+    assert note.endswith(t("material.photo_required", lang))
+    assert "\n\n" in note, "правило обязано стоять абзацем, а не хвостом строки"
 
 
 def test_unknown_language_is_refused_not_silently_russian() -> None:

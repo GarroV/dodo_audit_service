@@ -66,27 +66,44 @@ def zone_title(code: str, lang: str, titles: Mapping[str, str] | None = None) ->
     return known.get(code, code)
 
 
-def candidate_lines(candidates: Sequence[Candidate], lang: str) -> str:
+def candidate_lines(
+    candidates: Sequence[Candidate],
+    lang: str,
+    taken: Mapping[tuple[str, str], int] | None = None,
+) -> str:
     """Пронумерованный список предложений: пункт, класс, зона, формулировка.
 
     Претензии проверки правил (`Candidate.flags`) не прячутся: формулировку с
     пометкой аудитор обязан прочитать глазами, а не подтвердить не глядя.
+
+    `taken` — карта уже занятых пар «пункт + зона» (`refusal.occupied_pairs`,
+    задача T137). Занятый пункт попадает сюда штатно: сверка со списком
+    нарушений упирается в отказ движка, и материал уходит модели, потому что на
+    кадре бывает второе нарушение. Непомеченным он выглядит как обычное
+    предложение — и нажатие даёт второй отказ подряд по тому же поводу, о
+    котором продукт только что сказал сам.
+
+    Пара, а не код: тот же пункт в другой зоне — законная и частая запись, и
+    пометить её значило бы отговаривать аудитора от верного действия.
     """
     titles = zone_titles(lang)
+    occupied = taken or {}
     lines = []
     for index, candidate in enumerate(candidates, start=1):
         key = "record.candidate_flagged" if candidate.flags else "record.candidate_line"
-        lines.append(
-            t(
-                key,
-                lang,
-                index=index,
-                code=candidate.code,
-                level=candidate.level,
-                zone=zone_title(candidate.zone, lang, titles),
-                wording=candidate.wording,
-            )
+        line = t(
+            key,
+            lang,
+            index=index,
+            code=candidate.code,
+            level=candidate.level,
+            zone=zone_title(candidate.zone, lang, titles),
+            wording=candidate.wording,
         )
+        n = occupied.get((candidate.code, candidate.zone))
+        if n is not None:
+            line += t("record.candidate_taken", lang, n=n)
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -129,6 +146,32 @@ def confirm_line(finding: domain.Finding, lang: str) -> str:
         zone=zone_title(finding.zone, lang),
     )
     return line + zone_unusual_mark(finding, lang)
+
+
+def confirmed_block(finding: domain.Finding, lang: str, *, title: str) -> str:
+    """Запись, которую аудитор подтвердил кнопкой (T055, расширен T135).
+
+    Раньше здесь была одна строка `confirm_line`, и спека (`docs/06-mvp-bot.md`,
+    шаг 5) объясняла это тем, что пункт аудитор «прочитал на кнопке». На кнопке
+    до T136 стояла голая цифра, а формулировка — в перечне выше, откуда взгляд
+    уже ушёл; проверить же строку `#1 CLN05 · D1 · Тепловой участок` нечем —
+    **код глазами не читается**. Это тот же довод, по которому вопрос пункта
+    попал в `fixed_block`, и асимметрия между двумя показами выходила обратной
+    здравому смыслу: подробно там, где человек ничего не подтверждал.
+
+    Блоком быстрого пути это всё же не становится. Строки карты у подтверждённой
+    записи нет вовсе, «ваших слов» тоже: её текстом стала формулировка модели, и
+    звать её словами аудитора было бы враньём. Добавки ровно две — вопрос пункта
+    и то, что уйдёт в отчёт партнёру.
+
+    Совпали текст записи и вопрос пункта — показывается одно: так ложится ручной
+    выбор пункта по кадру без комментария, и повтор выдал бы за две вещи одну.
+    """
+    line = confirm_line(finding, lang)
+    note = shorten(finding.text, FAST_NOTE_LIMIT)
+    if note.strip() == title.strip():
+        return t("record.confirmed_plain", lang, line=line, title=title)
+    return t("record.confirmed", lang, line=line, title=title, note=note)
 
 
 def fixed_block(

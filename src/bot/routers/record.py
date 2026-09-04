@@ -155,11 +155,21 @@ async def _hear_voice(message: Message, file_id: str, lang: str) -> str | None:
 
 
 async def _show_candidates(message: Message, proposal: Proposal, lang: str) -> None:
+    """Показать предложения модели, пометив уже занятые пары «пункт + зона» (T137).
+
+    Занятый пункт приходит сюда штатно: сверка со списком нарушений упёрлась в
+    отказ движка, и материал ушёл модели — на кадре бывает второе нарушение.
+    Но модель предлагает и тот же пункт тоже, и непомеченным он неотличим от
+    остальных: нажатие даёт второй отказ подряд по поводу, о котором бот только
+    что сказал сам.
+    """
     text = t(
         "record.candidates",
         lang,
         count=len(proposal.file_ids),
-        lines=view.candidate_lines(proposal.candidates, lang),
+        lines=view.candidate_lines(
+            proposal.candidates, lang, refusal.occupied_pairs(message.chat.id)
+        ),
     )
     if proposal.question:
         text = t("record.question", lang, question=proposal.question) + "\n\n" + text
@@ -405,8 +415,13 @@ async def _save(
     current = None if saved is None else saved.finding(finding.n)
     shown = current or finding
     if auto is None:
+        # Подтверждённая запись показывается не строкой, а блоком (T135): к
+        # строке добавлены вопрос пункта словами и то, что уйдёт в отчёт
+        # партнёру. Код в строке глазами не проверяется, а формулировка —
+        # проверяется, и прочитать её надо ДО того, как документ уедет.
         await message.answer(
-            view.confirm_line(shown, lang), reply_markup=edit_keyboard(finding.n, lang)
+            view.confirmed_block(shown, lang, title=refusal.item_title(shown.code, lang)),
+            reply_markup=edit_keyboard(finding.n, lang),
         )
     else:
         await message.answer(
