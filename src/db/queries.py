@@ -121,6 +121,7 @@ _FINDINGS_OF_INSPECTION_SQL = """
 select
     f.id, f.inspection_id, u.name, i.inspection_date, f.n, f.code, f.level,
     f.zone, f.zone_unusual, f.source, i.speech_lang,
+    f.suggested_code, f.suggested_level, f.suggested_zone, f.suggested_confidence,
     (select t.text from translations t
       where t.entity_type = 'finding' and t.entity_id = f.id
         and t.field = 'text' and t.lang = i.speech_lang),
@@ -140,6 +141,7 @@ _FINDINGS_BY_UNIT_SQL = """
 select
     f.id, f.inspection_id, u.name, i.inspection_date, f.n, f.code, f.level,
     f.zone, f.zone_unusual, f.source, i.speech_lang,
+    f.suggested_code, f.suggested_level, f.suggested_zone, f.suggested_confidence,
     (select t.text from translations t
       where t.entity_type = 'finding' and t.entity_id = f.id
         and t.field = 'text' and t.lang = i.speech_lang),
@@ -207,8 +209,17 @@ def _row_to_finding(row: Any) -> FindingRow:
         zone_unusual=bool(row[8]),
         source=str(row[9] or ""),
         lang=str(row[10]),
-        text=row[11],
-        comment=row[12],
+        # Предложение модели (T164). `None` во всех четырёх — модель не
+        # предлагала ничего; пустая строка сюда не доезжает, её склеивает с
+        # `None` ещё слив. Уверенность приходит из `numeric` десятичной дробью
+        # (`Decimal`), и `float` здесь — не округление, а приведение к тому же
+        # типу, которым её отдал распознаватель.
+        suggested_code=row[11],
+        suggested_level=row[12],
+        suggested_zone=row[13],
+        suggested_confidence=None if row[14] is None else float(row[14]),
+        text=row[15],
+        comment=row[16],
     )
 
 
