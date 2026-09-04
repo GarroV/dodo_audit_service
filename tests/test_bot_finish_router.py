@@ -314,7 +314,12 @@ async def test_build_without_an_inspection_says_so_instead_of_calling_the_engine
     await build_report(dp, bot)
 
     assert session.documents == []
-    assert session.last_text == t("material.no_inspection", "ru")
+    assert t("material.no_inspection", "ru") in session.texts
+    # Второе нажатие оснастки («дальше к отчёту») в этом случае тоже из старой
+    # переписки: информационной части нет, потому что нет проверки. С T134 такая
+    # кнопка получает честный ответ вместо тишины — поэтому последним стоит он,
+    # а искомый отказ проверяется по всей переписке, а не по её хвосту.
+    assert session.last_text == t("error.button_gone", "ru")
 
 
 async def test_failed_letter_is_reported_after_the_pdf_was_already_sent(

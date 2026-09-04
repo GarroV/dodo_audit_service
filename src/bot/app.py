@@ -35,6 +35,7 @@ from .material import MaterialStore
 from .pending import PendingStore
 from .routers import (
     build_edit_router,
+    build_fallback_router,
     build_finish_router,
     build_info_router,
     build_material_router,
@@ -167,6 +168,11 @@ def build_dispatcher(
             album_window=album_window,
         )
     )
+    # Последним и без фильтра данных (T134): нажатие, которое не подошло ни
+    # одному обработчику выше, обязано получить ответ, иначе телеграм крутит
+    # человеку часики до собственного таймаута. Порядок здесь и есть весь
+    # механизм — стой этот роутер раньше, он съедал бы живые нажатия.
+    dispatcher.include_router(build_fallback_router())
     return dispatcher
 
 
