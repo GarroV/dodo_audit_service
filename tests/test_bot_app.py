@@ -36,10 +36,15 @@ class PollingSpy:
     Экземпляр класса — не функция и потому не дескриптор: подставленный в
     `Dispatcher`, он не связывается с экземпляром диспетчера, и первым
     позиционным приходит сам бот, а не `self`.
+
+    Здесь же складываются объявленные команды меню (T139): их бот сообщает
+    телеграму настоящим запросом, и без подмены прогон уходил бы в сеть — то
+    самое, чего этот файл не делает по построению.
     """
 
     def __init__(self) -> None:
         self.calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        self.commands: list[list[Any]] = []
 
     async def __call__(self, *args: Any, **kwargs: Any) -> None:
         self.calls.append((args, kwargs))
@@ -57,6 +62,12 @@ def polling(monkeypatch: pytest.MonkeyPatch) -> PollingSpy:
     monkeypatch.setattr(Dispatcher, "start_polling", spy)
     monkeypatch.setattr(app, "load_bot_settings", lambda: SETTINGS)
     monkeypatch.setattr(app.domain, "check_environment", lambda: None)
+
+    async def remember_commands(bot: Bot, commands: list[Any], **kwargs: Any) -> bool:
+        spy.commands.append(commands)
+        return True
+
+    monkeypatch.setattr(Bot, "set_my_commands", remember_commands)
     return spy
 
 
@@ -85,6 +96,19 @@ async def test_methodology_is_checked_before_the_first_message(
         await app.start_polling()
 
     assert polling.calls == [], "бот начал слушать Telegram при неполной методике"
+
+
+@pytest.mark.asyncio
+async def test_menu_is_announced_before_polling_starts(polling: PollingSpy) -> None:
+    """Меню объявляется на подъёме, а не когда-нибудь (T139).
+
+    Команда, которой нет в меню, спрятана ровно так же, как была спрятана за
+    «Завершить» сама функция показа записанного.
+    """
+    await app.start_polling()
+
+    assert polling.commands, "команды в меню не объявлены при подъёме бота"
+    assert "records" in [c.command for c in polling.commands[0]]
 
 
 @pytest.mark.asyncio

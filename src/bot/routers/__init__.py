@@ -10,6 +10,7 @@ from .edit import build_edit_router
 from .finish import build_finish_router
 from .material import build_material_router
 from .record import build_record_router
+from .records import build_records_router
 from .start import build_start_router
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "build_finish_router",
     "build_material_router",
     "build_record_router",
+    "build_records_router",
     "build_start_router",
 ]

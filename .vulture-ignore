@@ -37,6 +37,7 @@ on_level
 on_new_text
 on_anything_else
 on_finish
+on_records
 on_build
 on_build_without_photos
 on_resume

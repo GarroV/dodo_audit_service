@@ -23,7 +23,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ErrorEvent, Message
+from aiogram.types import BotCommand, ErrorEvent, Message
 
 from src import domain
 
@@ -38,11 +38,13 @@ from .routers import (
     build_finish_router,
     build_material_router,
     build_record_router,
+    build_records_router,
     build_start_router,
 )
 from .routers.material import MaterialHandler
 from .routers.record import make_material_handler, make_waiting_handler
-from .texts import DEFAULT_UI_LANG, t
+from .routers.records import RECORDS_COMMAND
+from .texts import DEFAULT_UI_LANG, default_ui_lang, t
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +150,7 @@ def build_dispatcher(
 
     dispatcher.include_router(build_start_router(settings, pending))
     dispatcher.include_router(build_edit_router())
+    dispatcher.include_router(build_records_router())
     dispatcher.include_router(build_finish_router())
     dispatcher.include_router(build_record_router(store=store, pending=pending))
     dispatcher.include_router(
@@ -166,6 +169,41 @@ def create_bot(settings: BotSettings) -> Bot:
     return Bot(token=settings.token, default=DefaultBotProperties())
 
 
+#: Команды в меню телеграма: имя и ключ описания в каталоге текстов.
+#:
+#: Порядок — порядок работы аудитора, а не алфавит: начать, посмотреть
+#: записанное, снять последнее, завершить.
+MENU_COMMANDS = (
+    ("start", "cmd.start"),
+    (RECORDS_COMMAND, "cmd.records"),
+    ("undo", "cmd.undo"),
+    ("finish", "cmd.finish"),
+)
+
+
+async def announce_commands(bot: Bot) -> None:
+    """Объявить команды в меню телеграма (T139).
+
+    Без этого команда есть, но её не видно: аудитор на точке не набирает
+    `/records` по памяти — он нажимает синюю кнопку меню и выбирает из списка.
+    Ровно из-за этого показ записанного и был спрятан за «Завершить»: другого
+    входа у него не было, а этот никто не показывал.
+
+    Язык — язык стенда (`BOT_UI_LANG`, T131), а не проверки: меню телеграм
+    спрашивает один раз при подъёме бота, когда никакой проверки ещё нет.
+
+    Отказ телеграма сюда не пускается наружу: без меню бот работает, а не
+    подняться из-за него — цена несоразмерная. В журнал он попадает целиком.
+    """
+    lang = default_ui_lang()
+    try:
+        await bot.set_my_commands(
+            [BotCommand(command=name, description=t(key, lang)) for name, key in MENU_COMMANDS]
+        )
+    except Exception:
+        logger.exception("команды в меню телеграма не объявились — бот работает без меню")
+
+
 async def start_polling() -> None:
     """Поднять бота: проверить окружение, затем слушать Telegram."""
     settings = load_bot_settings()
@@ -173,6 +211,7 @@ async def start_polling() -> None:
     # честный ответ «нарушений нет», а узнать об этом на точке — поздно.
     domain.check_environment()
     bot = create_bot(settings)
+    await announce_commands(bot)
     dispatcher = build_dispatcher(settings)
     logger.info(
         "бот поднят в режиме %s, разрешённых ID: %s", settings.mode, len(settings.allowed_ids)

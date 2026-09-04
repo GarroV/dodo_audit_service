@@ -53,6 +53,7 @@ from ..keyboards import (
 from ..lang import chat_ui_lang
 from ..photos import download_all
 from ..texts import t
+from .records import show_records
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,12 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
     Тремя, а не одним: список записей и список кадров по отдельности читаются, а
     склеенные упираются в предел длины сообщения телеграма на первой же реальной
     проверке (двадцать записей — это уже за две тысячи знаков).
+
+    Список и кадры показывает `records.show_records` — та же функция, что и
+    команда «что записано» (T139). Одна на оба пути намеренно: две копии списка
+    разошлись бы молча, ровно как разошлась пометка нетипичной зоны в T147.
+    Здесь к ней добавляется то, чего в середине обхода быть не должно, — оценка
+    (T162, D072) и кнопки завершения.
     """
     inspection = read_inspection(chat_id)
     if inspection is None:
@@ -82,29 +89,7 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
         )
     )
 
-    notes = sidecar.read(chat_id)
-    if inspection.findings:
-        await message.answer(
-            t(
-                "finish.records",
-                lang,
-                lines=view.record_lines(inspection.findings, lang),
-            )
-        )
-    else:
-        await message.answer(t("finish.empty", lang))
-
-    used = {ref for finding in inspection.findings for ref in finding.photos}
-    orphans = tuple(frame for frame in notes.frames if frame.file_id not in used)
-    if orphans:
-        await message.answer(
-            t(
-                "finish.unclaimed",
-                lang,
-                count=len(orphans),
-                lines=view.unclaimed_lines(orphans, lang),
-            )
-        )
+    await show_records(message, chat_id, lang)
 
     await message.answer(
         t("finish.ask", lang),

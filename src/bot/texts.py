@@ -75,6 +75,23 @@ TEXTS: dict[str, dict[str, str]] = {
             "file name. Send a shorter one — as it should appear in the report."
         ),
     },
+    # Тот же предел, но по факту, а не по знакам (T128, issue #103): 60
+    # эмодзи — те же 60 знаков (в предел выше укладываются), но уже 240 байт,
+    # то есть одно название съедает больше, чем весь бюджет имени файла.
+    # Аудитору говорим не про байты — про то, что делать: короче название,
+    # меньше «тяжёлых» знаков.
+    "start.unit_too_long_bytes": {
+        "ru": (
+            "Название слишком длинное для имени файла отчёта — в нём слишком много "
+            "непростых знаков (например, эмодзи). Пришлите короче или замените часть "
+            "знаков обычными буквами."
+        ),
+        "en": (
+            "The name is too long for the report file name — it has too many heavy "
+            "characters (emoji, for example). Send a shorter one, or replace some "
+            "characters with plain letters."
+        ),
+    },
     "start.unit_expected": {
         "ru": "Жду название пиццерии текстом.",
         "en": "Waiting for the pizzeria name as text.",
@@ -97,6 +114,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "Вид: {kind}\n"
             "Язык отчёта: {lang}\n"
             "Проверяющий: {auditor}\n"
+            "{auditor_note}"
             "Дата: {date}\n\n"
             "Присылайте фотографии с комментариями."
         ),
@@ -106,9 +124,20 @@ TEXTS: dict[str, dict[str, str]] = {
             "Type: {kind}\n"
             "Report language: {lang}\n"
             "Auditor: {auditor}\n"
+            "{auditor_note}"
             "Date: {date}\n\n"
             "Send photos with comments."
         ),
+    },
+    # Обрезка имени аудитора по байтам молча не уезжает (T128, issue #103):
+    # имя приходит из профиля Telegram, а не от аудитора в этот момент, и
+    # отказать нельзя — значит, о подмене надо сказать отдельной строкой в
+    # `start.started`. `{auditor_note}` рядом пуст, когда обрезки не было —
+    # перевод строки этот текст несёт с собой сам (см. `routers/start.py`),
+    # каталог им не заведует.
+    "start.auditor_name_shortened": {
+        "ru": "Имя в профиле длиннее — для отчёта и имени файла оно сокращено.",
+        "en": "The profile name is longer — it was shortened for the report and the file name.",
     },
     # Тот же запрет, что и у отказа сборки, только на входе в проверку:
     # движок отвечает вызывающему из командной строки и присылает полный стек
@@ -599,6 +628,13 @@ TEXTS: dict[str, dict[str, str]] = {
     "btn.skip": {"ru": "Не записывать", "en": "Skip"},
     "btn.model": {"ru": "Разобрать моделью", "en": "Analyze with the model"},
     "btn.more": {"ru": "Дальше", "en": "Next"},
+    # Описания команд в меню телеграма (T139). Меню — единственное место, где
+    # аудитор увидит команду, не зная о ней заранее: набирать `/records` по
+    # памяти на точке никто не будет.
+    "cmd.start": {"ru": "Начать проверку", "en": "Start an inspection"},
+    "cmd.records": {"ru": "Что записано", "en": "What is recorded"},
+    "cmd.undo": {"ru": "Снять последнюю запись", "en": "Undo the last record"},
+    "cmd.finish": {"ru": "Завершить и собрать отчёт", "en": "Finish and build the report"},
     # Кнопки мастера начала проверки (T131). До T131 их надписи стояли строками
     # в `keyboards.py` — единственные строки интерфейса мимо каталога, и потому
     # единственные, которые язык стенда не мог перекрасить.
