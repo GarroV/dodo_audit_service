@@ -850,16 +850,35 @@ TEXTS: dict[str, dict[str, str]] = {
             "or skip the question."
         ),
     },
-    # Кадр в информационной части: в отчёт он не попадёт — там печатается текст,
-    # и врать об этом нельзя. Подпись при этом не теряется: она и есть ответ.
-    "info.photo_only_text": {
+    # Кадр в информационной части (T179). Прежний текст обещал, что в отчёт
+    # попадёт только текст, — с T172 это неправда: движок печатает кадр под
+    # текстом своего поля. Кадр печатается РЯДОМ С ОТВЕТОМ, поэтому без ответа
+    # его печатать некуда: он ждёт слов на тот же вопрос.
+    "info.photo_taken": {
         "ru": (
-            "Кадр принял, но в информационную часть отчёта попадает только текст — "
-            "фотографии прикладываются к записям нарушений. Ответ напишите или наговорите."
+            "Кадр принял — он уйдёт в отчёт рядом с ответом на этот вопрос. "
+            "Ответ напишите или наговорите."
         ),
         "en": (
-            "Photo received, but the additional information section carries text only — "
-            "photos are attached to violation records. Type or dictate your answer."
+            "Photo received — it goes into the report next to your answer to this question. "
+            "Type or dictate the answer."
+        ),
+    },
+    # Число, а не согласование: «Кадров при поле — 1» читается одинаково при
+    # любом количестве, и русский текст не приходится склонять (тот же приём,
+    # что в `finish.unclaimed`).
+    "info.photo_attached": {
+        "ru": "Кадров при этом поле — {count}: они напечатаются в отчёте рядом с ответом.",
+        "en": "Photos on this field — {count}: they print in the report next to the answer.",
+    },
+    "info.photo_dropped": {
+        "ru": (
+            "Вопрос пропущен, а кадров к нему было — {count}. В отчёт они не уйдут: "
+            "в информационной части кадр печатается рядом с ответом, а ответа нет."
+        ),
+        "en": (
+            "The question was skipped, and photos attached to it — {count}. They will not "
+            "reach the report: here a photo prints next to an answer, and there is none."
         ),
     },
     # Значение поля «да/нет», уезжающее в отчёт. Язык здесь — язык ОТЧЁТА, а не

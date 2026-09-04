@@ -118,6 +118,10 @@ async def show_records(message: Message, chat_id: int, lang: str) -> None:
 
     notes = sidecar.read(chat_id)
     used = {ref for finding in inspection.findings for ref in finding.photos}
+    # Кадр информационной части приложен к своему полю и печатается рядом с ним
+    # (T179): называть его оставшимся без записи значило бы пугать аудитора
+    # потерей того, что в отчёт как раз попадёт.
+    used |= {ref for field in inspection.info.values() for ref in field.photos}
     orphans = tuple(frame for frame in notes.frames if frame.file_id not in used)
     if orphans:
         await _show_unclaimed(message, orphans, lang)

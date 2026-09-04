@@ -38,7 +38,7 @@ from .errors import (
     ValidationError,
 )
 from .kinds import kind_title
-from .models import SOURCES, TEXT_LANGS, Finding, Inspection, Suggestion
+from .models import SOURCES, TEXT_LANGS, Finding, InfoAnswer, Inspection, Suggestion
 
 logger = logging.getLogger(__name__)
 
@@ -349,6 +349,33 @@ def _finding(
     )
 
 
+def read_info(raw: Mapping[str, Any]) -> dict[str, InfoAnswer]:
+    """Информационная часть проверки: код пункта → ответ с кадрами (T179).
+
+    Поле бывает двух форм, и обе законные. С T172 это пара «текст + кадры», до
+    неё — просто строка: состояние это обычный JSON на диске, и проверки,
+    начатые раньше, приходят какими есть. Отказаться читать строку значило бы
+    объявить такую проверку битой и лишить аудитора способа её завершить.
+
+    Форму приводит к одной и движок (`engine/report.py: info_field`) — иначе
+    поле старой проверки читалось бы в одном месте и терялось в другом. Второй
+    копии правила тут не избежать: движок читает тот же файл сам, а импортировать
+    его продукту запрещено контрактом границ.
+
+    Непонятная форма отказом не становится: печатать нечего, а уронить из-за неё
+    подсчёт оценки — цена, несопоставимая с потерей одного текстового поля.
+    """
+    result: dict[str, InfoAnswer] = {}
+    for code, value in dict(raw.get("info") or {}).items():
+        if isinstance(value, Mapping):
+            text = str(value.get("text") or "")
+            photos = [str(p) for p in (value.get("photos") or []) if p]
+        else:
+            text, photos = str(value or ""), []
+        result[str(code)] = InfoAnswer(code=str(code), text=text, photos=photos)
+    return result
+
+
 def _inspection(chat_id: int, raw: Mapping[str, Any], path: Path) -> Inspection:
     meta: Mapping[str, Any] = raw.get("meta") or {}
     block: Mapping[str, Any] = raw.get(DOMAIN_KEY) or {}
@@ -375,6 +402,7 @@ def _inspection(chat_id: int, raw: Mapping[str, Any], path: Path) -> Inspection:
         contact=str(meta.get("contact") or ""),
         auditor=str(meta.get("auditor") or ""),
         findings=[_finding(f, sources, suggestions) for f in (raw.get("findings") or [])],
+        info=read_info(raw),
     )
 
 

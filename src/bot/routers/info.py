@@ -23,9 +23,11 @@
   текст: он станет ответом вместо услышанного;
 * **кнопки** отвечают за поля «да/нет», и их значение уезжает в отчёт на языке
   ОТЧЁТА, а не интерфейса: строку читает партнёр;
-* **кадр** принимается, но в информационную часть отчёта попадает только текст —
-  движок хранит в блоке `info` строку. Молчать об этом нельзя, поэтому бот
-  говорит прямо; подпись к кадру при этом не теряется — она и есть ответ.
+* **кадр** прикладывается к ответу и печатается в отчёте рядом с ним (T179).
+  Кадра без ответа в отчёте не существует — движок печатает его ПОД ТЕКСТОМ
+  своего поля, — поэтому снимок без подписи ждёт слов на тот же вопрос, а
+  пропуск вопроса вместе с кадром бот называет вслух. Подпись к кадру ответом
+  быть не перестала: она и есть ответ, кадр к ней приложением.
 
 **Ни одно поле не обязательно** (допущение D070). Пропущенное не записывается
 вовсе — и не печатается; срок плана действий при пропуске падает на прежний
@@ -73,6 +75,9 @@ logger = logging.getLogger(__name__)
 INDEX_KEY = "info_index"
 FIELDS_KEY = "info_fields"
 HEARD_KEY = "info_heard"
+#: Кадры, присланные к вопросу, на котором стоит разговор, но ещё не записанные:
+#: ответа на него пока нет, а кадр печатается рядом с ответом (T179).
+PHOTOS_KEY = "info_photos"
 
 #: Подсказка про способ ответа — по виду поля.
 HINTS = {
@@ -110,6 +115,7 @@ async def start_info(message: Message, state: FSMContext, chat_id: int, lang: st
             FIELDS_KEY: [(field.code, field.kind, question) for field, question in asked],
             INDEX_KEY: 0,
             HEARD_KEY: None,
+            PHOTOS_KEY: [],
         }
     )
     await message.answer(t("info.intro", lang))
@@ -139,8 +145,30 @@ async def _ask(message: Message, state: FSMContext, lang: str) -> None:
     )
 
 
+async def _photos(state: FSMContext) -> list[str]:
+    """Кадры, ждущие ответа на текущий вопрос."""
+    data = await state.get_data()
+    return [str(ref) for ref in (data.get(PHOTOS_KEY) or [])]
+
+
+async def _forget_photos(message: Message, state: FSMContext, lang: str) -> None:
+    """Уйти с вопроса, к которому приложен кадр, — и сказать об этом.
+
+    Записанный ответ кадры уже забрал (`_save` их снимает), поэтому сюда они
+    доходят только вместе с пропуском. Промолчать нельзя: аудитор прислал
+    снимок и вправе считать, что тот в отчёте, — это ровно та тихая потеря,
+    против которой заведена задача.
+    """
+    shots = await _photos(state)
+    if not shots:
+        return
+    await state.update_data({PHOTOS_KEY: []})
+    await message.answer(t("info.photo_dropped", lang, count=len(shots)))
+
+
 async def _next(message: Message, state: FSMContext, lang: str) -> None:
     """Перейти к следующему вопросу."""
+    await _forget_photos(message, state, lang)
     data = await state.get_data()
     await state.update_data({INDEX_KEY: int(data.get(INDEX_KEY) or 0) + 1})
     await _ask(message, state, lang)
@@ -148,6 +176,7 @@ async def _next(message: Message, state: FSMContext, lang: str) -> None:
 
 async def _finish(message: Message, state: FSMContext, chat_id: int, lang: str) -> None:
     """Информационная часть кончилась — теперь и только теперь собирается отчёт."""
+    await _forget_photos(message, state, lang)
     await state.clear()
     await message.answer(t("info.finished", lang))
     await deliver(message, chat_id, lang, allow_missing=False)
@@ -177,14 +206,20 @@ async def _save(message: Message, state: FSMContext, lang: str, value: str) -> N
         await _ask(message, state, lang)
         return
     code, _kind = here
+    shots = await _photos(state)
     try:
         # Подпроцесс движка — в поток, как и все остальные его вызовы (T101).
-        await asyncio.to_thread(domain.set_info, message.chat.id, code, value)
+        await asyncio.to_thread(domain.set_info, message.chat.id, code, value, photos=shots)
     except DomainError:
         logger.exception("информационное поле %s чата %s не записалось", code, message.chat.id)
         await message.answer(t("info.not_saved", lang))
         return
+    # Кадры сняты только после удачной записи: отказ движка оставляет их при
+    # вопросе, и повторный ответ уносит их с собой, а не теряет по дороге.
+    await state.update_data({PHOTOS_KEY: []})
     await message.answer(t("info.saved", lang, value=view.shorten(value)))
+    if shots:
+        await message.answer(t("info.photo_attached", lang, count=len(shots)))
     await _next(message, state, lang)
 
 
@@ -299,11 +334,14 @@ def build_info_router() -> Router:
 
     @router.message(InfoFlow.waiting, F.photo)
     async def on_photo(message: Message, state: FSMContext) -> None:
-        """Кадр в информационной части: принят, но печатается только текст.
+        """Кадр в информационной части: он уйдёт в отчёт рядом с ответом (T179).
 
         Кадр запоминается заметками бота — тем же списком, которым собираются
         кадры без записи: присланное не должно исчезать молча. Подпись, если
-        она есть, и есть ответ на вопрос.
+        она есть, и есть ответ на вопрос, а кадр — приложение к нему.
+
+        Без подписи кадр ждёт слов на тот же вопрос: движок печатает его ПОД
+        ТЕКСТОМ поля, и кадра без ответа в отчёте не существует.
         """
         chat_id = message.chat.id
         lang, _ = chat_langs(chat_id)
@@ -312,9 +350,13 @@ def build_info_router() -> Router:
             sidecar.remember_frames(
                 chat_id, [sidecar.SeenFrame(message_id=message.message_id, file_id=file_id)]
             )
-        await message.answer(t("info.photo_only_text", lang))
+            shots = await _photos(state)
+            if file_id not in shots:
+                await state.update_data({PHOTOS_KEY: [*shots, file_id]})
         if message.caption:
             await _save_free_text(message, state, lang, message.caption)
+            return
+        await message.answer(t("info.photo_taken", lang))
 
     @router.message(InfoFlow.waiting, F.text & ~F.text.startswith("/"))
     async def on_text(message: Message, state: FSMContext) -> None:

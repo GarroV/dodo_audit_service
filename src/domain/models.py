@@ -130,6 +130,24 @@ class Finding:
 
 
 @dataclass(frozen=True)
+class InfoAnswer:
+    """Заполненное информационное поле проверки: ответ аудитора и его кадры (T179).
+
+    Не путать с `bot.info.InfoField`: там ВОПРОС методики, который ещё только
+    предстоит задать, здесь ОТВЕТ, уже лежащий в проверке.
+
+    Кадры хранятся ссылками, как и у записи: в боте это идентификатор телеграма,
+    при запуске движка руками — путь. Читает их блок `report`, чтобы построить
+    карту «ссылка → файл»; без карты идентификатор уехал бы в движок путём, и на
+    месте кадра партнёр увидел бы красную отметку «фотография не приложена».
+    """
+
+    code: str
+    text: str
+    photos: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class Inspection:
     """Состояние проверки одного чата.
 
@@ -151,6 +169,10 @@ class Inspection:
     contact: str = ""
     auditor: str = ""
     findings: list[Finding] = field(default_factory=list)
+    #: Информационная часть: код пункта → ответ аудитора с кадрами (T158, T179).
+    #: На оценку не влияет — движок считает процент по `findings`, — но
+    #: печатается партнёру и читается письмом (срок плана действий).
+    info: dict[str, InfoAnswer] = field(default_factory=dict)
 
     def finding(self, n: int) -> Finding | None:
         return next((f for f in self.findings if f.n == n), None)

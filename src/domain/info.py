@@ -8,21 +8,37 @@
 Команда движка `audit.py info --qid --text` существовала с самого начала, и
 блок ею не пользовался: до T158 информационную часть никто не спрашивал.
 Отдельным модулем, а не строкой в `findings.py`, потому что это другая
-сущность: у находки есть номер, класс и зона, у информационного поля — только
-код пункта и текст, и правило «одна пара пункт + зона на проверку» к нему не
-относится. Повторная запись того же кода просто заменяет прежний текст, и это
-именно то, что нужно после правки расшифровки голоса.
+сущность: у находки есть номер, класс и зона, у информационного поля — код
+пункта, текст и кадры (T179), и правило «одна пара пункт + зона на проверку» к
+нему не относится. Повторная запись того же кода просто заменяет прежний текст,
+и это именно то, что нужно после правки расшифровки голоса; приложенные кадры
+она при этом не трогает.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from .config import check_environment
 from .engine import option, run_audit
-from .errors import ValidationError
+from .errors import EngineError, ValidationError
+from .state import read_state
 
 
-def set_info(chat_id: int, code: str, text: str) -> None:
+def set_info(chat_id: int, code: str, text: str, *, photos: Sequence[str] = ()) -> None:
     """Записать информационное поле проверки: `code` — пункт чек-листа, `text` — ответ.
+
+    `photos` — кадры, которые печатаются в отчёте рядом с текстом этого поля
+    (T179, вторая половина требования D069). До T172 движок хранил поле строкой,
+    и передавать кадр было некуда; теперь поле это пара «текст + кадры».
+
+    Кадр хранится ССЫЛКОЙ — в боте это идентификатор телеграма, — и проверяется
+    она тем же правилом, что и кадр записи (`findings.attach_photo`): движок
+    режет список по запятой, и один кадр молча стал бы двумя несуществующими.
+
+    Пустой список кадров прежние НЕ снимает: повторной записью того же поля
+    правят расшифровку голоса (D069), и кадр к этой правке отношения не имеет —
+    так же читает свой `--photo` и движок.
 
     Пустой текст — отказ, а не запись пустоты: в отчёте партнёру это выглядело
     бы как «поле спросили и оно ничего не значит», а пропущенное поле по
@@ -41,9 +57,36 @@ def set_info(chat_id: int, code: str, text: str) -> None:
             f"Текст информационного поля {clean_code} пустой. Пропущенное поле не "
             f"записывается вовсе, а не записывается пустым"
         )
+    shots = [str(ref).strip() for ref in photos]
+    for ref in shots:
+        if not ref:
+            raise ValidationError(
+                f"Пустая ссылка на кадр информационного поля {clean_code}: приложить нечего, "
+                f"а поле выглядело бы записанным с кадром"
+            )
+        if "," in ref:
+            raise ValidationError(
+                f"В ссылке на кадр поля {clean_code} запятая: «{ref}». Движок разрежет её "
+                f"по запятой на два кадра, и оба окажутся несуществующими"
+            )
     settings = check_environment()
     run_audit(
-        ["info", option("qid", clean_code), option("text", text)],
+        ["info", option("qid", clean_code), option("text", text)]
+        + [option("photo", ref) for ref in shots],
         chat_id=chat_id,
         settings=settings,
     )
+    if not shots:
+        return
+    # Успех движка проверяется наблюдаемым результатом, а не кодом возврата
+    # (конституция, тот же приём у `attach_photo`): именно молчаливая потеря
+    # кадра и была дефектом, ради которого задача заведена.
+    state = read_state(chat_id, settings)
+    saved = None if state is None else state.info.get(clean_code)
+    missing = [ref for ref in shots if saved is None or ref not in saved.photos]
+    if missing:
+        raise EngineError(
+            f"Движок отчитался об успехе, но кадров нет в поле {clean_code}: {', '.join(missing)}",
+            code=0,
+            command="info",
+        )
