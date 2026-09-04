@@ -91,7 +91,7 @@ def zone_from_words(note: str) -> str | None:
     if not words:
         return None
     # Длина совпавшего имени — мера того, насколько это имя произнесли, а не
-    # задели одним словом. «Горячий цех» из двух основ весомее «мойки» из одной.
+    # задели одним словом: имя из двух основ весомее имени из одной.
     best: dict[str, int] = {}
     for code, names in phrases().items():
         for name in names:
