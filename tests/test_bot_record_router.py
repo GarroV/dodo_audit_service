@@ -143,13 +143,16 @@ async def test_candidates_are_shown_but_nothing_is_recorded_yet(
     assert findings() == []
 
 
-async def test_confirmation_records_and_answers_with_one_line(
+async def test_confirmation_records_and_answers_compactly(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Подтверждение — одна строка: пункт, класс, зона (T055).
+    """Подтверждение — короткий блок: пункт, класс, зона и то, что уйдёт партнёру.
 
-    Процента в ней больше нет: решение владельца D072 (задача T162) оставило
-    оценку только в итоге при завершении.
+    Одной строкой оно было до T135 (issue #106), и строка эта не читалась: код
+    глазами не проверяется. Что здесь по-прежнему запрещено — таблица после
+    каждого кадра (`docs/06-mvp-bot.md`, шаг 5) и процент по ходу обхода (T162,
+    решение владельца D072), — то и проверяется. Сам вопрос пункта и формулировка
+    в отчёт стерегутся отдельно, в `tests/test_bot_confirmed_shown.py`.
     """
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen", "Печь в нагаре")))
@@ -162,11 +165,12 @@ async def test_confirmation_records_and_answers_with_one_line(
 
     saved = findings()
     assert len(saved) == 1
-    line = session.texts[0]
-    assert line.count("\n") == 0, "подтверждение обязано быть одной строкой, без таблицы"
+    block = session.texts[0]
     for part in ("#1", "CLN05", "D1", "Тепловой участок"):
-        assert part in line
-    assert "%" not in line, "процент во время обхода не показывается (T162, D072)"
+        assert part in block
+    assert "%" not in block, "процент во время обхода не показывается (T162, D072)"
+    assert block.count("\n") <= 3, "подтверждение разрослось — это уже таблица"
+    assert "#2" not in block, "в подтверждении не место списку остальных записей"
 
 
 async def test_frames_are_attached_to_the_record(

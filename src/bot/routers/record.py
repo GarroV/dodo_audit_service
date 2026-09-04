@@ -405,8 +405,13 @@ async def _save(
     current = None if saved is None else saved.finding(finding.n)
     shown = current or finding
     if auto is None:
+        # Подтверждённая запись показывается не строкой, а блоком (T135): к
+        # строке добавлены вопрос пункта словами и то, что уйдёт в отчёт
+        # партнёру. Код в строке глазами не проверяется, а формулировка —
+        # проверяется, и прочитать её надо ДО того, как документ уедет.
         await message.answer(
-            view.confirm_line(shown, lang), reply_markup=edit_keyboard(finding.n, lang)
+            view.confirmed_block(shown, lang, title=refusal.item_title(shown.code, lang)),
+            reply_markup=edit_keyboard(finding.n, lang),
         )
     else:
         await message.answer(
