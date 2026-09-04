@@ -16,6 +16,7 @@ from .config import check_environment
 from .engine import run_audit
 from .errors import EngineError
 from .models import Score, ZoneScore
+from .state import assert_checklist_version
 
 #: Ключи разбивки по зоне, которые не являются счётчиками записей. Всё
 #: остальное движок называет по классу (`D1`, `D2`, `D3`, а при информационных
@@ -42,8 +43,16 @@ def _zone(code: str, raw: Mapping[str, Any]) -> ZoneScore:
 
 
 def score(chat_id: int) -> Score:
-    """Оценка проверки этого чата — разбор ответа `audit.py score --json`."""
+    """Оценка проверки этого чата — разбор ответа `audit.py score --json`.
+
+    Считать можно только по той методике, которой проверка помечена: иначе
+    оценка выходит по новой методике под старой отметкой (T148). Расхождение —
+    `ChecklistVersionMismatch`, а не тихий пересчёт.
+    """
     settings = check_environment()
+    # Сверка ДО вызова движка: движок посчитает по тому, что лежит в каталоге
+    # сейчас, и отличить такой ответ от честного по одной цифре уже нельзя.
+    assert_checklist_version(chat_id, settings)
     out = run_audit(["score", "--json"], chat_id=chat_id, settings=settings)
     try:
         raw: Any = json.loads(out)
