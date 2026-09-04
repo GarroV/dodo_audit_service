@@ -18,8 +18,8 @@ from urllib.parse import quote
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from audit import (  # noqa: E402
-    compute, inspection_date, kind_title, load_cfg, load_checklist, load_state, load_zones,
-    state_dir,
+    compute, info_field, inspection_date, kind_title, load_cfg, load_checklist, load_state,
+    load_zones, state_dir,
 )
 
 # Каталог вывода по умолчанию — рядом с состоянием проверки, но не в соседи
@@ -238,10 +238,10 @@ tr.z0 td { background:#FCEFEF; }
 .f .h { font-weight:600; }
 .f .m { color:#6F6880; font-size:9pt; margin-top:.8mm; }
 .f .c { margin-top:1mm; font-size:9.5pt; }
-.f .shots { margin-top:1.5mm; }
-.f .miss { display:inline-block; box-sizing:border-box; width:78mm; padding:9mm 4mm; margin:0 2mm 2mm 0; text-align:center; color:#A81E1E; background:#FCEFEF; border:1pt dashed #D08A8A; border-radius:1.5mm; font-size:9pt; }
+.f .shots, .info .shots { margin-top:1.5mm; }
+.f .miss, .info .miss { display:inline-block; box-sizing:border-box; width:78mm; padding:9mm 4mm; margin:0 2mm 2mm 0; text-align:center; color:#A81E1E; background:#FCEFEF; border:1pt dashed #D08A8A; border-radius:1.5mm; font-size:9pt; }
 .f .nophoto { display:inline-block; margin-top:1.5mm; padding:.9mm 2.5mm; color:#6F6880; background:#F6F4FA; border:.6pt solid #E0DAEA; border-radius:1.2mm; font-size:8.8pt; }
-.f img { max-width:78mm; max-height:70mm; margin:0 2mm 2mm 0; border:1pt solid #E0DAEA; border-radius:1.5mm; }
+.f img, .info img { max-width:78mm; max-height:70mm; margin:0 2mm 2mm 0; border:1pt solid #E0DAEA; border-radius:1.5mm; }
 .zh { margin:4.5mm 0 1mm 0; font-weight:bold; color:#3F2A63; font-size:11pt; page-break-after:avoid; page-break-inside:avoid; }
 .note { color:#6F6880; font-size:8.8pt; margin-top:3mm; line-height:1.35; }
 .info p { margin:1.2mm 0; }
@@ -350,7 +350,21 @@ def build_html(res, lang, photos, src=None):
                 # Маркер класса срезаем так же, как у формулировки нарушения
                 # ниже: партнёру он не адресован, а до T159 поля не печатались
                 # вовсе, и увидеть это было негде.
-                h.append(f'<p><span class="k">{esc(clean_q(q))}:</span> {esc(v)}</p>')
+                поле = info_field(v)
+                h.append(f'<p><span class="k">{esc(clean_q(q))}:</span> {esc(поле["text"])}</p>')
+                # Кадр поля печатается всегда, как и кадры записей приложения:
+                # режим `--photos` управляет разделом нарушений, а приложение
+                # показывает доказательства независимо от него (T163).
+                #
+                # Пометки «Без фотофиксации» (D074) у поля НЕТ намеренно: она
+                # отвечает на вопрос «где фотография» у записи, которая обычно
+                # с кадром, а информационное поле — это текстовый ответ, и у
+                # большинства полей (даты, «да/нет», зоны роста) кадра не
+                # бывает по сути. Пометка на каждом из них стала бы шумом и
+                # обесценила бы себя там, где значит дело.
+                if поле["photos"]:
+                    h.append('<div class="shots">'
+                             + "".join(src.html(x, t) for x in поле["photos"]) + "</div>")
             h.append("</div>")
         for f in sorted(notes, key=lambda x: x["n"]):
             if True:
@@ -590,7 +604,7 @@ def plan_due_date(res):
     for k, v in (res.get("info") or {}).items():
         if v and (re.search(r"план\w* действий", (cl.get(k, {}).get("question_ru") or "").lower())
                   or "action plan" in (cl.get(k, {}).get("question_en") or "").lower()):
-            return str(v)
+            return str(info_field(v)["text"])
     days = int(load_cfg().get("plan_due_days", 10))
     return (inspection_date(res) + timedelta(days=days)).isoformat()
 
