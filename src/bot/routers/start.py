@@ -252,9 +252,12 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
                 speech_lang=report_lang,
                 auditor=auditor,
             )
-        except DomainError as exc:
+        except DomainError:
+            # Отказ движка приходит стеком с путями к его файлам: он написан
+            # тому, кто зовёт движок из командной строки. В журнал целиком, в
+            # чат — что делать (T151, тот же принцип, что у T127).
             logger.exception("не удалось начать проверку в чате %s", message.chat.id)
-            await message.answer(t("start.failed", lang, reason=str(exc)))
+            await message.answer(t("start.failed", lang))
             return
         finally:
             await state.clear()

@@ -221,15 +221,22 @@ async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: b
                 reply_markup=without_photos_keyboard(lang),
             )
             return
-        except ReportError as exc:
-            await message.answer(t("finish.pdf_failed", lang, reason=exc))
+        except ReportError:
+            # Текст движка — для того, кто чинит стенд: в нём внутренности
+            # рендерера, пути во временный каталог и совет поставить системные
+            # библиотеки (T151). Аудитору на точке нужен не он.
+            logger.exception("отчёт чата %s не собрался", chat_id)
+            await message.answer(t("finish.pdf_failed", lang))
             return
 
         await message.answer_document(FSInputFile(pdf))
         try:
             letter = await asyncio.to_thread(build_letter, chat_id)
-        except ReportError as exc:
-            await message.answer(t("finish.pdf_failed", lang, reason=exc))
+        except ReportError:
+            # Свой текст, а не тот же: отчёт аудитор к этому моменту уже
+            # получил, и «отчёт не собрался» было бы неправдой (T151).
+            logger.exception("письмо чата %s не собралось", chat_id)
+            await message.answer(t("finish.letter_failed", lang))
         else:
             await message.answer(t("finish.letter", lang, letter=letter))
 

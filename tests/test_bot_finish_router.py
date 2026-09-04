@@ -252,9 +252,16 @@ async def test_lost_photo_stops_the_build_and_leaves_the_choice_to_the_auditor(
 
 
 async def test_failed_build_is_reported_not_passed_off_as_a_report(
-    domain_env: object, monkeypatch: pytest.MonkeyPatch
+    domain_env: object, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Провал сборки уходит текстом: путь к несуществующему файлу отдавать нельзя."""
+    """Провал сборки уходит текстом: путь к несуществующему файлу отдавать нельзя.
+
+    Дословный текст отказа при этом аудитору не показывается — с T151 он уходит
+    в журнал: в нём внутренности рендерера, пути во временный каталог и совет
+    поставить системные библиотеки. Требование «отказ доходит дословно» тут и
+    было дефектом, поэтому проверяется его существо: аудитор не остаётся ни без
+    ответа, ни с ложным отчётом, а причина не теряется.
+    """
     started()
     add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар на подине печи")
 
@@ -267,10 +274,15 @@ async def test_failed_build_is_reported_not_passed_off_as_a_report(
 
     await feed(dp, bot, text_message("/finish"))
     session.clear()
-    await feed(dp, bot, callback("fin:build"))
+    with caplog.at_level("ERROR"):
+        await feed(dp, bot, callback("fin:build"))
 
     assert session.documents == []
-    assert "рендерер недоступен" in session.last_text
+    # Существо — раньше сверки с каталогом: внутренности не в чате, причина не
+    # потеряна. Сверка с каталогом после, чтобы красный приходил от дефекта.
+    assert "рендерер недоступен" not in session.last_text, "текст отказа ушёл аудитору"
+    assert "рендерер недоступен" in caplog.text, "причина не записана в журнал"
+    assert session.last_text == t("finish.pdf_failed", "ru")
 
 
 async def test_resume_returns_to_the_inspection(domain_env: object) -> None:
@@ -299,7 +311,7 @@ async def test_build_without_an_inspection_says_so_instead_of_calling_the_engine
 
 
 async def test_failed_letter_is_reported_after_the_pdf_was_already_sent(
-    domain_env: object, monkeypatch: pytest.MonkeyPatch
+    domain_env: object, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Письмо не собралось — сказать об этом, хотя отчёт уже уехал.
 
@@ -318,7 +330,11 @@ async def test_failed_letter_is_reported_after_the_pdf_was_already_sent(
 
     await feed(dp, bot, text_message("/finish"))
     session.clear()
-    await feed(dp, bot, callback("fin:build"))
+    with caplog.at_level("ERROR"):
+        await feed(dp, bot, callback("fin:build"))
 
     assert len(session.documents) == 1, "отчёт обязан был доехать: он собрался"
-    assert "шаблон письма не прочитался" in session.last_text
+    assert "шаблон письма не прочитался" not in session.last_text, "текст отказа ушёл аудитору"
+    assert "шаблон письма не прочитался" in caplog.text, "причина не записана в журнал"
+    # Свой текст, а не «отчёт не собрался»: документ аудитор уже получил (T151).
+    assert session.last_text == t("finish.letter_failed", "ru")
