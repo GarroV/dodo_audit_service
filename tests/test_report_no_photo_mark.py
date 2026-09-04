@@ -34,8 +34,17 @@ def кадр(path: Path) -> Path:
 def test_нарушение_без_кадра_помечено(
     started: Callable[..., Run], report: Callable[..., Run]
 ) -> None:
-    started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen",
-            "--evidence", "нагар на поде")
+    started(
+        "add",
+        "--qid",
+        "CLN05",
+        "--level",
+        "D1",
+        "--zone",
+        "hot_kitchen",
+        "--evidence",
+        "нагар на поде",
+    )
     r = report("html")
     assert r.code == 0, r.text
     assert БЕЗ_ФОТО in r.out, "запись сделана без кадра, а партнёру об этом не сказано"
@@ -44,8 +53,17 @@ def test_нарушение_без_кадра_помечено(
 def test_нарушение_с_кадром_не_помечено(
     started: Callable[..., Run], report: Callable[..., Run], workdir: Path
 ) -> None:
-    started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen",
-            "--evidence", "нагар на поде")
+    started(
+        "add",
+        "--qid",
+        "CLN05",
+        "--level",
+        "D1",
+        "--zone",
+        "hot_kitchen",
+        "--evidence",
+        "нагар на поде",
+    )
     started("photo", "1", "--add", str(кадр(workdir / "p01.jpg")))
     r = report("html")
     assert r.code == 0, r.text
@@ -56,8 +74,17 @@ def test_пометка_не_подменяет_отметку_промаха(
     started: Callable[..., Run], report: Callable[..., Run]
 ) -> None:
     """Привязанный, но потерянный кадр — дефект сборки, а не запись без фотофиксации."""
-    started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen",
-            "--evidence", "нагар на поде")
+    started(
+        "add",
+        "--qid",
+        "CLN05",
+        "--level",
+        "D1",
+        "--zone",
+        "hot_kitchen",
+        "--evidence",
+        "нагар на поде",
+    )
     started("photo", "1", "--add", "нет-такого-файла.jpg")
     r = report("html")
     assert r.code == 0, r.text
@@ -69,16 +96,34 @@ def test_информационная_запись_без_кадра_помеч�
     started: Callable[..., Run], report: Callable[..., Run]
 ) -> None:
     """Записи приложения держатся на том же — партнёр читает их так же."""
-    started("add", "--qid", "INF10", "--level", "D0", "--zone", "hot_kitchen",
-            "--evidence", "замер без снимка")
+    started(
+        "add",
+        "--qid",
+        "INF10",
+        "--level",
+        "D0",
+        "--zone",
+        "hot_kitchen",
+        "--evidence",
+        "замер без снимка",
+    )
     r = report("html")
     assert r.code == 0, r.text
     assert БЕЗ_ФОТО in r.out, "информационная запись без кадра не помечена"
 
 
 def test_пометка_переведена(started: Callable[..., Run], report: Callable[..., Run]) -> None:
-    started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen",
-            "--evidence", "нагар на поде")
+    started(
+        "add",
+        "--qid",
+        "CLN05",
+        "--level",
+        "D1",
+        "--zone",
+        "hot_kitchen",
+        "--evidence",
+        "нагар на поде",
+    )
     r = report("html", "--lang", "en")
     assert r.code == 0, r.text
     assert БЕЗ_ФОТО_EN in r.out, "в английском отчёте пометка осталась русской или пропала"
@@ -89,8 +134,17 @@ def test_без_фотоприложения_пометки_нет(
     started: Callable[..., Run], report: Callable[..., Run]
 ) -> None:
     """`--photos none` не показывает кадров вовсе — обещать их отсутствие не о чем."""
-    started("add", "--qid", "CLN05", "--level", "D1", "--zone", "hot_kitchen",
-            "--evidence", "нагар на поде")
+    started(
+        "add",
+        "--qid",
+        "CLN05",
+        "--level",
+        "D1",
+        "--zone",
+        "hot_kitchen",
+        "--evidence",
+        "нагар на поде",
+    )
     r = report("html", "--photos", "none")
     assert r.code == 0, r.text
     assert БЕЗ_ФОТО not in r.out, "кадры не печатаются вовсе, а пометка про них осталась"
