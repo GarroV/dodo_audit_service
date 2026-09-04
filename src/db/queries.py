@@ -65,7 +65,7 @@ select
     i.id, i.tenant_code, u.name, i.chat_id, i.kind, i.inspection_date,
     i.report_lang, i.checklist_version, i.pct, i.grade,
     (select count(*) from findings f where f.inspection_id = i.id),
-    i.pushed_at
+    i.pushed_at, i.auditor, i.city, i.partner, i.contact
 from inspections i
 join units u on u.tenant_code = i.tenant_code and u.id = i.unit_id
 where i.tenant_code = %(tenant)s
@@ -84,7 +84,7 @@ select
     i.id, i.tenant_code, u.name, i.chat_id, i.kind, i.inspection_date,
     i.report_lang, i.checklist_version, i.pct, i.grade,
     (select count(*) from findings f where f.inspection_id = i.id),
-    i.pushed_at
+    i.pushed_at, i.auditor, i.city, i.partner, i.contact
 from inspections i
 join units u on u.tenant_code = i.tenant_code and u.id = i.unit_id
 where i.tenant_code = %(tenant)s and u.name_normalized = %(unit)s
@@ -101,7 +101,8 @@ select
     i.id, i.tenant_code, u.name, i.chat_id, i.kind, i.inspection_date,
     i.report_lang, i.checklist_version, i.pct, i.grade,
     (select count(*) from findings f where f.inspection_id = i.id),
-    i.pushed_at, i.deductions, i.counts, i.by_zone
+    i.pushed_at, i.auditor, i.city, i.partner, i.contact,
+    i.deductions, i.counts, i.by_zone
 from inspections i
 join units u on u.tenant_code = i.tenant_code and u.id = i.unit_id
 where i.tenant_code = %(tenant)s and i.id = %(id)s
@@ -174,6 +175,14 @@ def _row_to_inspection(row: Any) -> InspectionRow:
         grade=str(row[9]),
         findings_count=int(row[10]),
         pushed_at=row[11].isoformat(),
+        # Шапка письма (T176). Колонки объявлены `not null default ''`, но
+        # `or ""` здесь не украшение: историю за прошлые годы зальют программно
+        # из чужой выгрузки (D035), и `None` в подписи письма партнёру
+        # напечатался бы словом «None».
+        auditor=str(row[12] or ""),
+        city=str(row[13] or ""),
+        partner=str(row[14] or ""),
+        contact=str(row[15] or ""),
     )
 
 
@@ -364,9 +373,9 @@ def get_inspection(inspection_id: str, *, tenant: str) -> InspectionDetail | Non
         findings = cur.fetchall()
     return InspectionDetail(
         inspection=_row_to_inspection(row),
-        deductions=float(row[12]),
-        counts=dict(row[13]),
-        by_zone=dict(row[14]),
+        deductions=float(row[16]),
+        counts=dict(row[17]),
+        by_zone=dict(row[18]),
         findings=tuple(_row_to_finding(строка) for строка in findings),
     )
 
