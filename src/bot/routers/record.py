@@ -64,6 +64,7 @@ from src.recognize.models import UNKNOWN_ZONE
 from src.recognize.transcribe import transcribe
 
 from .. import refusal, sidecar, view
+from ..inspection import read_inspection
 from ..keyboards import (
     ANALYZE_PREFIX,
     MANUAL_CALLBACK,
@@ -397,7 +398,7 @@ async def _save(
     sidecar.remember_zone(chat_id, zone)
     # `get_state` — чтение файла, 0.1 мс: в поток не выносится, обёртка стоила
     # бы дороже самой операции. `score` — подпроцесс, выносится.
-    saved = domain.get_state(chat_id)
+    saved = read_inspection(chat_id)
     current = None if saved is None else saved.finding(finding.n)
     pct = (await asyncio.to_thread(domain.score, chat_id)).pct
     shown = current or finding

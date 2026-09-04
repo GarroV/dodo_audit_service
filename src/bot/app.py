@@ -42,7 +42,7 @@ from .routers import (
 )
 from .routers.material import MaterialHandler
 from .routers.record import make_material_handler, make_waiting_handler
-from .texts import t
+from .texts import DEFAULT_UI_LANG, t
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,19 @@ def _asked_here(event: ErrorEvent) -> Message | None:
     return None
 
 
+def _lang_here(chat_id: int) -> str:
+    """Язык последнего рубежа: обычный язык чата, а если и он отказал — русский.
+
+    Ответ на языке стенда хуже ответа на языке проверки, но несравнимо лучше
+    молчания: аудитор на точке должен узнать о сбое и увидеть выход.
+    """
+    try:
+        return chat_ui_lang(chat_id)
+    except Exception:
+        logger.exception("язык чата %s не выбрался — отвечаем на %s", chat_id, DEFAULT_UI_LANG)
+        return DEFAULT_UI_LANG
+
+
 async def on_unexpected_error(event: ErrorEvent) -> bool:
     """Сбой, который не поймал ни один хендлер (задача T126).
 
@@ -78,13 +91,22 @@ async def on_unexpected_error(event: ErrorEvent) -> bool:
     Возвращает `True`: событие обработано. Ошибку это не прячет — она уже в
     журнале целиком, со стеком; `False` означало бы, что aiogram напишет её
     ещё раз своими словами.
+
+    **Язык выбирается до попытки ответить и со своей защитой.** Раньше и то и
+    другое стояло в одном `try`, и обработчик умирал сам: нечитаемое по правам
+    состояние роняло `chat_ui_lang`, а в журнал уходило «не удалось сказать
+    аудитору о сбое» — последний рубеж честно сообщал, что промолчал. Теперь
+    `chat_ui_lang` не падает по построению (`src/bot/lang.py`), но здесь стоит
+    вторая защита: за этим обработчиком нет никого, и полагаться в нём на чужую
+    исправность — это ровно та ошибка, которой задача T126 и посвящена.
     """
     logger.exception("необработанный сбой на обновлении", exc_info=event.exception)
     message = _asked_here(event)
     if message is None:
         return True
+    lang = _lang_here(message.chat.id)
     try:
-        await message.answer(t("error.unexpected", chat_ui_lang(message.chat.id)))
+        await message.answer(t("error.unexpected", lang))
     except Exception:
         # Ответить не вышло — телеграм отказал или чат недоступен. Падать
         # отсюда нельзя: это последний рубеж, за ним обработчика уже нет.

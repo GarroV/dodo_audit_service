@@ -26,6 +26,7 @@ from src.domain.errors import DomainError
 from .. import sidecar
 from ..auditor import auditor_name
 from ..config import BotSettings
+from ..inspection import read_inspection
 from ..keyboards import (
     KIND_PREFIX,
     KIND_TITLES,
@@ -100,7 +101,7 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         lang = chat_ui_lang(message.chat.id)
         await state.clear()
         try:
-            inspection = domain.get_state(message.chat.id)
+            inspection = read_inspection(message.chat.id)
         except DomainError:
             logger.exception("состояние чата %s не читается", message.chat.id)
             await message.answer(
@@ -120,7 +121,7 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
             return
         lang = chat_ui_lang(message.chat.id)
         try:
-            inspection = domain.get_state(message.chat.id)
+            inspection = read_inspection(message.chat.id)
         except DomainError:
             # Про повреждение аудитор уже прочитал на `/start` и нажал «Новая»
             # осознанно. Второй раз пугать его нечем, а тупик здесь означал бы,
@@ -141,7 +142,7 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
             return
         await state.clear()
         lang = chat_ui_lang(message.chat.id)
-        inspection = domain.get_state(message.chat.id)
+        inspection = read_inspection(message.chat.id)
         if inspection is None:
             await message.answer(t("start.resume_gone", lang))
             return

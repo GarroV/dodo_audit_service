@@ -29,6 +29,7 @@ from src import domain
 from src.domain.errors import DomainError
 
 from .. import refusal, sidecar, view
+from ..inspection import read_inspection
 from ..keyboards import (
     EDIT_DROP,
     EDIT_LEVEL,
@@ -54,7 +55,7 @@ async def show_changed(message: Message, chat_id: int, n: int, lang: str) -> Non
     Кнопки возвращаются нарочно: правки редко приходят по одной — сменил зону,
     сразу видно, что и класс не тот.
     """
-    inspection = domain.get_state(chat_id)
+    inspection = read_inspection(chat_id)
     finding = None if inspection is None else inspection.finding(n)
     if finding is None:
         await message.answer(t("edit.gone", lang, n=n))
@@ -70,7 +71,7 @@ async def show_changed(message: Message, chat_id: int, n: int, lang: str) -> Non
 
 
 def _finding(chat_id: int, n: int) -> domain.Finding | None:
-    inspection = domain.get_state(chat_id)
+    inspection = read_inspection(chat_id)
     return None if inspection is None else inspection.finding(n)
 
 
@@ -116,7 +117,7 @@ def build_edit_router() -> Router:
         """Снять последнюю запись — та же операция, что кнопкой «Удалить»."""
         chat_id = message.chat.id
         lang = chat_ui_lang(chat_id)
-        inspection = domain.get_state(chat_id)
+        inspection = read_inspection(chat_id)
         if inspection is None:
             await message.answer(t("material.no_inspection", lang))
             return

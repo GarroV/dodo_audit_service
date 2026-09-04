@@ -37,6 +37,7 @@ from src import db, domain
 from src.report import PhotoMissing, ReportError, build_letter, build_pdf
 
 from .. import sidecar, view
+from ..inspection import read_inspection
 from ..keyboards import (
     FINISH_BUILD_CALLBACK,
     FINISH_BUILD_NO_PHOTOS_CALLBACK,
@@ -62,7 +63,7 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
     склеенные упираются в предел длины сообщения телеграма на первой же реальной
     проверке (двадцать записей — это уже за две тысячи знаков).
     """
-    inspection = domain.get_state(chat_id)
+    inspection = read_inspection(chat_id)
     if inspection is None:
         await message.answer(t("material.no_inspection", lang))
         return
@@ -194,7 +195,7 @@ async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: b
     значило бы платить телеграму дважды за один и тот же кадр.
     """
     bot = message.bot
-    inspection = domain.get_state(chat_id)
+    inspection = read_inspection(chat_id)
     if bot is None or inspection is None:
         await message.answer(t("material.no_inspection", lang))
         return
@@ -260,7 +261,7 @@ def build_finish_router() -> Router:
         if here is None:
             return
         message, chat_id, lang = here
-        inspection = domain.get_state(chat_id)
+        inspection = read_inspection(chat_id)
         if inspection is None or not inspection.findings:
             await message.answer(t("finish.empty", lang))
             return
@@ -277,7 +278,7 @@ def build_finish_router() -> Router:
             return
         message, chat_id, lang = here
         raw = (callback.data or "").removeprefix(FINISH_PICK_PREFIX)
-        inspection = domain.get_state(chat_id)
+        inspection = read_inspection(chat_id)
         finding = None if inspection is None or not raw.isdigit() else inspection.finding(int(raw))
         if finding is None:
             await message.answer(t("edit.gone", lang, n=raw))
