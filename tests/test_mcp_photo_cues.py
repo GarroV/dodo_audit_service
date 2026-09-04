@@ -297,7 +297,7 @@ def test_правка_записанная_не_так_возвращается_
     результат сверяется разборщиком продукта, а не доверием к своей записи."""
     monkeypatch.setattr(photo_cues, "_line", lambda cells: " ".join(cells))
 
-    with pytest.raises(ChecklistError, match="не так, как задумано|осталась"):
+    with pytest.raises(ChecklistError, match=r"не так, как задумано|осталась"):
         photo_cues.add(
             store,
             tenant=АРЕНДАТОР,
