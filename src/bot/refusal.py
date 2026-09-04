@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from src import domain
 from src.domain.errors import DomainError
 
+from .inspection import read_inspection
 from .texts import t
 from .view import zone_title
 
@@ -59,7 +60,7 @@ def occupied_by(
     `skip` — номер записи, которую сейчас правят: сама с собой она не спорит.
     """
     try:
-        inspection = domain.get_state(chat_id)
+        inspection = read_inspection(chat_id)
     except DomainError:
         # Состояние не читается — но отказ аудитору сказать всё равно надо, и
         # он его получит без номера записи, а не вместо него молчание (T126).

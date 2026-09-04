@@ -110,9 +110,18 @@ TEXTS: dict[str, dict[str, str]] = {
             "Send photos with comments."
         ),
     },
+    # Тот же запрет, что и у отказа сборки, только на входе в проверку:
+    # движок отвечает вызывающему из командной строки и присылает полный стек
+    # с путями к своим файлам, а пересказ отдавал его аудитору дословно.
     "start.failed": {
-        "ru": "Не получилось начать проверку: {reason}",
-        "en": "Could not start the inspection: {reason}",
+        "ru": (
+            "Не получилось начать проверку. Попробуйте ещё раз командой /start. Если не "
+            "выйдет и со второго раза, скажите администратору: подробности в журнале."
+        ),
+        "en": (
+            "Could not start the inspection. Try again with /start. If it fails a second "
+            "time, tell the administrator: the details are in the log."
+        ),
     },
     # --- незавершённая проверка (T052) ---
     "start.resume_found": {
@@ -131,6 +140,31 @@ TEXTS: dict[str, dict[str, str]] = {
             "Auditor: {auditor}\n"
             "Records: {findings}\n\n"
             "Continue it or start a new one? A new one erases this."
+        ),
+    },
+    # Та же развилка, но по сданной проверке (T153). Прежняя фраза утверждала
+    # о ней две неправды разом: что она незавершённая и что новая её сотрёт.
+    # Признака «завершена» у движка нет, и выдумывать его бот не вправе — зато
+    # он помнит, что сам собрал и отдал отчёт, и говорит ровно это.
+    "start.resume_handed_over": {
+        "ru": (
+            "Проверка в этом чате уже сдана: отчёт по ней собран и отправлен.\n"
+            "Пиццерия: {unit}\n"
+            "Дата: {date}\n"
+            "Проверяющий: {auditor}\n"
+            "Записей: {findings}\n\n"
+            "Продолжить её — можно дописать и собрать отчёт заново. "
+            "Новая начнётся с чистого листа."
+        ),
+        "en": (
+            "The inspection in this chat is already handed over: its report was built "
+            "and sent.\n"
+            "Pizzeria: {unit}\n"
+            "Date: {date}\n"
+            "Auditor: {auditor}\n"
+            "Records: {findings}\n\n"
+            "Continue it — you can add more and rebuild the report. "
+            "A new one starts from a clean slate."
         ),
     },
     "start.resumed": {
@@ -435,8 +469,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "Recorded:\n{lines}",
     },
     "finish.record_line": {
-        "ru": "#{n} {code} · {level} · {zone}{source} — {text}",
-        "en": "#{n} {code} · {level} · {zone}{source} — {text}",
+        "ru": "#{n} {code} · {level} · {zone}{source} — {text}{unusual}",
+        "en": "#{n} {code} · {level} · {zone}{source} — {text}{unusual}",
     },
     "finish.source_photo": {
         "ru": " · по кадру",
@@ -475,9 +509,37 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "{reason}",
         "en": "{reason}",
     },
+    # Причина не называется — тот же принцип, что у отказа движка (T127) и у
+    # отказа разбора (T154). Отказ сборки пересказывался дословно, и человек в
+    # пиццерии читал разом три чужие вещи: удвоенный служебный префикс («не
+    # собрался» + «не собран»), абсолютный путь во временный каталог и
+    # инструкцию поставить системные библиотеки. Сделать с этим на точке нельзя
+    # ничего. Текст движка уходит в журнал целиком, в чат — что случилось, что
+    # с записями и как попробовать снова.
     "finish.pdf_failed": {
-        "ru": "Отчёт не собрался: {reason}",
-        "en": "The report was not built: {reason}",
+        "ru": (
+            "Отчёт не собрался. Записи проверки целы — попробуйте ещё раз командой "
+            "/finish. Если не выйдет и со второго раза, скажите администратору: "
+            "подробности в журнале."
+        ),
+        "en": (
+            "The report was not built. The inspection records are safe — try again with "
+            "/finish. If it fails a second time, tell the administrator: the details are "
+            "in the log."
+        ),
+    },
+    # Отдельный текст, а не тот же самый: письмо собирается вторым вызовом
+    # движка, уже ПОСЛЕ того, как PDF отдан аудитору. «Отчёт не собрался» здесь
+    # было прямой неправдой — документ у человека в руках.
+    "finish.letter_failed": {
+        "ru": (
+            "Отчёт готов и отправлен, а письмо партнёру не собралось. Скажите "
+            "администратору: подробности в журнале."
+        ),
+        "en": (
+            "The report is ready and sent, but the letter to the partner was not built. "
+            "Tell the administrator: the details are in the log."
+        ),
     },
     "finish.resumed": {
         "ru": "Продолжаем проверку. Присылайте кадры.",

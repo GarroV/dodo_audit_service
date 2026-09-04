@@ -37,6 +37,8 @@ from src import db, domain
 from src.report import PhotoMissing, ReportError, build_letter, build_pdf
 
 from .. import sidecar, view
+from ..errors import BotNotesError
+from ..inspection import read_inspection
 from ..keyboards import (
     FINISH_BUILD_CALLBACK,
     FINISH_BUILD_NO_PHOTOS_CALLBACK,
@@ -62,7 +64,7 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
     склеенные упираются в предел длины сообщения телеграма на первой же реальной
     проверке (двадцать записей — это уже за две тысячи знаков).
     """
-    inspection = domain.get_state(chat_id)
+    inspection = read_inspection(chat_id)
     if inspection is None:
         await message.answer(t("material.no_inspection", lang))
         return
@@ -194,7 +196,7 @@ async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: b
     значило бы платить телеграму дважды за один и тот же кадр.
     """
     bot = message.bot
-    inspection = domain.get_state(chat_id)
+    inspection = read_inspection(chat_id)
     if bot is None or inspection is None:
         await message.answer(t("material.no_inspection", lang))
         return
@@ -220,15 +222,32 @@ async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: b
                 reply_markup=without_photos_keyboard(lang),
             )
             return
-        except ReportError as exc:
-            await message.answer(t("finish.pdf_failed", lang, reason=exc))
+        except ReportError:
+            # Текст движка — для того, кто чинит стенд: в нём внутренности
+            # рендерера, пути во временный каталог и совет поставить системные
+            # библиотеки (T151). Аудитору на точке нужен не он.
+            logger.exception("отчёт чата %s не собрался", chat_id)
+            await message.answer(t("finish.pdf_failed", lang))
             return
 
         await message.answer_document(FSInputFile(pdf))
+        # Отчёт у аудитора — с этой секунды проверка сдана (T153). Отмечается
+        # именно отдача документа, а не нажатие кнопки: несобравшийся отчёт
+        # сданной проверку не делает.
+        try:
+            sidecar.mark_handed_over(chat_id, len(inspection.findings))
+        except BotNotesError:
+            # Отчёт уже у человека, письмо и слив в историю впереди — уронить
+            # их из-за незаписанной заметки было бы хуже самой заметки. Цена
+            # известна и названа: `/start` снова назовёт проверку незавершённой.
+            logger.exception("отметка о сдаче проверки чата %s не записалась", chat_id)
         try:
             letter = await asyncio.to_thread(build_letter, chat_id)
-        except ReportError as exc:
-            await message.answer(t("finish.pdf_failed", lang, reason=exc))
+        except ReportError:
+            # Свой текст, а не тот же: отчёт аудитор к этому моменту уже
+            # получил, и «отчёт не собрался» было бы неправдой (T151).
+            logger.exception("письмо чата %s не собралось", chat_id)
+            await message.answer(t("finish.letter_failed", lang))
         else:
             await message.answer(t("finish.letter", lang, letter=letter))
 
@@ -260,7 +279,7 @@ def build_finish_router() -> Router:
         if here is None:
             return
         message, chat_id, lang = here
-        inspection = domain.get_state(chat_id)
+        inspection = read_inspection(chat_id)
         if inspection is None or not inspection.findings:
             await message.answer(t("finish.empty", lang))
             return
@@ -277,7 +296,7 @@ def build_finish_router() -> Router:
             return
         message, chat_id, lang = here
         raw = (callback.data or "").removeprefix(FINISH_PICK_PREFIX)
-        inspection = domain.get_state(chat_id)
+        inspection = read_inspection(chat_id)
         finding = None if inspection is None or not raw.isdigit() else inspection.finding(int(raw))
         if finding is None:
             await message.answer(t("edit.gone", lang, n=raw))
