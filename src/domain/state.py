@@ -54,6 +54,13 @@ SCHEMA = 1
 #: как заметки бота обнуляются на старте следующей проверки того же чата.
 SOURCES_KEY = "sources"
 
+#: Сырые слова аудитора к записям (задача T183): номер записи → строка ровно
+#: такая, какой она пришла в разбор. Лежит рядом с источниками и предложениями,
+#: по той же причине: это свойство самой записи, а не переписки, и оно обязано
+#: пережить слив в базу вместе со всей проверкой. Заметки бота для этого не
+#: годятся — они обнуляются на старте следующей проверки того же чата.
+WORDS_KEY = "words"
+
 #: Предложения системы к записям (решение D077, задача T181): номер записи →
 #: `{code, level, zone, confidence?}`. Лежит рядом с источниками и по той же
 #: причине: это свойство самой записи, а не переписки, и оно обязано пережить
@@ -207,6 +214,68 @@ def forget_source(path: Path, n: int) -> None:
         _write_atomic(path, raw)
 
 
+def read_words(raw: Mapping[str, Any], path: Path) -> dict[int, str]:
+    """Сырые слова аудитора из блока `domain`. Непонятное значение — отказ.
+
+    Тот же довод, что у `read_sources` и `read_suggestions`: прочитанное
+    «неизвестно что» уехало бы в выборку, по которой управляющая компания правит
+    боевой список слов, и стало бы там неотличимо от настоящей речи человека.
+    Отсутствие ключа отказом не является — так выглядят проверки, начатые до
+    T183.
+    """
+    block: Mapping[str, Any] = raw.get(DOMAIN_KEY) or {}
+    result: dict[int, str] = {}
+    for key, value in dict(block.get(WORDS_KEY) or {}).items():
+        try:
+            n = int(key)
+        except (TypeError, ValueError):
+            raise DomainError(f"Номер записи «{key}» в словах {path} не похож на число") from None
+        if not isinstance(value, str):
+            raise DomainError(
+                f"Слова аудитора к записи #{n} в {path} не похожи на речь: ожидается строка, "
+                f"а лежит «{value!r}»"
+            )
+        result[n] = value
+    return result
+
+
+def remember_words(path: Path, n: int, words: str) -> None:
+    """Записать слова аудитора к записи №`n`. Пустых слов не бывает: молчание не речь.
+
+    Записывается ПОСЛЕ движка, вторым обращением к файлу, как источник и
+    предложение: собственный вызов до движка приписал бы слова записи, которой
+    движок ещё не сделал.
+    """
+    if not words:
+        return
+    with state_lock(path):
+        raw = _read_raw(path)
+        block = dict(raw.get(DOMAIN_KEY) or {})
+        stored = dict(block.get(WORDS_KEY) or {})
+        stored[str(n)] = words
+        block[WORDS_KEY] = stored
+        raw[DOMAIN_KEY] = block
+        _write_atomic(path, raw)
+
+
+def forget_words(path: Path, n: int) -> None:
+    """Запись удалена — её слова тоже. Неизвестный номер не отказ.
+
+    Оставленные слова достались бы следующей записи с тем же номером: движок
+    нумерует записи подряд, и после удаления номер освобождается. В выборке это
+    выглядело бы как речь человека о нарушении, которого он не описывал.
+    """
+    with state_lock(path):
+        raw = _read_raw(path)
+        block = dict(raw.get(DOMAIN_KEY) or {})
+        stored = dict(block.get(WORDS_KEY) or {})
+        if stored.pop(str(n), None) is None:
+            return
+        block[WORDS_KEY] = stored
+        raw[DOMAIN_KEY] = block
+        _write_atomic(path, raw)
+
+
 def check_confidence(value: Any, where: str) -> float | None:
     """Уверенность системы: доля от нуля до единицы либо ничего.
 
@@ -325,6 +394,7 @@ def _finding(
     raw: Mapping[str, Any],
     sources: Mapping[int, str],
     suggestions: Mapping[int, Suggestion],
+    words: Mapping[int, str],
 ) -> Finding:
     photos = [p for p in (raw.get("photos") or []) if p]
     if not photos and raw.get("photo"):
@@ -339,6 +409,7 @@ def _finding(
         photos=[str(p) for p in photos],
         zone_unusual=bool(raw.get("zone_unusual")),
         source=sources.get(int(raw["n"]), ""),
+        words=words.get(int(raw["n"]), ""),
         # Предложение разворачивается в четыре поля здесь, а не на границе с
         # базой: слив берёт их с записи по имени, и вложенный объект пришлось бы
         # разбирать в чужом блоке.
@@ -381,6 +452,7 @@ def _inspection(chat_id: int, raw: Mapping[str, Any], path: Path) -> Inspection:
     block: Mapping[str, Any] = raw.get(DOMAIN_KEY) or {}
     sources = read_sources(raw, path)
     suggestions = read_suggestions(raw, path)
+    words = read_words(raw, path)
     return Inspection(
         chat_id=chat_id,
         unit=str(meta.get("unit") or ""),
@@ -401,7 +473,7 @@ def _inspection(chat_id: int, raw: Mapping[str, Any], path: Path) -> Inspection:
         partner=str(meta.get("partner") or ""),
         contact=str(meta.get("contact") or ""),
         auditor=str(meta.get("auditor") or ""),
-        findings=[_finding(f, sources, suggestions) for f in (raw.get("findings") or [])],
+        findings=[_finding(f, sources, suggestions, words) for f in (raw.get("findings") or [])],
         info=read_info(raw),
     )
 
