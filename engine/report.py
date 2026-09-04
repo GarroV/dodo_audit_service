@@ -351,7 +351,10 @@ def build_html(res, lang, photos, src=None):
             h.append('<div class="info">')
             for k, v in info.items():
                 q = cl.get(k, {}).get(qk) or cl.get(k, {}).get("question_ru") or k
-                h.append(f'<p><span class="k">{esc(q)}:</span> {esc(v)}</p>')
+                # Маркер класса срезаем так же, как у формулировки нарушения
+                # ниже: партнёру он не адресован, а до T159 поля не печатались
+                # вовсе, и увидеть это было негде.
+                h.append(f'<p><span class="k">{esc(clean_q(q))}:</span> {esc(v)}</p>')
             h.append("</div>")
         for f in sorted(notes, key=lambda x: x["n"]):
             if True:
