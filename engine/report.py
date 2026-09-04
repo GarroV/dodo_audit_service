@@ -77,7 +77,6 @@ T = {
 }
 TYPE_EN = {"Плановая": "Scheduled", "Повторная": "Follow-up", "Внеплановая": "Unscheduled",
            "Платная после комитета": "Paid, post-committee"}
-HIDDEN_INFO = {"INF01", "INF05", "INF06"}  # не печатаются в отчёте и не спрашиваются
 GRADE_COLOR = {"A": "#1E7A45", "B": "#7A6A17", "C": "#B4610F", "D": "#A81E1E"}
 
 
@@ -325,7 +324,11 @@ def build_html(res, lang, photos, src=None):
                 h.extend(shots_html(f, t, src))
             h.append("</div>")
 
-    info = {k: v for k, v in (res.get("info") or {}).items() if k not in HIDDEN_INFO}
+    # Все заполненные поля идут партнёру. Прежде трое из них (INF01, INF05,
+    # INF06) вычёркивались списком HIDDEN_INFO: аудитор их заполнял, а в
+    # отчёте они не появлялись — молча. Решение владельца D069: «Собирать и
+    # печатать в отчёте» (T159).
+    info = dict(res.get("info") or {})
     if notes or info:
         h.append(f'<h2 class="sec-findings">{esc(t["appendix"])}</h2>')
         h.append(f'<div class="note">{esc(t["appendix_note"])}</div>')
