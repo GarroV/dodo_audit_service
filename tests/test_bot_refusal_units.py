@@ -212,3 +212,46 @@ def test_reader_на_потерянном_файле_возвращает_none_�
 
     assert result is None
     assert "frame-2" in caplog.text, "потеря кадра не записана в журнал"
+
+
+# --- occupied_pairs (T137) ----------------------------------------------------
+
+
+def test_occupied_pairs_на_испорченном_состоянии_возвращает_пустую_карту(
+    domain_env: object, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Перечень предложений показывается и без пометок — молчание было бы хуже.
+
+    Через диалог сюда не попасть: испорченное состояние перехватывает
+    `on_unexpected_error` раньше, чем разбор доходит до разметки.
+    """
+    сломать_состояние()
+
+    with caplog.at_level("ERROR", logger="src.bot.refusal"):
+        assert refusal.occupied_pairs(CHAT_ID) == {}
+
+    assert any("не читается при разметке" in r.message for r in caplog.records)
+
+
+def test_occupied_pairs_без_начатой_проверки_возвращает_пустую_карту(
+    domain_env: object,
+) -> None:
+    """Помечать нечем и нечего: записей нет, потому что нет и проверки."""
+    assert refusal.occupied_pairs(CHAT_ID) == {}
+
+
+def test_occupied_pairs_называет_первую_занявшую_пару_запись(domain_env: object) -> None:
+    """Номер обязан совпасть с тем, который называет отказ движка (`occupied_by`).
+
+    Отказ идёт по списку сверху и приводит к первой занявшей. Верни разметка
+    последнюю — аудитор пошёл бы править не ту запись.
+    """
+    начата()
+    domain.add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар")
+    domain.add_finding(CHAT_ID, "CLN02", "D1", "dishwashing", "Налёт")
+
+    pairs = refusal.occupied_pairs(CHAT_ID)
+
+    assert pairs == {("CLN05", "hot_kitchen"): 1, ("CLN02", "dishwashing"): 2}
+    занявшая = refusal.occupied_by(CHAT_ID, "CLN05", "hot_kitchen")
+    assert занявшая is not None and pairs[("CLN05", "hot_kitchen")] == занявшая.n
