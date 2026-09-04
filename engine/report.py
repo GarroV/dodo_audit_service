@@ -49,6 +49,7 @@ T = {
                         "D — хотя бы одно нарушение D3."),
         "photo_app": "Фотоприложение",
         "photo_missing": "Фотография не приложена",
+        "no_photo": "Без фотофиксации",
     },
     "en": {
         "title": "Pizzeria inspection report", "unit": "Store", "city": "City",
@@ -73,6 +74,7 @@ T = {
                         "D — at least one D3 violation."),
         "photo_app": "Photo appendix",
         "photo_missing": "Photo not attached",
+        "no_photo": "No photo taken",
     },
 }
 TYPE_EN = {"Плановая": "Scheduled", "Повторная": "Follow-up", "Внеплановая": "Unscheduled",
@@ -146,10 +148,22 @@ class Photos:
 
 
 def shots_html(f, t, src):
-    """Разметка кадров одной записи. Нет кадров — нет и блока."""
+    """Разметка кадров одной записи. Кадров нет — пометка «без фотофиксации» (T163).
+
+    Пустое место под текстом партнёр читал как потерянную фотографию и искал
+    кадр, которого никогда не было. Решение владельца D074: сказать прямо, на
+    чём запись держится.
+
+    Пометку нельзя путать с отметкой промаха (`Photos.html`): та означает, что
+    кадр к записи привязан, а файл по ссылке не нашёлся, — это дефект сборки, и
+    он остаётся красным. Здесь кадра и не было.
+
+    Пометка появляется ровно там, где показываются кадры: вызов из раздела
+    нарушений подчинён режиму `--photos`, вызов из приложения — нет.
+    """
     shots = f.get("photos") or ([f["photo"]] if f.get("photo") else [])
     if not shots:
-        return []
+        return [f'<div class="nophoto">{esc(t["no_photo"])}</div>']
     return ['<div class="shots">'] + [src.html(x, t) for x in shots] + ["</div>"]
 
 
@@ -227,6 +241,7 @@ tr.z0 td { background:#FCEFEF; }
 .f .c { margin-top:1mm; font-size:9.5pt; }
 .f .shots { margin-top:1.5mm; }
 .f .miss { display:inline-block; box-sizing:border-box; width:78mm; padding:9mm 4mm; margin:0 2mm 2mm 0; text-align:center; color:#A81E1E; background:#FCEFEF; border:1pt dashed #D08A8A; border-radius:1.5mm; font-size:9pt; }
+.f .nophoto { display:inline-block; margin-top:1.5mm; padding:.9mm 2.5mm; color:#6F6880; background:#F6F4FA; border:.6pt solid #E0DAEA; border-radius:1.2mm; font-size:8.8pt; }
 .f img { max-width:78mm; max-height:70mm; margin:0 2mm 2mm 0; border:1pt solid #E0DAEA; border-radius:1.5mm; }
 .zh { margin:4.5mm 0 1mm 0; font-weight:bold; color:#3F2A63; font-size:11pt; page-break-after:avoid; page-break-inside:avoid; }
 .note { color:#6F6880; font-size:8.8pt; margin-top:3mm; line-height:1.35; }
