@@ -31,6 +31,7 @@ from bot_harness import (
 
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
+from src.bot.texts import t
 from src.domain import add_finding, get_state, start_inspection
 
 pytestmark = pytest.mark.asyncio
@@ -91,7 +92,10 @@ async def test_uncommented_frame_does_not_survive_restart(domain_env: object) ->
     session.clear()
     await feed(restart(), bot, text_message("грязный пол"))
 
-    assert "не вижу кадра" in session.last_text.lower()
+    # Раньше сверялось с фразой «не вижу кадра». С T160 (D078) отказ несёт
+    # правило методики, а не жалобу продукта на себя, и сверка идёт по ключу
+    # каталога: буквальная строка краснела бы от любой вычитки формулировки.
+    assert t("material.no_photo", "ru") in session.last_text
 
 
 async def test_wizard_step_does_not_survive_restart_and_start_is_offered_again(
@@ -107,6 +111,9 @@ async def test_wizard_step_does_not_survive_restart_and_start_is_offered_again(
     await feed(restart(), bot, text_message("Белград 2"))
 
     assert get_state(CHAT_ID) is None
-    assert "не вижу кадра" in session.last_text.lower() or "проверка не начата" in (
+    # Раньше сверялось с фразой «не вижу кадра». С T160 (D078) отказ несёт
+    # правило методики, а не жалобу продукта на себя, и сверка идёт по ключу
+    # каталога: буквальная строка краснела бы от любой вычитки формулировки.
+    assert t("material.no_photo", "ru") in session.last_text or "проверка не начата" in (
         session.last_text.lower()
     )
