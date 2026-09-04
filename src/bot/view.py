@@ -11,12 +11,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from src import domain
 from src.recognize.models import UNKNOWN_ZONE, Candidate
 
-from . import sidecar
 from .texts import t
 
 #: Информационный уровень записи: замеры и фото продукта (`INF09`–`INF11`,
@@ -286,8 +285,3 @@ def record_lines(findings: Sequence[domain.Finding], lang: str) -> str:
             )
         )
     return "\n".join(lines)
-
-
-def unclaimed_lines(frames: Iterable[sidecar.SeenFrame], lang: str) -> str:
-    """Кадры, не попавшие ни в одну запись (T068)."""
-    return "\n".join(t("finish.unclaimed_line", lang, message_id=f.message_id) for f in frames)

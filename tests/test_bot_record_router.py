@@ -656,7 +656,12 @@ async def test_frame_that_did_not_attach_is_not_lost_silently(
 
     session.clear()
     await feed(dp, bot, text_message("/finish"))
-    assert t("finish.unclaimed_line", "ru", message_id=811) in "\n".join(session.texts)
+    показаны = [
+        (str(c.photo), c.reply_to_message_id)
+        for c in session.calls
+        if type(c).__name__ == "SendPhoto"
+    ]
+    assert ("orphan-frame", 811) in показаны
 
 
 async def test_telegram_refusing_to_remove_the_button_does_not_stop_the_analysis(

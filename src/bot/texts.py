@@ -622,14 +622,30 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Ни одной записи не зафиксировано.",
         "en": "No records have been made.",
     },
+    # Номера сообщения здесь больше нет (T138, задача #109): в телеграме он
+    # человеку не показывается, и назвать кадр им — то же, что промолчать.
+    # Кадры идут следом сами, ответом на свои же сообщения.
     "finish.unclaimed": {
-        "ru": "Кадры без записи — {count}. Они никуда не пропали, но и в отчёт не войдут:\n{lines}",
-        "en": "Photos with no record — {count}. Not lost, but they will not be in the report:\n"
-        "{lines}",
+        "ru": "Кадры без записи — {count}. Они никуда не пропали, но и в отчёт не войдут. "
+        "Показываю их ниже — каждый ответом на сообщение, которым он пришёл.",
+        "en": "Photos with no record — {count}. Not lost, but they will not be in the report. "
+        "They follow below — each as a reply to the message it arrived in.",
     },
-    "finish.unclaimed_line": {
-        "ru": "— кадр из сообщения {message_id}",
-        "en": "— photo from message {message_id}",
+    "finish.unclaimed_frame": {
+        "ru": "Этот кадр остался без записи.",
+        "en": "This photo has no record.",
+    },
+    "finish.unclaimed_rest": {
+        "ru": "Ещё {rest} — показываю по одной пачке: разберите эти и вызовите /records, "
+        "покажу следующие.",
+        "en": "And {rest} more — shown one batch at a time: deal with these and call /records "
+        "for the next ones.",
+    },
+    "finish.unclaimed_failed": {
+        "ru": "Кадров показать не удалось: {failed}. Телеграм их не отдал — они остались "
+        "в переписке выше.",
+        "en": "Photos that could not be shown: {failed}. Telegram refused them — they are "
+        "still in the chat above.",
     },
     "finish.ask": {
         "ru": "Поправить запись или собирать отчёт?",

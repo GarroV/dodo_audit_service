@@ -98,7 +98,12 @@ async def test_кадры_без_записи_видны_и_здесь(domain_en
     session.clear()
     await feed(dp, bot, text_message(COMMAND))
 
-    assert t("finish.unclaimed_line", "ru", message_id=555) in "\n".join(session.texts)
+    показаны = [
+        (str(c.photo), c.reply_to_message_id)
+        for c in session.calls
+        if type(c).__name__ == "SendPhoto"
+    ]
+    assert ("frame-lost", 555) in показаны
 
 
 async def test_без_начатой_проверки_бот_объясняет_а_не_падает(domain_env: object) -> None:
