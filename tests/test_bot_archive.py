@@ -38,6 +38,7 @@ from conftest import requires_db
 from src import db
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
+from src.bot.keyboards import VERSION_KEEP_CALLBACK, VERSION_SYNC_CALLBACK
 from src.bot.texts import t
 from src.domain import score, start_inspection
 
@@ -247,3 +248,83 @@ async def test_ненастроенная_база_не_выглядит_сбо�
     assert t("finish.not_archived", "ru") not in session.texts
     assert t("finish.photos_not_archived", "ru") not in session.texts
     assert "Письмо партнёру" in session.last_text
+
+
+# --- расхождение версии методики на сливе — не отказ базы (T182, задача #149) -
+
+
+async def test_расхождение_версии_на_сливе_не_называется_отказом_базы(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Методику переиздали между отчётом и сливом — база при этом в порядке.
+
+    До T182 бот ловил слив двумя ветками (`ConfigError` и общий `DbError`), и
+    расхождение версии, у которого с T178 свой тип и свои поля, попадало во
+    вторую. Аудитор читал «историю сохранить не удалось — база не ответила» и
+    шёл чинить связь, которой ничего не мешает. Отличить это можно только по
+    типу: текст `PushError` написан тому, кто зовёт блок из кода.
+    """
+    подменить_слив(
+        monkeypatch,
+        db.VersionMismatchError("слив не состоялся", recorded="2026-08-01", current="2026-09-04"),
+    )
+    выгрузки = подменить_выгрузку(monkeypatch)
+
+    session = await проверка_через_бота(monkeypatch)
+
+    assert отправленные_документы(session), "из-за расхождения версии аудитор остался без отчёта"
+    assert t("finish.not_archived", "ru") not in session.texts, (
+        "расхождение версии методики названо отказом базы"
+    )
+    assert not выгрузки, "кадры поехали в хранилище проверки, которой в базе нет"
+
+
+async def test_расхождение_версии_на_сливе_называет_обе_версии(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Обе версии — в сообщении, и берутся они из полей отказа, а не из текста.
+
+    По ним и видно, что методику переиздали под идущей проверкой: одна версия
+    в сообщении не отличается от общего «что-то не так с методикой».
+    """
+    подменить_слив(
+        monkeypatch,
+        db.VersionMismatchError("слив не состоялся", recorded="2026-08-01", current="2026-09-04"),
+    )
+    подменить_выгрузку(monkeypatch)
+
+    session = await проверка_через_бота(monkeypatch)
+
+    сказано = [текст for текст in session.texts if "2026-08-01" in текст]
+    assert сказано, "аудитору не назвали версию, которой помечена проверка"
+    assert "2026-09-04" in сказано[-1], "аудитору не назвали версию, лежащую на диске сейчас"
+    assert сказано[-1] == t(
+        "finish.version_mismatch", "ru", recorded="2026-08-01", current="2026-09-04"
+    )
+
+
+async def test_расхождение_версии_на_сливе_даёт_те_же_два_выхода(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Текст называет два выхода, и один из них — кнопка (T167).
+
+    Показать этот текст без клавиатуры значило бы соврать в последней строке:
+    «перевести проверку на действующую методику» нажимать было бы нечем, а
+    другого способа довести проверку до истории у аудитора нет.
+    """
+    подменить_слив(
+        monkeypatch,
+        db.VersionMismatchError("слив не состоялся", recorded="2026-08-01", current="2026-09-04"),
+    )
+    подменить_выгрузку(monkeypatch)
+
+    session = await проверка_через_бота(monkeypatch)
+
+    последнее = [c for c in session.calls if type(c).__name__ == "SendMessage"][-1]
+    кнопки = [
+        кнопка.callback_data
+        for ряд in (последнее.reply_markup.inline_keyboard if последнее.reply_markup else [])
+        for кнопка in ряд
+    ]
+    assert VERSION_SYNC_CALLBACK in кнопки, "выхода «перевести на действующую методику» нет"
+    assert VERSION_KEEP_CALLBACK in кнопки, "выхода «оставить как есть» нет"
