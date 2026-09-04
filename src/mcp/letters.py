@@ -1,0 +1,352 @@
+"""Письмо партнёру по уже записанной проверке — пересборка, а не пересчёт.
+
+Письмо отправляет человек руками, из почты (Q010), и живёт оно ровно один раз
+— сообщением в чате аудитора в момент завершения проверки. Ни в базе, ни в
+хранилище кадров его нет, хотя D035 говорит, что история писем хранится в
+системе. Поэтому единственный способ получить письмо по проверке недельной
+давности — собрать его заново из того, что записано.
+
+Опасность здесь ровно одна, и весь модуль про неё.
+
+**Движок считает по методике, которая лежит в `CHECKLIST_DIR` СЕЙЧАС.**
+Проверено запуском на боевых данных: та же проверка Белград-1 с поднятой
+ставкой D1 даёт не «97.5%, A», а «90%, B». Пересборка по сегодняшней методике
+означала бы письмо партнёру с другой буквой под прежней датой — то самое, что
+запрещают D033 («отчёт не пересчитывается задним числом») и D049 («проверки,
+сделанные по прежней версии, остаются на ней»).
+
+Поэтому шагов два, и второй важнее первого:
+
+1. Методика прибивается к версии, которой помечена ПРОВЕРКА: снимок из
+   хранилища версий (D050 — старые версии не удаляются никогда), а если
+   хранилища нет, то боевая — и только если она и есть эта версия.
+2. Посчитанное движком сверяется с записанным в проверке. Не сошлось — отказ,
+   а не письмо. Имя каталога версии доказательством не является: каталог
+   заводится не только этим блоком.
+
+Наружу уходит ЗАПИСАННАЯ оценка, а не посчитанная при сверке: считает движок,
+а отдаёт блок то, что лежит в базе (конституция, принцип 2).
+
+Движок вызывается подпроцессом: `lint-imports` запрещает `src.mcp`
+импортировать `engine`, и правила разметки письма повторять здесь нельзя —
+вторая копия разошлась бы с первой, и увидел бы это партнёр.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from ..db.models import InspectionDetail
+from ..domain.config import DATA_FILES
+from ..domain.models import TEXT_LANGS
+from ..domain.version import compose
+from .checklist import (
+    AUDIT_SCRIPT,
+    ENGINE_TIMEOUT_SEC,
+    VERSIONS_DIR,
+    _check_version,
+    _clean,
+    _to_log,
+)
+from .errors import ChecklistError, ToolError
+
+#: Сборщик писем и отчётов. Лежит рядом с движком оценки, и путь к нему
+#: выводится из уже известного пути: подменили каталог движка — подменились оба
+#: скрипта разом.
+REPORT_SCRIPT = AUDIT_SCRIPT.with_name("report.py")
+
+#: Откуда взята методика. Словами, потому что это читает человек: снимок
+#: версии и «боевая методика сама ею и является» — разные основания доверять
+#: собранному письму.
+FROM_SNAPSHOT = "stored snapshot of the version this inspection was scored by"
+FROM_LIVE = "live methodology, which is that exact version"
+
+#: Поля шапки письма, которых слой чтения проверок сегодня не отдаёт. В базе
+#: они есть (`inspections.auditor`, `.city`, `.partner`, `.contact` — их пишет
+#: слив), но `db.InspectionRow` их не возвращает. Перечень нужен не как
+#: константа-заплатка: он сверяется со строкой чтения на каждом вызове, и как
+#: только поля появятся, письмо станет полным само.
+COVER_FIELDS = ("auditor", "city", "partner", "contact")
+
+#: Переменная, из которой берётся боевая методика. Имя названо в отказе:
+#: абсолютного пути в ответе быть не должно (T120), а чинить человеку что-то
+#: надо.
+DATA_DIR_VAR = "AUDIT_DATA_DIR"
+STORE_VAR = "MCP_CHECKLIST_STORE"
+
+
+@dataclass(frozen=True)
+class Papers:
+    """Откуда брать методику для пересборки: боевая и хранилище версий.
+
+    Обе половины необязательны, и это не небрежность. Хранилища версий может не
+    быть вовсе (до T098 весь MCP был чтением проверок), а боевой методики может
+    не быть у процесса, поднятого без `AUDIT_DATA_DIR`. Пересборка при этом не
+    ломается молча: она отказывает и называет переменную.
+    """
+
+    live: Path | None
+    store: Path | None
+
+
+def sources(env: Mapping[str, str] | None = None) -> Papers:
+    """Каталоги методики из окружения.
+
+    Читается на вызове, а не разбирается на старте вместе с остальными
+    настройками: инструменты проверок получают от точки входа только код
+    арендатора, и третий вид инструмента (со своим контекстом) открыл бы
+    объявленной записи дорогу мимо заслона, который сегодня держится одним
+    правилом — «обработчик всего, что не методика, лежит в модуле чтения».
+    Так же и по той же причине берёт своё окружение блок `db`.
+    """
+    src = os.environ if env is None else env
+
+    def _path(name: str) -> Path | None:
+        raw = (src.get(name) or "").strip()
+        return Path(os.path.abspath(os.path.expanduser(raw))) if raw else None
+
+    return Papers(live=_path(DATA_DIR_VAR), store=_path(STORE_VAR))
+
+
+def version_of(data_dir: Path) -> str:
+    """Идентификатор версии этого каталога методики.
+
+    Считает его тот же код, что штампует версию в каждую проверку
+    (`domain.version.compose`). Второй экземпляр формулы означал бы, что
+    «совпало» и «не совпало» здесь решаются не тем же способом, каким версия
+    попала в проверку.
+    """
+    return compose(data_dir, DATA_FILES)
+
+
+def _run(script: Path, args: list[str], *, data_dir: Path, state: Path) -> tuple[int, str, str]:
+    """Запустить скрипт движка над указанной методикой и состоянием.
+
+    Отдельно от `checklist._run` намеренно, и разница ровно одна: там вывод
+    склеивается в один текст (нужен весь отказ целиком), а здесь `stdout` —
+    это САМО ПИСЬМО, и приклеенный к нему `stderr` уехал бы партнёру внутри
+    текста.
+
+    Рабочий каталог — временный и пустой: из каталога с методикой движок
+    подобрал бы форк `checklist_data/`, случайно оказавшийся рядом.
+    """
+    env = dict(os.environ)
+    env["CHECKLIST_DIR"] = str(data_dir)
+    env["INSPECTION_FILE"] = str(state)
+    # Кэш байткода в чужом каталоге движку не нужен, а рядом с методикой он
+    # выглядел бы файлом методики.
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    готово = subprocess.run(  # noqa: S603 — список аргументов собран здесь, оболочки нет
+        [sys.executable, str(script), *args],
+        cwd=str(state.parent),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=ENGINE_TIMEOUT_SEC,
+    )
+    return готово.returncode, готово.stdout, готово.stderr
+
+
+def _lang(detail: InspectionDetail, asked: str | None) -> str:
+    """Язык письма: названный или тот, на котором отчёт записан.
+
+    Незнакомый язык — отказ. Движок на такой молча откатывается на русский
+    (`if lang not in T: lang = "ru"`), то есть спрашивающий получил бы письмо
+    не на том языке и ничем бы об этом не узнал.
+    """
+    if asked is None:
+        return detail.inspection.report_lang
+    value = asked.strip().lower()
+    if value not in TEXT_LANGS:
+        raise ToolError(
+            f"Язык письма «{asked}» в методике не заведён. Доступны: {', '.join(TEXT_LANGS)}. "
+            f"Движок на незнакомый язык молча собирает письмо по-русски — и отправитель "
+            f"узнал бы об этом от партнёра"
+        )
+    return value
+
+
+def _cover(detail: InspectionDetail) -> tuple[dict[str, str], list[str]]:
+    """Шапка письма и перечень того, чего слой чтения не отдал.
+
+    `getattr` со значением по умолчанию, а не обращение к полю: перечень
+    обязан выводиться из строки чтения, а не быть переписанным списком. Как
+    только `db.InspectionRow` начнёт отдавать аудитора и город, шапка станет
+    полной сама, без правки здесь.
+    """
+    шапка = {поле: str(getattr(detail.inspection, поле, "") or "") for поле in COVER_FIELDS}
+    return шапка, [поле for поле, значение in шапка.items() if not значение]
+
+
+def state_json(detail: InspectionDetail, *, lang: str) -> str:
+    """Записанная проверка в форме файла состояния, который читает движок.
+
+    Кадров здесь нет: они лежат в хранилище за ссылками, а письму они не
+    нужны вовсе — их печатает отчёт. Пустой список честнее подставленного
+    пути: движок ничего не ищет на диске сам.
+
+    Формулировка находки уезжает как записана, на языке речи аудитора.
+    Переводить её нельзя: это чужие слова в отчёте партнёру.
+    """
+    шапка, _ = _cover(detail)
+    строка = detail.inspection
+    return json.dumps(
+        {
+            "meta": {
+                "unit": строка.unit_name,
+                "city": шапка["city"],
+                "partner": шапка["partner"],
+                "contact": шапка["contact"],
+                "auditor": шапка["auditor"],
+                "type": строка.kind,
+                "date": строка.inspection_date.isoformat(),
+                "lang": lang,
+            },
+            "findings": [
+                {
+                    "n": находка.n,
+                    "qid": находка.code,
+                    "level": находка.level,
+                    "zone": находка.zone,
+                    "photos": [],
+                    "comment": находка.comment or "",
+                    "evidence": находка.text or "",
+                }
+                for находка in detail.findings
+            ],
+            "info": {},
+        },
+        ensure_ascii=False,
+    )
+
+
+def _methodology(version: str, papers: Papers) -> tuple[Path, str]:
+    """Каталог методики ТОЙ версии, которой помечена проверка, и откуда он взят.
+
+    Порядок именно такой: снимок версии первым. Боевая методика годится только
+    тогда, когда она и есть эта версия, — иначе письмо собралось бы по другой
+    методике, и отличить его от честного можно было бы лишь по одной цифре.
+    """
+    try:
+        хотим = _check_version(version)
+    except ChecklistError as отказ:
+        # Версия приезжает из базы и подставляется в путь каталога. Сторож
+        # общий с правкой методики — но отказ здесь обязан быть отказом
+        # ИНСТРУМЕНТА проверок: `ChecklistError` означает «движок не принял
+        # правку», а никакой правки тут нет.
+        raise ToolError(str(отказ)) from None
+    if papers.store is not None:
+        снимок = papers.store / VERSIONS_DIR / хотим
+        if снимок.is_dir():
+            return снимок, FROM_SNAPSHOT
+    if papers.live is None:
+        raise ToolError(
+            f"Не задан {DATA_DIR_VAR} — каталог методики, по которой считается оценка. "
+            f"Без него собрать письмо не из чего"
+        )
+    if not papers.live.is_dir():
+        _to_log("каталога методики нет", методика=papers.live)
+        raise ToolError(
+            f"Каталог методики из {DATA_DIR_VAR} не открывается. Какой именно — в логе сервера: "
+            f"он остаётся на машине"
+        )
+    живая = version_of(papers.live)
+    if живая == хотим:
+        return papers.live, FROM_LIVE
+    raise ToolError(
+        f"Проверка посчитана по версии методики {хотим}, а её снимка нет: в хранилище "
+        f"({STORE_VAR}) такой версии не лежит, боевая методика сейчас {живая}. Собрать письмо "
+        f"по сегодняшней методике значило бы пересчитать проверку задним числом и отдать "
+        f"партнёру другую букву под прежней датой (D033)"
+    )
+
+
+def _verify(detail: InspectionDetail, data_dir: Path, state: Path) -> None:
+    """Убедиться, что движок по этой методике считает ровно записанное.
+
+    Имя каталога версии доказательством не является: каталог кладёт не только
+    этот блок, а совпадение отпечатка проверяется лишь у боевой методики.
+    Настоящее доказательство — совпадение оценки, и стоит оно один запуск
+    движка.
+    """
+    код, вывод, ошибки = _run(AUDIT_SCRIPT, ["score", "--json"], data_dir=data_dir, state=state)
+    if код != 0:
+        raise ToolError(
+            f"Движок не смог посчитать эту проверку по её же методике, поэтому письмо не "
+            f"собрано: {_clean(вывод + ошибки, data_dir, state.parent)}"
+        )
+    try:
+        посчитано: Any = json.loads(вывод)
+    except json.JSONDecodeError:
+        raise ToolError(
+            "Движок ответил на сверку оценки не разбираемым JSON — письмо не собрано"
+        ) from None
+    записано = detail.inspection
+    pct, grade = float(посчитано["pct"]), str(посчитано["grade"])
+    if round(pct, 2) != round(записано.pct, 2) or grade != записано.grade:
+        raise ToolError(
+            f"Оценка, посчитанная по версии {записано.checklist_version}, не сходится с "
+            f"записанной в проверке: записано {записано.pct:g}% {записано.grade}, посчитано "
+            f"{pct:g}% {grade}. Письмо не собрано: партнёру ушла бы другая оценка под прежней "
+            f"датой. Отчёт задним числом не пересчитывается (D033)"
+        )
+
+
+def build(detail: InspectionDetail, *, lang: str | None, papers: Papers) -> dict[str, object]:
+    """Собрать письмо партнёру по записанной проверке.
+
+    Возвращается записанная оценка, текст письма и прямой ответ на вопрос,
+    можно ли это отправлять: письмо с неполной шапкой выглядит готовым, и
+    именно поэтому его нельзя отдавать молча.
+    """
+    язык = _lang(detail, lang)
+    каталог, откуда = _methodology(detail.inspection.checklist_version, papers)
+    _, не_восстановлено = _cover(detail)
+    with tempfile.TemporaryDirectory(prefix="mcp-letter-") as рядом:
+        состояние = Path(рядом) / "inspection.json"
+        состояние.write_text(state_json(detail, lang=язык), encoding="utf-8")
+        _verify(detail, каталог, состояние)
+        код, письмо, ошибки = _run(
+            REPORT_SCRIPT, ["letter", f"--lang={язык}"], data_dir=каталог, state=состояние
+        )
+        if код != 0:
+            raise ToolError(
+                f"Движок не собрал письмо: {_clean(письмо + ошибки, каталог, состояние.parent)}"
+            )
+        текст = письмо.strip()
+    if not текст:
+        raise ToolError(
+            "Сборщик письма отчитался об успехе и вернул пустой текст — отправлять партнёру нечего"
+        )
+    готово = not не_восстановлено
+    return {
+        "lang": язык,
+        "report_lang": detail.inspection.report_lang,
+        "checklist_version": detail.inspection.checklist_version,
+        "methodology": откуда,
+        "score_verified": True,
+        "pct": detail.inspection.pct,
+        "grade": detail.inspection.grade,
+        "letter": текст,
+        "not_restored": не_восстановлено,
+        "ready_to_send": готово,
+        "status": (
+            "letter rebuilt on the methodology version this inspection was scored by; "
+            "the score the engine computed matches the one recorded"
+            if готово
+            else (
+                "letter rebuilt and its score matches the one recorded, but it is NOT ready to "
+                "send as it stands: the recorded inspection cannot be read back in full, so "
+                f"{', '.join(не_восстановлено)} are missing and the engine signed the letter "
+                "with a blank line. Fill them in before sending"
+            )
+        ),
+    }

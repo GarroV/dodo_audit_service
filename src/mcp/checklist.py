@@ -51,13 +51,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 from ..domain.config import DATA_FILES, REQUIRED_DATA_FILES
 from ..domain.version import VERSION_FILE, compose, fingerprint, published
+from ..recognize.cues import CUES_FILE as RECOGNIZE_CUES_FILE
 from .errors import ChecklistError
 
 #: Подкаталог со снимками версий. Отдельный уровень, чтобы указатель и журнал
@@ -71,6 +72,11 @@ CURRENT_LINK = "current"
 
 #: Журнал правок. Строка на событие, дописывается и не переписывается.
 JOURNAL_FILE = "journal.jsonl"
+
+#: Карта слов внутри версии методики. Имя берётся у того, кто её читает
+#: (`src.recognize.cues.CUES_FILE`), а не пишется здесь второй раз: разошлись
+#: бы, и правка легла бы в файл, которого продукт не открывает.
+CUES_FILE = RECOGNIZE_CUES_FILE
 
 #: Где собираются кандидаты. Внутри хранилища, чтобы принятая версия въезжала
 #: на место переименованием, а не копированием через границу файловой системы.
@@ -610,6 +616,50 @@ def apply_change(
     во временном каталоге хранилища и въезжает на место переименованием — то
     есть версия в хранилище либо есть целиком, либо её нет вовсе.
     """
+
+    def правит_движок(кандидат: Path, holder: Path) -> tuple[str | None, str]:
+        код, вывод = _run(
+            MANAGE_SCRIPT,
+            _argv(command, positional, options),
+            data_dir=кандидат,
+            cwd=holder,
+            state=None,
+        )
+        return (_clean(вывод, кандидат, holder) if код != 0 else None), вывод
+
+    return apply_edit(
+        store,
+        tenant=tenant,
+        tool=tool,
+        mutate=правит_движок,
+        base=base,
+        version_name=version_name,
+        note=note,
+        today=today,
+    )
+
+
+def apply_edit(
+    store: Store,
+    *,
+    tenant: str,
+    tool: str,
+    mutate: Callable[[Path, Path], tuple[str | None, str]],
+    base: str | None = None,
+    version_name: str | None = None,
+    note: str | None = None,
+    today: date | None = None,
+) -> Outcome:
+    """Общий ход любой правки методики: снимок → правка копии → проверка → версия.
+
+    `mutate` правит КОПИЮ и возвращает пару «отказ или `None`, что сказал
+    правивший». Правит копию либо движок (`apply_change` — чек-лист и зоны,
+    правила там), либо этот блок (`photo_cues` — карта слов, которую движок не
+    читает вовсе и правил для неё не держит). Всё остальное — снимок, отпечаток,
+    проверка движком, запрет пустой правки, въезд переименованием и журнал —
+    одно на обе правки, потому что это свойства ХРАНИЛИЩА, а не того, кто
+    правит. Второй экземпляр этого хода разошёлся бы с первым.
+    """
     day = today or date.today()
     base_version = tip_version(store) if base is None else base
     base_dir = _version_dir(store, base_version)
@@ -619,21 +669,15 @@ def apply_change(
     with _holder(store) as holder:
         кандидат = holder / "data"
         shutil.copytree(base_dir, кандидат)
-        код, вывод = _run(
-            MANAGE_SCRIPT,
-            _argv(command, positional, options),
-            data_dir=кандидат,
-            cwd=holder,
-            state=None,
-        )
-        if код != 0:
+        отказ_правки, вывод = mutate(кандидат, holder)
+        if отказ_правки is not None:
             return _refused(
                 store,
                 tenant=tenant,
                 tool=tool,
                 base_version=base_version,
                 note=note,
-                refusal=_clean(вывод, кандидат, holder),
+                refusal=отказ_правки,
             )
         (кандидат / VERSION_FILE).write_text(f"{name} {day.isoformat()}\n", encoding="utf-8")
         отказ = _engine_accepts(кандидат, day)

@@ -186,6 +186,29 @@ _LEVELS_PROPERTY: dict[str, object] = {
     ),
 }
 
+_CUE_PHRASE_PROPERTY: dict[str, object] = {
+    "type": "string",
+    "description": (
+        "The cue phrase — what an auditor says or a photo shows, in the "
+        "wording the map carries. It is the row's identity: rows of this map "
+        "are named by their phrase, in full and word for word, because the "
+        "map has no codes of its own on that side."
+    ),
+}
+
+_CUE_CODES_PROPERTY: dict[str, object] = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": (
+        "Checklist codes the cue raises, one entry per code column of the "
+        "section's table (a two-column table takes exactly one entry). Put "
+        "several codes in one entry separated by commas, in the order they "
+        "should be offered. Codes only: entities are linked by code, never by "
+        "wording."
+    ),
+}
+
+
 TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="list_inspections",
@@ -299,6 +322,45 @@ TOOLS: tuple[ToolSpec, ...] = (
             "additionalProperties": False,
         },
         handler=tools.findings_by_unit,
+    ),
+    ToolSpec(
+        name="inspection_letter",
+        description=(
+            "Rebuild the partner letter for one recorded inspection of the "
+            "caller's tenant and return its text, ready for a human to paste "
+            "into mail and send. The letter is written by the audit engine, "
+            "not here, and it is rebuilt on the exact methodology version the "
+            "inspection was scored by — never on today's methodology, which "
+            "would silently restate the partner's grade. The score the engine "
+            "computes is checked against the one recorded in the inspection: "
+            "a mismatch is refused, not returned. 'lang' picks the language "
+            "of the letter (the auditor's own wording of each finding is "
+            "never translated); omit it for the language the report was "
+            "issued in. Read 'ready_to_send' and 'not_restored' before "
+            "passing the text on: fields the read layer cannot return leave "
+            "gaps that the engine fills with a blank line. Returns "
+            "found: false, with no error, when the id does not match any "
+            "inspection of this tenant."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "id": _INSPECTION_ID_PROPERTY,
+                "lang": {
+                    "type": "string",
+                    "description": (
+                        "Language of the letter, as a two-letter code (for "
+                        "example 'ru' or 'en'). Omit to use the language the "
+                        "report was issued in. A language the methodology "
+                        "does not carry is rejected with an explicit error "
+                        "rather than quietly answered in another language."
+                    ),
+                },
+            },
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        handler=tools.inspection_letter,
     ),
     # --- методика: чтение --------------------------------------------------
     ToolSpec(
@@ -697,6 +759,114 @@ TOOLS: tuple[ToolSpec, ...] = (
         kind=KIND_CHECKLIST,
     ),
     # --- методика: публикация ------------------------------------------------
+    # --- карта слов: чтение и правка (T144) --------------------------------
+    ToolSpec(
+        name="photo_cues",
+        description=(
+            "Read the word map of one methodology version: the sections and "
+            "the cue rows inside them, each a phrase an auditor might say or "
+            "a photo might show, mapped to the checklist codes it raises. "
+            "This map is what lets a finding be recorded WITHOUT the auditor "
+            "confirming it, so what it says ends up in the partner's report. "
+            "It only adds candidates and reorders them; it never trims the "
+            "list. The thresholds section is not part of it and is not "
+            "returned. Omit 'version' for the version in force."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"version": _CHECKLIST_VERSION_PROPERTY},
+            "required": [],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.photo_cues,
+        kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="add_photo_cue",
+        description=(
+            "Add one cue row to the word map, storing a new methodology "
+            "version beside the one in force — the version in force does not "
+            "change and publishing stays a separate call. Every code is "
+            "checked against the checklist of that same version: a cue "
+            "pointing at an item that does not exist would offer the model a "
+            "code the methodology does not carry. 'codes' is one entry per "
+            "code column of that section's table, so a two-column table takes "
+            "exactly one entry; a row of the wrong width is rejected, because "
+            "the columns mean different things (dirt and breakage are two "
+            "questions about one object)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "section": {
+                    "type": "string",
+                    "description": (
+                        "Heading of the map section to add the row to, "
+                        "exactly as photo_cues returns it. An unknown section "
+                        "is rejected rather than created, so a typo cannot "
+                        "split the map across a twin section."
+                    ),
+                },
+                "phrase": _CUE_PHRASE_PROPERTY,
+                "codes": _CUE_CODES_PROPERTY,
+                "version_name": _VERSION_NAME_PROPERTY,
+                "note": _NOTE_PROPERTY,
+            },
+            "required": ["section", "phrase", "codes"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.add_photo_cue,
+        kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="edit_photo_cue",
+        description=(
+            "Change one cue row of the word map — its codes, its phrase, or "
+            "both — storing a new methodology version beside the one in "
+            "force. The row is named by its phrase in full and word for word: "
+            "no nearest match is substituted, because editing the wrong row "
+            "changes what gets recorded without the auditor confirming it. "
+            "Name at least one of 'codes' and 'new_phrase'."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "phrase": _CUE_PHRASE_PROPERTY,
+                "codes": _CUE_CODES_PROPERTY,
+                "new_phrase": {
+                    "type": "string",
+                    "description": "New wording for the row. Omit to keep the phrase as it is.",
+                },
+                "version_name": _VERSION_NAME_PROPERTY,
+                "note": _NOTE_PROPERTY,
+            },
+            "required": ["phrase"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.edit_photo_cue,
+        kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="remove_photo_cue",
+        description=(
+            "Remove one cue row from the word map, storing a new methodology "
+            "version beside the one in force. Older versions are never "
+            "deleted, so bringing the row back is a matter of publishing the "
+            "earlier version rather than of finding a copy of the file."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "phrase": _CUE_PHRASE_PROPERTY,
+                "version_name": _VERSION_NAME_PROPERTY,
+                "note": _NOTE_PROPERTY,
+            },
+            "required": ["phrase"],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.remove_photo_cue,
+        kind=KIND_CHECKLIST,
+    ),
     ToolSpec(
         name="publish_checklist_version",
         description=(

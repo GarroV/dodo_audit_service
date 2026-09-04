@@ -55,6 +55,7 @@ from src.mcp.rpc import handle
     "network_summary": {},
     "get_inspection": {"id": "00000000-0000-0000-0000-000000000001"},
     "findings_by_unit": {"unit": "Белград-1"},
+    "inspection_letter": {"id": "00000000-0000-0000-0000-000000000001"},
     "checklist_versions": {},
     "checklist_items": {},
     "checklist_item": {"code": "CLN01"},
@@ -81,6 +82,19 @@ from src.mcp.rpc import handle
     },
     "remove_zone": {"code": "dough", "equal_shares": True, "version_name": "imf"},
     "publish_checklist_version": {"version": None},
+    "photo_cues": {},
+    "add_photo_cue": {
+        "section": "Чистота",
+        "phrase": "Нагар на печи",
+        "codes": ["CLN02"],
+        "version_name": "imf",
+    },
+    "edit_photo_cue": {
+        "phrase": "Стена в подтёках",
+        "codes": ["CLN01"],
+        "version_name": "imf",
+    },
+    "remove_photo_cue": {"phrase": "Стена в подтёках", "version_name": "imf"},
 }
 
 #: Негодные аргументы: каждый доводит до СВОЕГО отказа, и вместе они проходят
@@ -94,6 +108,7 @@ from src.mcp.rpc import handle
     "network_summary": {"date_from": "2026-09-02", "date_to": "2026-09-01"},
     "get_inspection": {"id": "не-uuid"},
     "findings_by_unit": {"unit": "Белград-1", "limit": -1},
+    "inspection_letter": {"id": "00000000-0000-0000-0000-000000000001", "lang": "de"},
     "checklist_versions": {},
     "checklist_items": {"version": ЗАГЛУШКА_ВЕРСИИ},
     "checklist_item": {"code": "ZZZ99"},
@@ -108,6 +123,10 @@ from src.mcp.rpc import handle
     "restore_checklist_item": {"code": "CLN 02"},
     "add_zone": {"code": "тесто", "name_ru": "Тесто"},
     "remove_zone": {"code": "dough", "note": "я" * (MAX_NOTE + 1)},
+    "photo_cues": {"version": ЗАГЛУШКА_ВЕРСИИ},
+    "add_photo_cue": {"section": "Чистата", "phrase": "Пятно", "codes": ["CLN01"]},
+    "edit_photo_cue": {"phrase": "Стена в потёках", "codes": ["ZZZ99"]},
+    "remove_photo_cue": {"phrase": "Потолок"},
     "publish_checklist_version": {"version": ЗАГЛУШКА_ВЕРСИИ},
 }
 

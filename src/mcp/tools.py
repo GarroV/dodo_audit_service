@@ -26,17 +26,55 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 
-from ..db.models import FindingRow, InspectionRow
+from ..db.errors import ConfigError as DbConfigError
+from ..db.models import FindingRow, InspectionDetail, InspectionRow
 from .errors import ToolError
 
 #: Формат даты в аргументах инструментов. ISO и только он: «15.08.2026» и
 #: «08/15/2026» читаются по-разному в разных странах, а тихо угаданный порядок
 #: дня и месяца даст ответ не за тот период, ничем себя не выдав.
 DATE_FORMAT_HINT = "ГГГГ-ММ-ДД"
+
+#: Отказ на стенде, где базы нет вовсе. Это законная настройка, а не поломка:
+#: продукт поднят на боевом сервере с намеренно не поднятой базой — бот
+#: проводит проверку и отдаёт отчёт с письмом, а истории у него нет.
+#:
+#: Прежде такой стенд отвечал общим «Не удалось выполнить проверки
+#: (ConfigError)» — тем же текстом, что и упавшая база. Человек по нему шёл
+#: искать поломку, которой нет, а имени переменной в ответе не было вовсе.
+#: Ещё хуже было бы отвечать пустой выдачей: «проверок не найдено» агент
+#: пересказывает как факт о точке, хотя история цела и просто лежит не здесь.
+HISTORY_NOT_CONNECTED = (
+    "История проверок на этом стенде не подключена: не задана переменная окружения "
+    "DATABASE_URL. Это законная настройка, а не поломка — проверку бот проводит и без базы, "
+    "отчёт с письмом отдаёт на месте, — но прочитать записанную проверку, её оценку или её "
+    "письмо тогда неоткуда. Это отказ чтения, а не отсутствие проверок"
+)
+
+
+@contextmanager
+def _history() -> Iterator[None]:
+    """Обёртка над обращением к слою чтения: непригодное окружение — свой отказ.
+
+    Ловится именно `db.ConfigError` — «окружения для базы нет», а не «база не
+    ответила». Упавшая или недоступная база приходит другим типом и остаётся
+    общим отказом чтения: это разные события, и сводить их в один текст значит
+    отправлять человека чинить то, что не сломано.
+
+    Текст пишется здесь, а не пересказывается из отказа блока `db`: наружу
+    уходит ответ агенту, и правило «в ответ не попадает текст чужого отказа»
+    (в нём может оказаться строка подключения) снимать ради одного случая
+    нельзя.
+    """
+    try:
+        yield
+    except DbConfigError:
+        raise ToolError(HISTORY_NOT_CONNECTED) from None
 
 
 @dataclass(frozen=True)
@@ -74,11 +112,12 @@ def _read(
     from ..db.queries import DEFAULT_LIMIT, list_inspections
 
     rows_limit = DEFAULT_LIMIT if limit is None else limit
-    rows = tuple(
-        list_inspections(
-            tenant=tenant, unit=unit, date_from=date_from, date_to=date_to, limit=rows_limit
+    with _history():
+        rows = tuple(
+            list_inspections(
+                tenant=tenant, unit=unit, date_from=date_from, date_to=date_to, limit=rows_limit
+            )
         )
-    )
     return _Page(rows=rows, limit=rows_limit, truncated=len(rows) >= rows_limit)
 
 
@@ -236,6 +275,20 @@ def _finding(row: FindingRow) -> dict[str, object]:
         "text": row.text,
         "comment": row.comment,
     }
+
+
+def _detail(ident: str, *, tenant: str) -> InspectionDetail | None:
+    """Проверка целиком через официальный контракт блока `db`.
+
+    Один вход на оба инструмента, которым нужна проверка по идентификатору
+    (`get_inspection` и `inspection_letter`): вторая копия обращения к слою
+    чтения означала бы второе место, где можно забыть арендатора или обёртку
+    непригодного окружения.
+    """
+    from ..db.queries import get_inspection as db_get_inspection
+
+    with _history():
+        return db_get_inspection(ident, tenant=tenant)
 
 
 def _brief(row: InspectionRow) -> dict[str, object]:
@@ -399,9 +452,7 @@ def get_inspection(*, tenant: str, id: str) -> dict[str, object]:
     исходах: агенту не нужно угадывать, есть ли поле.
     """
     ident = _require_inspection_id(id)
-    from ..db.queries import get_inspection as db_get_inspection
-
-    detail = db_get_inspection(ident, tenant=tenant)
+    detail = _detail(ident, tenant=tenant)
     if detail is None:
         return {
             "tenant": tenant,
@@ -427,6 +478,44 @@ def get_inspection(*, tenant: str, id: str) -> dict[str, object]:
     }
 
 
+def inspection_letter(*, tenant: str, id: str, lang: str | None = None) -> dict[str, object]:
+    """Текст письма партнёру по уже записанной проверке (T171).
+
+    Письмо отправляет человек руками из почты (Q010), и в системе оно нигде не
+    лежит: бот показывает его один раз, при завершении проверки. Поэтому здесь
+    оно собирается заново — движком, по методике ТОЙ версии, которой помечена
+    проверка, и только если посчитанное движком сошлось с записанным. Разбор —
+    `src/mcp/letters.py`; здесь тонкая обёртка, потому что обработчик
+    инструмента проверок обязан лежать в этом модуле (`tests/test_mcp_server.py`).
+
+    Записью это не является ни в каком виде: проверка не меняется, боевая
+    методика открывается только на чтение, а состояние для движка собирается во
+    временном каталоге, который тут же исчезает.
+
+    Набор ключей ответа одинаков в обоих исходах — как у `get_inspection`.
+    """
+    ident = _require_inspection_id(id)
+    detail = _detail(ident, tenant=tenant)
+    if detail is None:
+        return {
+            "tenant": tenant,
+            "id": ident,
+            "found": False,
+            "status": "no inspection found with that id",
+            "letter": None,
+        }
+    from .letters import build, sources
+
+    return {
+        "tenant": tenant,
+        "id": ident,
+        "found": True,
+        "unit": detail.inspection.unit_name,
+        "inspection_date": detail.inspection.inspection_date.isoformat(),
+        **build(detail, lang=lang, papers=sources()),
+    }
+
+
 def findings_by_unit(*, tenant: str, unit: str, limit: int | None = None) -> dict[str, object]:
     """Записанные находки одной точки по всем её проверкам, свежие проверки первыми.
 
@@ -441,7 +530,8 @@ def findings_by_unit(*, tenant: str, unit: str, limit: int | None = None) -> dic
     from ..db.queries import findings_by_unit as db_findings_by_unit
 
     applied_limit = DEFAULT_LIMIT if requested_limit is None else requested_limit
-    rows = db_findings_by_unit(tenant=tenant, unit=name, limit=applied_limit)
+    with _history():
+        rows = db_findings_by_unit(tenant=tenant, unit=name, limit=applied_limit)
     truncated = len(rows) >= applied_limit
     return {
         "tenant": tenant,

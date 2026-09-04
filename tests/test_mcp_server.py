@@ -278,6 +278,8 @@ def test_перечень_инструментов_отдаётся_целико
         "network_summary",
         "get_inspection",
         "findings_by_unit",
+        # письмо партнёру по записанной проверке — пересборка движком, не запись (T171)
+        "inspection_letter",
         # методика — чтение версий и правка (T098), закрыта отдельной настройкой
         "checklist_versions",
         "checklist_items",
@@ -289,6 +291,11 @@ def test_перечень_инструментов_отдаётся_целико
         "add_zone",
         "remove_zone",
         "publish_checklist_version",
+        # карта слов — правка версиями (T144)
+        "photo_cues",
+        "add_photo_cue",
+        "edit_photo_cue",
+        "remove_photo_cue",
     }
     assert all("inputSchema" in инструмент for инструмент in ответ["result"]["tools"])
 
