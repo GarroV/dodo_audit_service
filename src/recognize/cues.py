@@ -26,6 +26,14 @@ CUES_FILE = "photo-cues.md"
 #: справка «когда D1, а когда D2» — она уходит в промпт отдельным куском.
 THRESHOLDS_HEADING = "## Пороги классов"
 
+#: Заголовок раздела со словами колонок (T143). Тоже не подсказки «что видно»:
+#: его строки говорят, какими словами аудитор называет колонку («Грязь»,
+#: «Поломка»), а не какой пункт стоит за объектом на кадре.
+COLUMN_WORDS_HEADING = "## Слова, которыми аудитор называет колонку"
+
+#: Разделы карты, которые подсказками не являются и в перечень строк не идут.
+_NOT_CUES = (THRESHOLDS_HEADING, COLUMN_WORDS_HEADING)
+
 _CODE = re.compile(r"\b[A-Z]{3}\d{2}\b")
 _WORD = re.compile(r"[а-яёa-z0-9]+")
 
@@ -160,22 +168,23 @@ def load_cues(path: Path | None = None) -> tuple[Cue, ...]:
     """Разобрать карту кадров в строки «фраза → коды».
 
     Берутся только строки таблиц: первая ячейка — что видно, коды — из
-    остальных. Раздел порогов классов пропускается целиком, там коды стоят в
-    первой ячейке и подсказками не являются.
+    остальных. Разделы, подсказками не являющиеся, пропускаются целиком
+    (`_NOT_CUES`): в порогах классов коды стоят в первой ячейке, а в словах
+    колонок кодов нет вовсе, и обе таблицы читаются своими функциями.
 
     Заголовок таблицы запоминается: по нему строка узнаёт, какая колонка чем
     была («Грязь», «Поломка», «Кандидаты»). Заголовком считается первая строка
     таблицы без кодов — тот же признак, по которому она сегодня пропускается.
     """
     cues: list[Cue] = []
-    in_thresholds = False
+    skipping = False
     headers: tuple[str, ...] = ()
     for line in _read(path).splitlines():
         if line.startswith("## "):
-            in_thresholds = line.strip().startswith(THRESHOLDS_HEADING)
+            skipping = line.strip().startswith(_NOT_CUES)
             headers = ()
             continue
-        if in_thresholds or not line.lstrip().startswith("|"):
+        if skipping or not line.lstrip().startswith("|"):
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) < 2:
@@ -255,3 +264,47 @@ def class_thresholds(path: Path | None = None) -> str:
         if collecting:
             lines.append(line)
     return "\n".join(lines).strip()
+
+
+def column_words(path: Path | None = None) -> dict[str, frozenset[str]]:
+    """Слова, которыми аудитор называет колонку строки карты (T143).
+
+    Карта различает грязь и поломку одного объекта колонками («Печь | CLN05 |
+    TEH05»), но какими словами аудитор скажет, о чём речь, знает управляющая
+    компания, а не код: на её же формулировках («затирки», «потёртости»,
+    «затёртости», «налипшее») встроенный словарь молчит. Этот раздел — её
+    место дописать слово без выпуска кода.
+
+    Возвращается заголовок колонки в нижнем регистре → основы слов. Карта
+    словарь **дополняет**, а не заменяет (D077, дословно владельца: «дополняем
+    наш список терминов»); раздела нет — пустой ответ, и это законное
+    состояние (D068): различение колонок остаётся на встроенном минимуме.
+
+    Читаются строки таблицы после разделителя — как в любой другой таблице
+    этого документа, поэтому шапка в словарь не попадает.
+    """
+    picked: dict[str, set[str]] = {}
+    collecting = False
+    after_separator = False
+    for line in _read(path).splitlines():
+        if line.startswith("## "):
+            if collecting:
+                break
+            collecting = line.strip().startswith(COLUMN_WORDS_HEADING)
+            after_separator = False
+            continue
+        if not collecting or not line.lstrip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        if all(cell and set(cell) <= set("- :") for cell in cells):
+            after_separator = True
+            continue
+        if not after_separator:
+            continue
+        header = cells[0].lower()
+        words = stems(" ".join(cells[1:]))
+        if header and words:
+            picked.setdefault(header, set()).update(words)
+    return {header: frozenset(words) for header, words in picked.items()}
