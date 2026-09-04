@@ -1,4 +1,4 @@
-.PHONY: check test test-honest regress demo demo-down loadcheck loadcheck-live fastpath lint types dead bounds fmt migrate db-up db-down storage-up storage-down mcp cov-engine
+.PHONY: check test test-honest regress demo demo-down loadcheck loadcheck-live fastpath processhint lint types dead bounds fmt migrate db-up db-down storage-up storage-down mcp cov-engine
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -84,6 +84,14 @@ loadcheck-live:
 # без денег — гонять после каждого пополнения карты слов data/photo-cues.md.
 fastpath:
 	STATE_DIR=$${STATE_DIR:-/tmp/fastpath-state} $(VENV)/python tools/fastpath_measure.py
+
+# Замер T166: сколько раз признак «<описание>, это <процесс>» срабатывает там,
+# где указания словарю не было. Признак ненадёжен по устройству, и единственное,
+# что о нём можно узнать, — доля ложных срабатываний. Корпус, на котором она
+# считается по-настоящему (сырые слова аудитора, T183), копится в состоянии
+# проверок: пока он пуст, замер говорит это прямо. Без сети и без денег.
+processhint:
+	$(VENV)/python tools/process_hint_measure.py
 
 demo-down:
 	docker compose --profile demo rm -sf demo demo-seed
