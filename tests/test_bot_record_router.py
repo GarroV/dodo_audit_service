@@ -352,7 +352,11 @@ async def test_model_outage_falls_back_to_manual_pick(
     # и до недоступной модели дело бы не дошло — проверять было бы нечего.
     await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
 
-    assert "таймаут" in session.texts[-2]
+    # Причина сбоя аудитору НЕ показывается (T154): в тексте исключения бывают
+    # пути на диске и имена переменных окружения. Ему говорят, что случилось и
+    # что делать, а причина уходит в журнал — её читает тот, кто чинит.
+    assert "Модель недоступна" in session.texts[-2]
+    assert "таймаут" not in session.texts[-2], "сырая причина ушла аудитору"
     assert "rec:mi:0" in session.keyboard_data()
 
     await feed(dp, bot, callback("rec:mi:0"))

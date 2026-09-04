@@ -199,7 +199,11 @@ async def _open_manual(
     try:
         items = await asyncio.to_thread(manual_candidates, zone, lang=report_lang)
     except RecognizeError as exc:
-        await message.answer(t("record.unavailable", lang, reason=exc))
+        # Сырой текст исключения — в журнал, а не в чат (тот же принцип, что
+        # у отказа движка, T127): в нём бывают пути на диске и ссылки на
+        # внутренние документы.
+        logger.warning("ручной перечень не собрался в чате %s: %s", chat_id, exc)
+        await message.answer(t("record.unavailable", lang))
         return
     ready = replace(proposal, manual=items, zone_hint=zone)
     pending.propose(chat_id, ready)
@@ -309,11 +313,15 @@ async def _analyze(
     except ModelUnavailable as exc:
         # Модель недоступна — проверка не встаёт: тот же перечень пунктов
         # показывается кнопками, выбирает человек (контракт `recognize`).
-        await message.answer(t("record.degraded", lang, reason=exc))
+        # Сырой текст исключения — в журнал, а не в чат: в нём бывают пути на
+        # диске и ссылки на внутренние документы, аудитору они ни к чему.
+        logger.warning("модель недоступна в чате %s: %s", chat_id, exc)
+        await message.answer(t("record.degraded", lang))
         await _open_manual(message, chat_id, base, pending, lang)
         return
     except RecognizeError as exc:
-        await message.answer(t("record.unavailable", lang, reason=exc))
+        logger.warning("разбор недоступен в чате %s: %s", chat_id, exc)
+        await message.answer(t("record.unavailable", lang))
         return
 
     if not suggestion.candidates:

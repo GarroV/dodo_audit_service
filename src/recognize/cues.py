@@ -12,13 +12,12 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from src.domain import check_environment
-
-from .errors import RecognizeConfigError
 
 #: Файл карты кадров внутри каталога методики (`AUDIT_DATA_DIR`).
 CUES_FILE = "photo-cues.md"
@@ -125,19 +124,35 @@ def tokens(text: str) -> list[str]:
     return _WORD.findall(text.lower().replace("ё", "е"))
 
 
+logger = logging.getLogger(__name__)
+
+
 def cues_path() -> Path:
     """Где лежит карта кадров. Каталог методики задаётся `AUDIT_DATA_DIR`."""
     return check_environment().data_dir / CUES_FILE
 
 
 def _read(path: Path | None) -> str:
+    """Текст карты кадров. Карты нет — пустой текст, а не отказ (T157, D068).
+
+    Карта числится необязательным файлом методики (`OPTIONAL_DATA_FILES`), и
+    отказ здесь делал её обязательной в работе, оставляя необязательной на
+    старте. Всплывало это не при подъёме стенда, где чинит человек с доступом к
+    машине, а в чате у аудитора на первом же комментарии — так умирало демо.
+
+    Пустая карта означает «ни одна строка не произнесена»: быстрый путь молчит,
+    разбор идёт моделью, как при любом другом несовпадении условий (D063).
+    Перечень пунктов при этом не режется — карта его только дополняет и
+    переставляет, поэтому опасение про усечённый перечень сюда не относится.
+    """
     target = path if path is not None else cues_path()
     if not target.is_file():
-        raise RecognizeConfigError(
-            f"Не найдена карта кадров {CUES_FILE}: {target}. Без неё сужение перечня "
-            f"пунктов превращается в догадку, а неполный перечень модель не отвергает — "
-            f"она уверенно предлагает похожий пункт (docs/forge/research/recognize-probe.md)"
+        logger.warning(
+            "карта кадров %s не найдена (%s): быстрый путь не сработает, разбор идёт моделью",
+            CUES_FILE,
+            target,
         )
+        return ""
     return target.read_text(encoding="utf-8")
 
 

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,6 @@ from conftest import requires_data
 from src.domain import allowed_levels, list_items
 from src.domain.errors import ValidationError
 from src.recognize.cues import class_thresholds, load_cues, match_cues
-from src.recognize.errors import RecognizeConfigError
 from src.recognize.shortlist import MANUAL_ONLY, shortlist
 
 pytestmark = requires_data
@@ -87,16 +87,33 @@ def test_неизвестная_зона_отвергается(domain_env: Path
         shortlist("грязно", zone_hint="кухня")
 
 
-def test_без_карты_кадров_блок_отказывается_а_не_молчит(
-    domain_env: Path, data_copy: Path, monkeypatch: pytest.MonkeyPatch
+def test_без_карты_кадров_перечень_не_режется_и_отказа_нет(
+    domain_env: Path,
+    data_copy: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Карты нет — работаем дальше, а не отказываем (T157, D068).
+
+    Раньше здесь стоял обратный тест: блок отказывался, и довод был в том, что
+    без карты сужение перечня превращается в догадку, а усечённый перечень
+    модель не отвергает — она уверенно предлагает похожий пункт. Довод снят
+    измерением, а не мнением: перечень с картой и без неё ОДИНАКОВ, потому что
+    карта его не режет, а только дополняет кодами и переставляет их вперёд.
+
+    Цена прежнего поведения была высокой: файл числился необязательным на
+    старте и оказывался обязательным в работе, поэтому отказ всплывал не при
+    подъёме стенда, а в чате у аудитора на первом же комментарии.
+    """
+    с_картой = shortlist("печь в нагаре", zone_hint="hot_kitchen")
+
     (data_copy / "photo-cues.md").unlink()
     monkeypatch.setenv("AUDIT_DATA_DIR", str(data_copy))
+    with caplog.at_level(logging.WARNING):
+        без_карты = shortlist("печь в нагаре", zone_hint="hot_kitchen")
 
-    with pytest.raises(RecognizeConfigError) as отказ:
-        shortlist("печь в нагаре", zone_hint="hot_kitchen")
-
-    assert "photo-cues.md" in str(отказ.value), "в отказе должно быть видно, какого файла нет"
+    assert len(без_карты) == len(с_картой), "без карты перечень пунктов не должен резаться"
+    assert "photo-cues.md" in caplog.text, "отсутствие карты обязано быть названо в журнале"
 
 
 def test_подсказка_срабатывает_на_словах_а_не_на_точном_совпадении(domain_env: Path) -> None:

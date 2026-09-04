@@ -261,13 +261,29 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "По этому материалу пункт не подобрался. Выберите сами или уточните словами.",
         "en": "No item matched this material. Pick one yourself or clarify in words.",
     },
+    # Причина не называется — тем же принципом, что у отказа движка (T127) и у
+    # «предложение устарело» (T128): текст исключения разбора несёт то, что
+    # аудитору не место показывать — пути на диске, имена внутренних
+    # документов, а на английском стенде ещё и русские слова. Он уходит в
+    # журнал целиком (`logger.warning` в вызывающем коде), а в чат — то, что
+    # нужно человеку на точке: что случилось и что делать.
     "record.degraded": {
-        "ru": "Модель недоступна ({reason}) — проверка продолжается, пункт выберите сами.",
-        "en": "The model is unavailable ({reason}) — the inspection goes on, pick the item.",
+        "ru": "Модель недоступна — проверка продолжается, пункт выберите сами.",
+        "en": "The model is unavailable — the inspection goes on, pick the item.",
     },
+    # Тот же принцип, что у `record.degraded` выше. Разбор здесь не смог
+    # начаться вовсе (не сеть, а настройка стенда), и ни кандидатов, ни ручного
+    # перечня показать нечем — отсюда и совет позвать администратора, а не
+    # просто «пункт выберите сами».
     "record.unavailable": {
-        "ru": "Разбор недоступен: {reason}",
-        "en": "Analysis is unavailable: {reason}",
+        "ru": (
+            "Разбор не работает: стенд настроен не полностью. Материал не записан — "
+            "скажите администратору, подробности в журнале."
+        ),
+        "en": (
+            "Analysis is not working: the stand is not fully configured. Nothing was "
+            "recorded — tell the administrator, the details are in the log."
+        ),
     },
     "record.manual_page": {
         "ru": "Пункты чек-листа, страница {page} из {pages}:",

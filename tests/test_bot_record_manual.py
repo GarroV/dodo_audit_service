@@ -340,8 +340,9 @@ async def test_config_error_from_classify_is_reported_not_treated_as_empty(
 ) -> None:
     """Отказ конфигурации разбора — текст отказа, а не молчаливый пустой ответ.
 
-    Ручной перечень тоже не открывается: без карты кадров он собирается той
-    же картой и точно так же недоступен, открывать его было бы враньём.
+    Ручной перечень тоже не открывается: отказ конфигурации означает
+    недонастроенный стенд, а не то, что перечень нечем собрать, и открывать
+    его в этом состоянии означало бы делать вид, что стенд исправен.
     """
     started()
     stub_classify(monkeypatch, RecognizeConfigError("нет карты кадров"))
@@ -351,7 +352,7 @@ async def test_config_error_from_classify_is_reported_not_treated_as_empty(
 
     await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
 
-    assert session.last_text == t("record.unavailable", "ru", reason="нет карты кадров")
+    assert session.last_text == t("record.unavailable", "ru")
     assert session.keyboard_data() == [], "ни перечень, ни выбор зоны показаны быть не должны"
     assert findings() == []
 
@@ -378,7 +379,7 @@ async def test_config_error_building_the_manual_list_is_reported_and_bot_survive
 
     await feed(dp, bot, photo_message("frame-1", caption="печь, посмотри что тут"))
 
-    assert session.texts[-1] == t("record.unavailable", "ru", reason="нет карты кадров")
+    assert session.texts[-1] == t("record.unavailable", "ru")
     assert findings() == []
 
     # Бот жив: следующее событие обрабатывается штатно, а не повторяет отказ.
