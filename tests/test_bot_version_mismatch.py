@@ -26,11 +26,16 @@ from bot_harness import AUDITOR_ID, CHAT_ID, callback_query, feed, make_bot, tex
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.keyboards import VERSION_KEEP_CALLBACK, VERSION_SYNC_CALLBACK
+from src.bot.texts import t
 from src.domain import add_finding, checklist_version, get_state, list_items, start_inspection
 from src.domain.config import check_environment
+from src.domain.errors import DomainError
 from src.domain.state import DOMAIN_KEY, HISTORY_KEY, state_file
 
 pytestmark = pytest.mark.asyncio
+
+#: Путь внутри отказа движка: в чат он попасть не должен ни при каких условиях.
+ПУТЬ_В_ОТКАЗЕ = "/var/state-of-the-stand/42"
 
 SETTINGS = BotSettings(
     token="unused-in-tests",
@@ -158,3 +163,39 @@ async def test_отказ_разобраться_с_методикой_ниче�
     assert состояние is not None
     assert состояние.checklist_version == отметка, "проверка всё-таки переехала"
     assert session.texts, "бот промолчал в ответ на выбор аудитора"
+
+
+async def test_неудачный_перевод_доезжает_до_аудитора_а_не_роняет_разговор(
+    методика: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Перевод не удался — человек об этом слышит, а проверка остаётся как была.
+
+    Сырой текст отказа идёт в журнал, а не в чат (тот же принцип, что у T127):
+    в нём бывают пути на диске, аудитору они ни к чему.
+    """
+    dp, bot, session, отметка = await завершить(методика)
+    session.clear()
+
+    def падать(chat_id: int) -> None:
+        raise DomainError(f"файл проверки занят другим процессом {ПУТЬ_В_ОТКАЗЕ}")
+
+    monkeypatch.setattr("src.domain.sync_checklist_version", падать)
+
+    await feed(dp, bot, callback_query(VERSION_SYNC_CALLBACK))
+
+    assert session.texts == [t("finish.version_sync_failed", "ru")]
+    assert ПУТЬ_В_ОТКАЗЕ not in "\n".join(session.texts), "путь на диске уехал в чат"
+    assert any("не удался" in r.message for r in caplog.records)
+    состояние = get_state(CHAT_ID)
+    assert состояние is not None and состояние.checklist_version == отметка
+
+
+async def test_проверки_уже_нет_а_выбор_нажали_бот_объясняет(методика: Path) -> None:
+    """Проверку успели снести между сообщением и нажатием — это не повод падать."""
+    dp, bot, session, _ = await завершить(методика)
+    state_file(CHAT_ID, check_environment()).unlink()
+    session.clear()
+
+    await feed(dp, bot, callback_query(VERSION_KEEP_CALLBACK))
+
+    assert session.texts == [t("material.no_inspection", "ru")]

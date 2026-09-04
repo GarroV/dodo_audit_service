@@ -16,7 +16,7 @@ from .checklist import allowed_levels, checklist_version, get_item, list_items, 
 from .config import check_environment
 from .findings import add_finding, attach_photo, drop_finding, edit_finding
 from .info import set_info
-from .kinds import INSPECTION_KINDS, kind_codes, kind_title
+from .kinds import INSPECTION_KINDS, kind_title
 from .models import (
     SOURCE_COMMENT,
     SOURCE_PHOTO,
@@ -51,7 +51,6 @@ __all__ = [
     "edit_finding",
     "get_item",
     "get_state",
-    "kind_codes",
     "kind_title",
     "list_items",
     "list_zones",

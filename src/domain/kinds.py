@@ -44,11 +44,6 @@ INSPECTION_KINDS: Mapping[str, Mapping[str, str]] = {
 }
 
 
-def kind_codes() -> tuple[str, ...]:
-    """Коды видов проверки в порядке перечня (`docs/06-mvp-bot.md`)."""
-    return tuple(INSPECTION_KINDS)
-
-
 def kind_title(code: str, lang: str) -> str:
     """Вид проверки словами. Язык — параметр, и он не всегда язык интерфейса.
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from aiogram.exceptions import TelegramBadRequest
 from bot_harness import (
     AUDITOR_ID,
     CHAT_ID,
@@ -173,3 +174,43 @@ async def test_ответ_мягкий_чтобы_удалённое_сообщ�
 
     отправка = next(c for c in session.calls if type(c).__name__ == "SendPhoto")
     assert отправка.allow_sending_without_reply is True
+
+
+async def test_отказ_телеграма_на_одном_кадре_не_отменяет_остальных(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Один кадр телеграм не отдал — остальные показать всё равно обязаны.
+
+    И молчанием это не становится: сколько кадров показать не удалось, сказано
+    числом. Задача T068 существует ровно затем, чтобы кадр не пропал молча, —
+    молчаливый отказ показа вернул бы ту же потерю с другой стороны.
+    """
+    started()
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await feed(dp, bot, photo_message("frame-bad", message_id=701))
+    await feed(dp, bot, photo_message("frame-good", message_id=702))
+    session.clear()
+
+    исходный = type(session).make_request
+
+    async def падать_на_первом(
+        self: Any,
+        bot: Any,
+        method: Any,
+        # ASYNC109: имя и вид параметра задан абстрактным классом aiogram —
+        # оснастка обязана подходить под `BaseSession`, как и сама подмена.
+        timeout: Any = None,  # noqa: ASYNC109
+    ) -> Any:
+        if type(method).__name__ == "SendPhoto" and str(method.photo) == "frame-bad":
+            raise TelegramBadRequest(method=method, message="photo not found")
+        return await исходный(self, bot, method, timeout)
+
+    monkeypatch.setattr(type(session), "make_request", падать_на_первом)
+
+    await feed(dp, bot, text_message("/finish"))
+
+    assert ("frame-good", 702) in отправленные_кадры(session), "второй кадр не показан"
+    assert t("finish.unclaimed_failed", "ru", failed=1) in session.texts
+    assert any("не показался" in r.message for r in caplog.records)
