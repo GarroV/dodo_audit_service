@@ -13,8 +13,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from conftest import requires_data
-
 from src.recognize.models import NONE_CODE, UNKNOWN_ZONE
 from src.recognize.prompt import RECORDING_RULES, instructions, question_text, rules_text
 
@@ -142,7 +140,6 @@ def test_question_text_подсказка_зоны_и_её_отсутствие(
     assert UNKNOWN_ZONE in без_подсказки
 
 
-@requires_data
 def test_question_text_вариант_none_всегда_в_перечне(domain_env: Path) -> None:
     text = question_text("грязно", ["CLN05:D1"], [], "hot_kitchen", "ru", with_photo=False)
 

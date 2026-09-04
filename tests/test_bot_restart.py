@@ -28,13 +28,12 @@ from bot_harness import (
     suggestion,
     text_message,
 )
-from conftest import requires_data
 
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.domain import add_finding, get_state, start_inspection
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = pytest.mark.asyncio
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 

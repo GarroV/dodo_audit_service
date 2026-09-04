@@ -13,13 +13,10 @@ import re
 from pathlib import Path
 
 import pytest
-from conftest import requires_data
 
 from src.domain import check_environment, checklist_version
 from src.domain.errors import ConfigError
 from src.domain.version import VERSION_FILE
-
-pytestmark = requires_data
 
 #: Отпечаток в хвосте идентификатора: 12 знаков шестнадцатеричного вида.
 FINGERPRINT = r"[0-9a-f]{12}"

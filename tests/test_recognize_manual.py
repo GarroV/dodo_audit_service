@@ -12,13 +12,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from conftest import requires_data
-
 from src.domain import allowed_levels, list_items
 from src.recognize.manual import manual_candidates
 from src.recognize.shortlist import MANUAL_ONLY
-
-pytestmark = requires_data
 
 
 def test_перечень_зоны_это_база_и_она_полная(domain_env: Path) -> None:

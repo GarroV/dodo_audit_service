@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import requires_data, requires_db
+from conftest import requires_db
 
 pytest.importorskip("psycopg")
 
@@ -101,7 +101,6 @@ def test_история_точки_читается_одним_запросом_
 # --- проверка за периодом видна и за пределом первой страницы ----------------
 
 
-@requires_data
 @requires_db
 def test_старая_проверка_видна_даже_когда_свежих_больше_чем_читается_за_раз(
     domain_env: Path, db_env: str, monkeypatch: pytest.MonkeyPatch
@@ -124,7 +123,6 @@ def test_старая_проверка_видна_даже_когда_свежи
     assert "no inspections" not in ответ["status"].lower()
 
 
-@requires_data
 @requires_db
 def test_сводка_за_период_не_считается_по_свежей_странице(
     domain_env: Path, db_env: str, monkeypatch: pytest.MonkeyPatch
@@ -145,7 +143,6 @@ def test_сводка_за_период_не_считается_по_свеже�
 # --- «первая строка точки — её последняя проверка» ---------------------------
 
 
-@requires_data
 @requires_db
 def test_последняя_проверка_точки_в_сводке_это_самая_свежая_по_дате_обхода(
     domain_env: Path, db_env: str

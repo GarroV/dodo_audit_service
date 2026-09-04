@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import requires_data
 
 from src.domain import (
     SOURCE_COMMENT,
@@ -27,8 +26,6 @@ from src.domain import (
 )
 from src.domain.errors import DomainError, ValidationError
 from src.domain.state import DOMAIN_KEY, SOURCES_KEY, state_file
-
-pytestmark = requires_data
 
 CHAT = 65
 

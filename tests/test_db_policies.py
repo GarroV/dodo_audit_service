@@ -22,14 +22,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import APP_ROLE, requires_data, requires_db
+from conftest import APP_ROLE, requires_db
 
 psycopg = pytest.importorskip("psycopg")
 
 from src.db.push import push_inspection  # noqa: E402
 from src.domain import add_finding, attach_photo, start_inspection  # noqa: E402
 
-pytestmark = [requires_data, requires_db]
+pytestmark = requires_db
 
 
 def _завершённая(chat_id: int = 301) -> str:

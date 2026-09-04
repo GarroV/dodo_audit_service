@@ -21,7 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import requires_data, requires_db
+from conftest import requires_db
 
 pytest.importorskip("psycopg")
 
@@ -32,7 +32,7 @@ from src.domain import add_finding, score, start_inspection
 from src.mcp.errors import ToolError
 from src.mcp.tools import list_inspections, network_summary, unit_history
 
-pytestmark = [requires_data, requires_db]
+pytestmark = requires_db
 
 АРЕНДАТОР_А = "партнёр-а"
 АРЕНДАТОР_Б = "партнёр-б"

@@ -27,9 +27,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from conftest import ROOT, Run, requires_data, run_engine
-
-pytestmark = requires_data
+from conftest import ROOT, Run, run_engine
 
 MANAGE = ROOT / "engine" / "manage.py"
 
@@ -235,8 +233,10 @@ def шаблон_imf(path: Path) -> Path:
     ws = wb.active
     ws.title = "Template_CL"
     ws.append(["Process", "Question", "Days for fixing", "Hint", "Custom answer"])
-    ws.append(["Чистота", "Печь без загрязнений", 10, "D1: нагар", "Нет D1"])
-    ws.append(["Чистота", "Печь без загрязнений", 10, "D1: нагар", "Да"])
+    # Формулировка выдуманная (T146): боевая методика лежит вне git (D002), а
+    # проверяется здесь не она, а сохранение чужой колонки при импорте.
+    ws.append(["Порядок", "Учебный пункт про поверхность", 10, "D1: следы", "Нет D1"])
+    ws.append(["Порядок", "Учебный пункт про поверхность", 10, "D1: следы", "Да"])
     wb.save(path)
     return path
 
@@ -263,7 +263,8 @@ def test_импорт_с_явным_флагом_проходит(
     assert r.code == 0, r.text
     fields, rows = читать(чек_лист)
     assert fields == FIELDS, f"после явного сброса остались лишние колонки: {fields}"
-    assert [r["id"] for r in rows] == ["CCC01"], f"импорт собрал не то: {rows}"
+    # Код выводится импортом из имени процесса: «Порядок» → PPP01.
+    assert [r["id"] for r in rows] == ["PPP01"], f"импорт собрал не то: {rows}"
 
 
 def test_импорт_без_чужих_колонок_работает_как_раньше(

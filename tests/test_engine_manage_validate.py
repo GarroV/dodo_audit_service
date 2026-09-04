@@ -87,7 +87,9 @@ def test_боевая_методика_проходит_проверку(live_da
     стала строже, чем методика, либо в методику приехало то, чего движок не
     принимает. Остальные тесты файла идут по синтетической копии.
     """
-    r = run_engine(MANAGE, "validate", cwd=workdir, env_extra={"CHECKLIST_DIR": str(live_data_copy)})
+    r = run_engine(
+        MANAGE, "validate", cwd=workdir, env_extra={"CHECKLIST_DIR": str(live_data_copy)}
+    )
 
     assert r.code == 0, f"боевая методика забракована: {r.text}"
     assert "Всё в порядке" in r.out, r.text

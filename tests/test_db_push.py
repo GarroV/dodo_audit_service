@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import requires_data, requires_db
+from conftest import requires_db
 
 # `psycopg` — зависимость блока `db`, а не всего проекта: без этой строки сбор
 # этого файла падает целиком в окружении, где её ещё не поставили (см.
@@ -27,7 +27,7 @@ from src.domain import score as domain_score  # noqa: E402
 from src.domain.config import check_environment  # noqa: E402
 from src.domain.engine import state_file  # noqa: E402
 
-pytestmark = [requires_data, requires_db]
+pytestmark = requires_db
 
 
 def _начать(chat_id: int, unit: str = "Белград-1") -> None:

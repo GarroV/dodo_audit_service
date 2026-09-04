@@ -14,9 +14,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from conftest import Run, requires_data
-
-pytestmark = requires_data
+from conftest import Run
 
 # Кадров в альбоме телеграма бывает до десяти. Одиночная гонка ловится не
 # каждый раз — процессы стартуют вразнобой, — поэтому берём десять кадров и

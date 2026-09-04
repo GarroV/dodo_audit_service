@@ -20,7 +20,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from conftest import requires_data, requires_db
+from conftest import requires_db
 
 psycopg = pytest.importorskip("psycopg")
 
@@ -36,7 +36,7 @@ from src.domain import (  # noqa: E402
 )
 from src.domain import score as domain_score  # noqa: E402
 
-pytestmark = [requires_data, requires_db]
+pytestmark = requires_db
 
 АРЕНДАТОР = "партнёр-находки"
 

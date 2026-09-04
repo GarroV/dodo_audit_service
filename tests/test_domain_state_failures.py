@@ -18,12 +18,9 @@ import threading
 from pathlib import Path
 
 import pytest
-from conftest import requires_data
 
 from src.domain.errors import DomainError, ValidationError
 from src.domain.state import _clean_lang, _finding, _read_raw, _write_atomic, state_lock
-
-pytestmark = requires_data
 
 
 def test_блокировка_отказывает_а_не_ждёт_вечно(

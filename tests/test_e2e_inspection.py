@@ -29,7 +29,6 @@ from bot_harness import (
     text_message,
 )
 from bot_harness import callback_query as callback
-from conftest import requires_data
 
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
@@ -42,7 +41,7 @@ from src.bot.keyboards import (
 )
 from src.domain import get_state, score
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = pytest.mark.asyncio
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 

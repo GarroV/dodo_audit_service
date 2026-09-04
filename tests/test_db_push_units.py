@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import requires_data, requires_db
+from conftest import requires_db
 
 # `psycopg` — зависимость блока `db`, а не всего проекта: без этой строки сбор
 # файла падает целиком там, где её ещё не поставили (тот же приём и та же
@@ -26,7 +26,7 @@ from src.db.directory import upsert_unit  # noqa: E402 — после importorsk
 from src.db.push import push_inspection  # noqa: E402
 from src.domain import add_finding, start_inspection  # noqa: E402
 
-pytestmark = [requires_data, requires_db]
+pytestmark = requires_db
 
 ТОЧКА = "Белград 2"
 СИНОНИМ = "БГ2"

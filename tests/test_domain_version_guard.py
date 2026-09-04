@@ -24,7 +24,6 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import requires_data
 
 from src.domain import (
     add_finding,
@@ -37,8 +36,6 @@ from src.domain import (
 )
 from src.domain.errors import ChecklistVersionMismatch
 from src.domain.state import DOMAIN_KEY, HISTORY_KEY
-
-pytestmark = requires_data
 
 CHAT = 4148
 

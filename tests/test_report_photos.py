@@ -19,13 +19,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import Run, requires_data
+from conftest import Run
 
 from src.domain import add_finding, attach_photo, start_inspection
 from src.report import build_pdf
 from src.report.errors import PhotoMissing
-
-pytestmark = requires_data
 
 CHAT = 4002
 ОТМЕТКА = "Фотография не приложена"

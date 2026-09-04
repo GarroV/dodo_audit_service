@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 from bot_harness import AUDITOR_ID, CHAT_ID, feed, make_bot, photo_message, text_message
 from bot_harness import callback_query as callback
-from conftest import requires_data
 
 from src.bot import sidecar
 from src.bot.app import build_dispatcher
@@ -29,7 +28,7 @@ from src.bot.texts import t
 from src.domain import SOURCE_PHOTO, add_finding, attach_photo, score, start_inspection
 from src.report.errors import PdfNotBuilt, ReportError
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = pytest.mark.asyncio
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 

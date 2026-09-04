@@ -22,8 +22,8 @@ TEH04,violation,Техника,Equipment,(D1) Весы поверены и об�
 TEH05,violation,Техника,Equipment,(D1) Печь исправна: конвейер и вытяжка работают,(D1) The oven works: conveyor and hood are running,D1,hot_kitchen,14
 TEH06,violation,Техника,Equipment,(D1) Дверцы шкафов закрываются плотно,(D1) Cabinet doors shut tight,D1,"fridge,freezer,cold_kitchen,hot_kitchen",14
 TEH22,violation,Техника,Equipment,(D2) Розетки и провода не имеют видимых повреждений,(D2) Sockets and cables show no visible damage,D2,*,10
-FSB05,violation,Безопасность,Safety,"(D2, D3) Низкотемпературный шкаф держит заданный режим","(D2, D3) The low-temperature cabinet holds its set mode",D2;D3,freezer,10
-FSB17,violation,Безопасность,Safety,"(D1, D2, D3) Средства уборки хранятся отдельно от продукта","(D1, D2, D3) Cleaning supplies are stored away from food",D1;D2;D3,*,10
+FSB05,violation,Режимы хранения,Storage modes,"(D2, D3) Низкотемпературный шкаф держит заданный режим","(D2, D3) The low-temperature cabinet holds its set mode",D2;D3,freezer,10
+FSB17,violation,Режимы хранения,Storage modes,"(D1, D2, D3) Средства уборки хранятся отдельно от продукта","(D1, D2, D3) Cleaning supplies are stored away from food",D1;D2;D3,*,10
 CLN01,violation,Порядок,Tidiness,(D1) Пол участка вымыт и сухой,(D1) The station floor is washed and dry,D1,"hot_kitchen,cold_kitchen,dough,dishwashing",5
 CLN02,violation,Порядок,Tidiness,(D1) Раковина и смеситель без налёта,(D1) Sink and tap are free of scale,D1,dishwashing,7
 CLN03,violation,Порядок,Tidiness,(D1) Стены и потолок без подтёков,(D1) Walls and ceiling show no streaks,D1,"hot_kitchen,cold_kitchen,dough,dishwashing,dry_storage,staff,freezer,fridge",5

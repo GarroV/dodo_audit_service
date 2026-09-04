@@ -26,7 +26,6 @@ from pathlib import Path
 import pytest
 from bot_harness import AUDITOR_ID, CHAT_ID, feed, make_bot, text_message
 from bot_harness import callback_query as callback
-from conftest import requires_data
 
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
@@ -34,7 +33,7 @@ from src.bot.routers.start import UNIT_NAME_LIMIT
 from src.bot.texts import t
 from src.domain import get_state
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = pytest.mark.asyncio
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 

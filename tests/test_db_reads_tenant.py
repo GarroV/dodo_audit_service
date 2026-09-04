@@ -19,7 +19,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from conftest import requires_data, requires_db
+from conftest import requires_db
 
 psycopg = pytest.importorskip("psycopg")
 
@@ -33,7 +33,7 @@ from src.db.queries import (  # noqa: E402
 )
 from src.domain import add_finding, start_inspection  # noqa: E402
 
-pytestmark = [requires_data, requires_db]
+pytestmark = requires_db
 
 АРЕНДАТОР_А = "партнёр-а"
 АРЕНДАТОР_Б = "партнёр-б"

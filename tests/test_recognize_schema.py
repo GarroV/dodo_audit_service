@@ -10,15 +10,12 @@
 from __future__ import annotations
 
 import pytest
-from conftest import requires_data
 
 from src.domain import allowed_levels
 from src.recognize.errors import RecognizeConfigError
 from src.recognize.models import NONE_CODE, UNKNOWN_ZONE
 from src.recognize.schema import NONE_PICK, picks_for, response_schema, split_pick
 from src.recognize.shortlist import shortlist
-
-pytestmark = requires_data
 
 
 def test_на_каждый_допустимый_класс_своё_значение(domain_env: object) -> None:

@@ -21,9 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import Run, requires_data
-
-pytestmark = requires_data
+from conftest import Run
 
 
 def подменить_дату(workdir: Path, значение: object) -> None:

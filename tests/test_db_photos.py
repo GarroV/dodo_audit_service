@@ -20,7 +20,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from conftest import requires_data, requires_db
+from conftest import requires_db
 
 psycopg = pytest.importorskip("psycopg")
 boto3 = pytest.importorskip("boto3")
@@ -33,7 +33,7 @@ from src.db.push import push_inspection  # noqa: E402
 from src.db.storage import S3PhotoStorage, StorageSettings, object_key  # noqa: E402
 from src.domain import add_finding, attach_photo, start_inspection  # noqa: E402
 
-pytestmark = [requires_data, requires_db]
+pytestmark = requires_db
 
 ТОЧКА = "Белград-1"
 КОРЗИНА = "inspection-frames"

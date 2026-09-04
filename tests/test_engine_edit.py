@@ -10,9 +10,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from conftest import Run, requires_data
-
-pytestmark = requires_data
+from conftest import Run
 
 
 def state_of(workdir: Path) -> dict:

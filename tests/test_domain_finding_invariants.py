@@ -14,7 +14,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import requires_data
 
 from src.domain import (
     Finding,
@@ -27,8 +26,6 @@ from src.domain import (
     start_inspection,
 )
 from src.domain.errors import EngineError, InspectionNotStarted, ValidationError
-
-pytestmark = requires_data
 
 
 def начать(chat_id: int = 42, **kw: str) -> Inspection:

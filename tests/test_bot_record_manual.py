@@ -49,7 +49,6 @@ from bot_harness import (
     suggestion,
 )
 from bot_harness import callback_query as callback
-from conftest import requires_data
 
 from src.bot import sidecar
 from src.bot.app import build_dispatcher
@@ -60,7 +59,7 @@ from src.domain import get_state, start_inspection
 from src.recognize.errors import ModelUnavailable, RecognizeConfigError
 from src.recognize.manual import ManualCandidate
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = pytest.mark.asyncio
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 

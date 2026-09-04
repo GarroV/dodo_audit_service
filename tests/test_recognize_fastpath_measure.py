@@ -22,7 +22,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import ROOT, requires_data
+from conftest import ROOT, requires_data, requires_examples
 
 from src.recognize.fastpath import NO_COLUMN, NO_ZONE, WRONG_ZONE
 from tools import fastpath_measure as fpm
@@ -187,7 +187,9 @@ def test_отчёт_несёт_дату_и_отпечаток_карты(domain_
     assert "Как зовёт бот" in text
 
 
+@requires_examples
 def test_load_records_поднимает_боевые_записи() -> None:
+    """Записи поднимаются из боевых проверок `examples/` — потому и метка."""
     records = fpm.load_records(ROOT)
 
     assert len(records) == 17

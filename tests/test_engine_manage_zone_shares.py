@@ -26,9 +26,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import AUDIT, ROOT, Run, requires_data, run_engine
-
-pytestmark = requires_data
+from conftest import AUDIT, ROOT, Run, run_engine
 
 MANAGE = ROOT / "engine" / "manage.py"
 
