@@ -22,7 +22,6 @@ from bot_harness import (
     photo_message,
     text_message,
 )
-from conftest import requires_data
 
 from src import domain
 from src.bot.app import build_dispatcher
@@ -38,7 +37,7 @@ from src.bot.states import StartFlow
 from src.bot.texts import t
 from src.domain.errors import DomainError
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = pytest.mark.asyncio
 
 
 def settings() -> BotSettings:

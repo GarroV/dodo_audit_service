@@ -13,7 +13,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from conftest import requires_data
 
 from src.domain import (
     Inspection,
@@ -24,8 +23,6 @@ from src.domain import (
     start_inspection,
 )
 from src.domain.errors import DomainError, EngineError
-
-pytestmark = requires_data
 
 
 def начать(chat_id: int = 42, **kw: str) -> Inspection:

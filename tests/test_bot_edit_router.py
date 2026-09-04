@@ -22,7 +22,6 @@ from bot_harness import (
     photo_message,
     text_message,
 )
-from conftest import requires_data
 
 from src import domain
 from src.bot import sidecar
@@ -32,16 +31,16 @@ from src.bot.texts import t
 from src.bot.view import zone_title
 from src.domain.errors import EngineError
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = [pytest.mark.asyncio]
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 
-#: Название зоны «зал ресторана / касса» на русском (`data/zones.csv`) — тем же
+#: Название зоны `dining` на русском (`tests/methodology/zones.csv`) — тем же
 #: значением, что и код зоны в постановке задачи. Тест сравнивает с данными
 #: методики, а не с каталогом `t()`: названия зон в нём не заведены.
-DINING_TITLE_RU = "Зал ресторана / касса"
-#: Название зоны «холодильная камера» — там записи `PRD01` заводятся в тестах.
-FRIDGE_TITLE_RU = "Холодильная камера"
+DINING_TITLE_RU = "Гостевой зал"
+#: Название зоны `fridge` — там записи `PRD01` заводятся в тестах.
+FRIDGE_TITLE_RU = "Среднетемпературный шкаф"
 
 
 def _pct() -> str:

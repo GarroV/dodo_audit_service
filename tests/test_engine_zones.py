@@ -19,9 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import Run, requires_data
-
-pytestmark = requires_data
+from conftest import Run
 
 
 def переписать_доли(data_dir: Path, доли: dict[str, float]) -> float:

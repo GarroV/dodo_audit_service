@@ -25,9 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import Run, requires_data
-
-pytestmark = requires_data
+from conftest import Run
 
 
 def испортить_долю_зоны(data_dir: Path, code: str, значение: str) -> None:

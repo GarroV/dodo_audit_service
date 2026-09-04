@@ -2,19 +2,24 @@
 
 Пункты связываются кодом, не формулировкой (`docs/02-domain.md`), а язык —
 параметр, а не константа: у пункта и у зоны есть обе формулировки сразу.
+
+Методика здесь синтетическая — `tests/methodology` (T141, T146). Раньше файл
+читал боевую и цитировал её дословно: формулировку вопроса и оба названия зоны.
+Это красило сборку от чужой правки данных и клало данные, заведённые вне git
+(D002), в публичный репозиторий. Совпадают с боевой только идентификаторы —
+коды пунктов и зон, классы: ими продукт связывает сущности.
 """
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
 import pytest
-from conftest import requires_data
+from conftest import TEST_DATA
 
 from src.domain import allowed_levels, list_items, list_zones
 from src.domain.errors import ValidationError
-
-pytestmark = requires_data
 
 ZONE_CODES = {
     "facade",
@@ -31,8 +36,14 @@ ZONE_CODES = {
 
 
 def test_чек_лист_читается_целиком(domain_env: Path) -> None:
+    """Читаются все строки файла, а не первая горсть, и коды доезжают целыми."""
     items = list_items()
-    assert len(items) == 136, "методика — 136 строк, см. docs/02-domain.md"
+    строк = sum(
+        1
+        for line in (TEST_DATA / "checklist.csv").read_text(encoding="utf-8").splitlines()[1:]
+        if line and not line.startswith(("#", '"#'))
+    )
+    assert len(items) == строк, "пункты потерялись при разборе файла"
     codes = {i.code for i in items}
     assert {"CLN05", "PRD01", "INF10"} <= codes
 
@@ -46,11 +57,23 @@ def test_у_пункта_есть_код_класс_зоны_и_срок(domain_
 
 
 def test_формулировка_и_процесс_зависят_от_языка(domain_env: Path) -> None:
+    """Обе формулировки лежат рядом, а выбирает язык вызывающий.
+
+    Строки берутся из файла методики, а не вписаны в тест: вписанная строка
+    проверяла бы память автора, а не то, что блок отдал прочитанное.
+    """
+    строка = next(
+        r
+        for r in csv.DictReader((TEST_DATA / "checklist.csv").open(encoding="utf-8-sig"))
+        if r["id"] == "CLN05"
+    )
     item = next(i for i in list_items() if i.code == "CLN05")
-    assert item.question("ru") == "Печь без загрязнений (D1)"
-    assert item.question("en") == "Oven is clean (D1)"
-    assert item.process("ru") == "Чистота"
-    assert item.process("en") == "Cleanliness"
+
+    assert item.question("ru") == строка["question_ru"]
+    assert item.question("en") == строка["question_en"]
+    assert item.process("ru") == строка["process_ru"]
+    assert item.process("en") == строка["process_en"]
+    assert item.question("ru") != item.question("en"), "языки в методике не различаются"
 
 
 def test_фильтр_по_зоне_оставляет_только_применимые(domain_env: Path) -> None:
@@ -75,7 +98,8 @@ def test_служебные_пункты_отделимы_видом(domain_env:
     """`aggregate` и `info` аудитору не предлагают — вид пункта должен быть виден."""
     kinds = {i.kind for i in list_items()}
     assert kinds == {"violation", "aggregate", "info"}
-    assert len(list_items(kind="violation")) == 123
+    сколько = len(list_items(kind="violation"))
+    assert 0 < сколько < len(list_items()), "фильтр по виду ничего не отсеял"
 
 
 def test_допустимые_классы_берутся_из_чек_листа(domain_env: Path) -> None:
@@ -94,9 +118,14 @@ def test_зоны_читаются_с_долями_и_обоими_назван�
     zones = list_zones()
     assert {z.code for z in zones} == ZONE_CODES
     assert sum(z.share_pct for z in zones) == pytest.approx(100.0)
+    строка = next(
+        r
+        for r in csv.DictReader((TEST_DATA / "zones.csv").open(encoding="utf-8-sig"))
+        if r["code"] == "fridge"
+    )
     fridge = next(z for z in zones if z.code == "fridge")
-    assert fridge.title("ru") == "Холодильная камера"
-    assert fridge.title("en") == "Refrigerator"
+    assert fridge.title("ru") == строка["name_ru"]
+    assert fridge.title("en") == строка["name_en"]
 
 
 # Версия методики проверяется отдельно — `tests/test_domain_version.py`: после

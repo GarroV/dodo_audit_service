@@ -25,7 +25,6 @@ from typing import Any
 import pytest
 from bot_harness import AUDITOR_ID, CHAT_ID, feed, make_bot, photo_message
 from bot_harness import callback_query as callback
-from conftest import requires_data
 
 from src import domain
 from src.bot.app import build_dispatcher
@@ -33,7 +32,7 @@ from src.bot.config import BotSettings
 from src.bot.texts import t
 from src.bot.view import zone_title
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = [pytest.mark.asyncio]
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 
@@ -75,7 +74,7 @@ async def повторить_ту_же_фиксацию(lang: str = "ru") -> obj
     await feed(
         build_dispatcher(SETTINGS),
         bot,
-        photo_message("frame-2", caption="печь в горячем цеху в нагаре"),
+        photo_message("frame-2", caption="печь в нагаре, тепловой участок"),
     )
     return session
 
@@ -142,7 +141,7 @@ async def test_текст_движка_уходит_в_журнал_а_не_в_�
         await feed(
             build_dispatcher(SETTINGS),
             bot,
-            photo_message("frame-2", caption="печь в горячем цеху в нагаре"),
+            photo_message("frame-2", caption="печь в нагаре, тепловой участок"),
         )
 
     assert "audit.py" not in "\n".join(session.texts)

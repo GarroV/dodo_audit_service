@@ -19,7 +19,6 @@ from bot_harness import (
     make_bot,
     text_message,
 )
-from conftest import requires_data
 
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
@@ -32,7 +31,7 @@ from src.bot.keyboards import (
 )
 from src.domain import get_state, start_inspection
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = pytest.mark.asyncio
 
 
 def settings(names: dict[int, str] | None = None) -> BotSettings:

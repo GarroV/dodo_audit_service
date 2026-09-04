@@ -21,9 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import AUDIT, Run, requires_data, run_engine
-
-pytestmark = requires_data
+from conftest import AUDIT, Run, run_engine
 
 ENGINE = Path(os.environ.get("PROBE_ENGINE", str(AUDIT)))
 

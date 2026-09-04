@@ -12,13 +12,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import requires_data
 
 from src.domain import checklist_version, list_items, list_zones
 from src.domain.errors import ConfigError
 from src.domain.route import ROUTE_FILE
-
-pytestmark = requires_data
 
 
 @pytest.fixture

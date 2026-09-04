@@ -27,7 +27,7 @@ from .models import (
     ZoneScore,
 )
 from .scoring import score
-from .state import get_state, start_inspection
+from .state import get_state, start_inspection, sync_checklist_version
 
 __all__ = [
     "SOURCES",
@@ -52,4 +52,5 @@ __all__ = [
     "list_zones",
     "score",
     "start_inspection",
+    "sync_checklist_version",
 ]

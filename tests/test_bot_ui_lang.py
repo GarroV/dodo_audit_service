@@ -25,7 +25,6 @@ from typing import Any
 
 import pytest
 from bot_harness import AUDITOR_ID, CHAT_ID, callback_query, feed, make_bot, text_message
-from conftest import requires_data
 
 from src.bot.app import build_dispatcher
 from src.bot.config import UI_LANG_VAR, BotSettings, load_bot_settings
@@ -104,7 +103,6 @@ def test_known_language_starts_the_bot() -> None:
 
 
 @pytest.mark.asyncio
-@requires_data
 async def test_greeting_stays_russian_without_the_variable(domain_env: object) -> None:
     bot, session = make_bot()
     dp = build_dispatcher(settings())
@@ -116,7 +114,6 @@ async def test_greeting_stays_russian_without_the_variable(domain_env: object) -
 
 
 @pytest.mark.asyncio
-@requires_data
 async def test_greeting_and_its_button_speak_the_deployment_language(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -132,7 +129,6 @@ async def test_greeting_and_its_button_speak_the_deployment_language(
 
 
 @pytest.mark.asyncio
-@requires_data
 async def test_whole_start_wizard_speaks_the_deployment_language(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -154,7 +150,6 @@ async def test_whole_start_wizard_speaks_the_deployment_language(
 
 
 @pytest.mark.asyncio
-@requires_data
 async def test_resume_buttons_speak_the_language_of_the_inspection(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -182,7 +177,6 @@ async def test_resume_buttons_speak_the_language_of_the_inspection(
 
 
 @pytest.mark.asyncio
-@requires_data
 async def test_started_inspection_outranks_the_deployment_language(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -206,7 +200,6 @@ async def test_started_inspection_outranks_the_deployment_language(
 
 
 @pytest.mark.asyncio
-@requires_data
 async def test_kind_of_inspection_follows_the_report_language_not_the_interface(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -228,7 +221,6 @@ async def test_kind_of_inspection_follows_the_report_language_not_the_interface(
 
 
 @pytest.mark.asyncio
-@requires_data
 async def test_english_report_gets_an_english_kind_in_its_header(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:

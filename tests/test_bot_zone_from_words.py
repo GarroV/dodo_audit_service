@@ -29,14 +29,11 @@ from bot_harness import (
     stub_classify,
     suggestion,
 )
-from conftest import requires_data
 
 from src.bot import sidecar, zones
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.domain import get_state, start_inspection
-
-pytestmark = [requires_data]
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 
@@ -55,25 +52,32 @@ def начата() -> None:
         ("Полы в зале не убраны с утра", "dining"),
         ("касса грязная", "dining"),
         ("щель между оборудованием и стеной за кассовой стойкой", "dining"),
-        ("пол в горячем цеху грязный", "hot_kitchen"),
-        ("загрязнение рабочего стола в холодном цехе", "cold_kitchen"),
+        ("пол грязный, тепловой участок", "hot_kitchen"),
+        ("загрязнение рабочего стола, холодный участок", "cold_kitchen"),
         ("тестомес не накрыт", "dough"),
-        ("в тестомесильном цехе мусор", "dough"),
+        ("мусор в углу, мучной участок", "dough"),
         # Дословный пример владельца из ответа 03.09.2026: «мучной цех, на
         # дрожжах нет маркировки». Приёмка поймала, что разбор его не узнавал.
         ("мучной цех, на дрожжах нет маркировки", "dough"),
-        ("мойка в налёте", "dishwashing"),
-        ("в моповой не убрано", "dishwashing"),
-        ("на сухом складе коробки на полу", "dry_storage"),
-        ("в морозильной камере наледь", "freezer"),
+        ("налёт, посудный участок", "dishwashing"),
+        ("dish station is not cleaned", "dishwashing"),
+        ("на стеллаже хранения коробки на полу", "dry_storage"),
+        ("в низкотемпературном шкафу наледь", "freezer"),
         ("в морозилке наледь", "freezer"),
-        ("в холодильной камере коробки на полу", "fridge"),
-        ("пол в курьерской зоне в пыли", "staff"),
-        ("в зоне для персонала не убрано", "staff"),
-        ("фасад в подтёках", "facade"),
-        ("на прилегающей территории мусор", "facade"),
-        ("the freezer door does not close", "freezer"),
-        ("dirt on the floor in the hot kitchen", "hot_kitchen"),
+        ("в среднетемпературном шкафу коробки на полу", "fridge"),
+        ("пол в бытовом блоке в пыли", "staff"),
+        ("utility block is a mess", "staff"),
+        # Составное имя зоны («Бытовой блок / раздевалка») — два имени одного
+        # места, и произносят их по отдельности. Ветку разрезания имени
+        # (`_SPLIT` в `src/bot/zones.py`) стережёт именно эта пара случаев:
+        # без них зона с косой чертой в названии перестала бы узнаваться по
+        # второму имени молча.
+        ("в раздевалке не убрано", "staff"),
+        ("the changing room is a mess", "staff"),
+        ("внешний контур в подтёках", "facade"),
+        ("на внешнем контуре здания мусор", "facade"),
+        ("the low-temperature cabinet door does not close", "freezer"),
+        ("dirt on the floor in the heat station", "hot_kitchen"),
     ],
 )
 def test_зона_читается_из_слов_аудитора(domain_env: Path, слова: str, зона: str) -> None:
@@ -96,17 +100,18 @@ def test_слова_без_зоны_зоны_не_дают(domain_env: Path, с�
 
 def test_две_названные_зоны_не_выбираются_за_аудитора(domain_env: Path) -> None:
     """Названы обе — выбирать между ними системе нечем, и она не выбирает."""
-    assert zones.zone_from_words("из горячего цеха в холодный цех носят открытый продукт") is None
+    слова = "тепловой участок, холодный участок: открытый продукт носят между ними"
+    assert zones.zone_from_words(слова) is None
 
 
 def test_длинное_название_зоны_сильнее_короткого(domain_env: Path) -> None:
-    """«Морозильный шкаф» стоит в горячем цехе и морозильной камерой не является.
+    """«Морозильный шкаф» стоит на тепловом участке и низкотемпературным шкафом не является.
 
     Разбор идёт по названным целиком строкам, и более длинная выигрывает:
     иначе оборудование с похожим названием утащило бы запись в чужую зону.
     """
-    assert zones.zone_from_words("морозильный шкаф в горячем цеху") == "hot_kitchen"
-    assert zones.zone_from_words("течь под мойкой в горячем цеху") == "hot_kitchen"
+    assert zones.zone_from_words("морозильный шкаф, тепловой участок") == "hot_kitchen"
+    assert zones.zone_from_words("течь под мойкой, тепловой участок") == "hot_kitchen"
 
 
 def test_зоны_берутся_из_методики_а_не_из_списка_в_коде(domain_env: Path) -> None:
@@ -114,7 +119,7 @@ def test_зоны_берутся_из_методики_а_не_из_списка
     from src.domain import list_zones
 
     известные = {z.code for z in list_zones()}
-    for слова in ("в зале лужа", "мойка в налёте", "фасад в подтёках"):
+    for слова in ("в зале лужа", "посудный участок в налёте", "внешний контур в подтёках"):
         assert zones.zone_from_words(слова) in известные
 
 
@@ -125,10 +130,10 @@ def test_зоны_берутся_из_методики_а_не_из_списка
 async def test_запись_ложится_в_названную_словами_зону_а_не_в_запомненную(
     domain_env: Path,
 ) -> None:
-    """Тот самый случай из сверки: «в зале» после записи в горячем цехе.
+    """Тот самый случай из сверки: «в зале» после записи на тепловом участке.
 
-    Память говорит «горячий цех», слова — «зал». Побеждают слова: иначе вычет
-    уезжает в чужую зону отчёта партнёру, а бот при этом пишет «по вашим
+    Память говорит «тепловой участок», слова — «зал». Побеждают слова: иначе
+    вычет уезжает в чужую зону отчёта партнёру, а бот при этом пишет «по вашим
     словам».
     """
     начата()
@@ -138,7 +143,7 @@ async def test_запись_ложится_в_названную_словами_
     await feed(
         build_dispatcher(SETTINGS),
         bot,
-        photo_message("frame-1", caption="в зале лужа, скользкий пол, нет знака"),
+        photo_message("frame-1", caption="в зале урна переполнена"),
     )
 
     проверка = get_state(CHAT_ID)
@@ -201,7 +206,7 @@ async def test_запись_по_словам_называет_зону_дога
 
     запись = get_state(CHAT_ID)
     assert запись is not None and запись.findings, "быстрый путь не сработал — проверять нечего"
-    assert "Горячий цех" in session.last_text
+    assert "Тепловой участок" in session.last_text
     assert "не называли" in session.last_text, "зона из памяти выдана за слова аудитора"
 
 
@@ -217,7 +222,7 @@ async def test_названная_словами_зона_догадкой_не_
     await feed(
         build_dispatcher(SETTINGS),
         bot,
-        photo_message("frame-1", caption="печь в горячем цеху в нагаре"),
+        photo_message("frame-1", caption="печь в нагаре, тепловой участок"),
     )
 
     запись = get_state(CHAT_ID)

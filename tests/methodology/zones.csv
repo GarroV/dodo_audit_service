@@ -1,0 +1,11 @@
+code,name_ru,name_en,share_pct
+facade,Внешний контур,Outer perimeter,10.0
+dining,Гостевой зал,Guest hall,10.0
+dry_storage,Стеллаж хранения,Storage rack,10.0
+freezer,Низкотемпературный шкаф,Low-temperature cabinet,10.0
+fridge,Среднетемпературный шкаф,Mid-temperature cabinet,10.0
+hot_kitchen,Тепловой участок,Heat station,10.0
+cold_kitchen,Холодный участок,Cold station,10.0
+dough,Мучной участок,Flour station,10.0
+dishwashing,Посудный участок,Dish station,10.0
+staff,Бытовой блок / раздевалка,Utility block / changing room,10.0

@@ -30,7 +30,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import requires_data
 
 from src.domain import list_items
 from src.recognize.classify import classify
@@ -39,8 +38,6 @@ from src.recognize.cues import CUES_FILE, class_thresholds, load_cues
 from src.recognize.fastpath import NO_CUE, fast_path
 from src.recognize.manual import manual_candidates
 from src.recognize.shortlist import MANUAL_ONLY, shortlist
-
-pytestmark = requires_data
 
 
 @pytest.fixture
@@ -128,7 +125,14 @@ def test_без_карты_в_запрос_идёт_полный_зональн�
 
     assert итог.cue_hits == (), "подсказкам взяться неоткуда — карты нет"
     assert зональные <= set(итог.codes)
-    assert len(зональные) > 50, "проверка бессмысленна, если зональный перечень крошечный"
+    # Страховка от вырождения: если бы зоне досталась пара пунктов, включение
+    # «зональные <= коды» выполнялось бы само собой и ничего не стерегло. Порог
+    # выводится из методики, а не вписан числом: вписанное число — то самое,
+    # что ломалось от чужой правки данных (T141).
+    предлагаемые = {i.code for i in list_items() if i.kind == "violation"} - set(MANUAL_ONLY)
+    assert len(зональные) > len(предлагаемые) // 2, (
+        "перечень зоны выродился — проверка «карта не режет базу» стала бы пустой"
+    )
 
 
 def test_ручной_перечень_кнопками_без_карты_собирается(без_карты: Path) -> None:

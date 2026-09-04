@@ -28,7 +28,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from conftest import requires_data, requires_db
+from conftest import requires_db
 
 pytest.importorskip("psycopg")
 
@@ -38,7 +38,7 @@ from src.domain import add_finding, score, start_inspection
 from src.mcp.errors import ToolError
 from src.mcp.tools import findings_by_unit, get_inspection
 
-pytestmark = [requires_data, requires_db]
+pytestmark = requires_db
 
 АРЕНДАТОР_А = "партнёр-а"
 АРЕНДАТОР_Б = "партнёр-б"

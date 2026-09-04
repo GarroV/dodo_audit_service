@@ -17,9 +17,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import Run, requires_data
-
-pytestmark = requires_data
+from conftest import Run
 
 HAS_RENDERER = importlib.util.find_spec("weasyprint") is not None
 requires_renderer = pytest.mark.skipif(not HAS_RENDERER, reason="WeasyPrint не установлен")

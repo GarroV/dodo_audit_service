@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import requires_data, requires_db
+from conftest import requires_db
 
 from src.mcp.catalogue import KIND_CHECKLIST, TOOLS
 from src.mcp.config import MIN_TOKEN_LENGTH, Settings
@@ -193,7 +193,6 @@ def test_нечитаемая_длина_тела_это_отказ(сервер
 # --- арендатор берётся из токена ---------------------------------------------
 
 
-@requires_data
 @requires_db
 def test_один_и_тот_же_запрос_разными_токенами_даёт_разные_истории(
     сервер: str, domain_env: Path, db_env: str
@@ -214,7 +213,6 @@ def test_один_и_тот_же_запрос_разными_токенами_д
     assert свои_б["tenant"] == АРЕНДАТОР_Б
 
 
-@requires_data
 @requires_db
 def test_подсунутый_арендатор_это_отказ_а_не_тихо_проигнорированный_аргумент(
     сервер: str, domain_env: Path, db_env: str
@@ -235,7 +233,6 @@ def test_подсунутый_арендатор_это_отказ_а_не_ти�
     assert АРЕНДАТОР_Б not in json.dumps(ответ["error"].get("data", ""), ensure_ascii=False)
 
 
-@requires_data
 @requires_db
 def test_незнакомый_аргумент_это_отказ_а_не_выдача_без_фильтра(
     сервер: str, domain_env: Path, db_env: str

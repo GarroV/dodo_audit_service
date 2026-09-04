@@ -1,10 +1,10 @@
 """Заметки бота (`src/bot/sidecar.py`): присланные кадры и зона переживают перезапуск.
 
 Модуль — чистое хранилище JSON рядом с проверкой, без aiogram и без сети.
-Фикстура `domain_env` заводит боевую методику и временный `STATE_DIR`
+Фикстура `domain_env` заводит синтетическую методику и временный `STATE_DIR`
 (`tests/conftest.py`); `check_environment()` внутри `notes_path` читает
-методику, поэтому тесты помечены `requires_data` — на машине без неё (вне
-git, решение D002) они пропускаются, а не падают.
+методику, но это `tests/methodology` из git (T141), а не боевая вне его —
+поэтому тесты идут без `requires_data`.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import requires_data
 
 from src.bot.errors import BotNotesError
 from src.bot.sidecar import (
@@ -26,8 +25,6 @@ from src.bot.sidecar import (
     reset,
     unclaimed,
 )
-
-pytestmark = requires_data
 
 CHAT = 4101
 

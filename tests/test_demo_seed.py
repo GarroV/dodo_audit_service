@@ -253,7 +253,11 @@ def test_seed_report_content_is_english(seeded: dict[str, object]) -> None:
     chat = _dir(seeded, "demo_state") / DEMO_CHAT_DIR
     env = dict(os.environ)
     env["INSPECTION_FILE"] = str(chat / "inspection.json")
+    # Движку методику задаёт CHECKLIST_DIR (так её передаёт и `src/report/engine.py`).
+    # Одного AUDIT_DATA_DIR мало: без CHECKLIST_DIR отчёт собирался бы по боевой
+    # методике рядом со скриптом, и «в демо нет кириллицы» проходило бы случайно.
     env["AUDIT_DATA_DIR"] = str(DEMO_DATA)
+    env["CHECKLIST_DIR"] = str(DEMO_DATA)
     run = subprocess.run(  # noqa: S603 — аргументы собираем сами, ввода извне нет
         [sys.executable, str(ROOT / "engine" / "report.py"), "html"],
         cwd=str(chat),

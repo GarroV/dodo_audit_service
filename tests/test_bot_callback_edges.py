@@ -18,13 +18,12 @@ from __future__ import annotations
 
 import pytest
 from bot_harness import AUDITOR_ID, CHAT_ID, callback_query, feed, make_bot, text_message
-from conftest import requires_data
 
 from src import domain
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = pytest.mark.asyncio
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 

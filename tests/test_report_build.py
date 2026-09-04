@@ -11,14 +11,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import requires_data
 
 from src.domain import add_finding, start_inspection
 from src.domain.errors import InspectionNotStarted
 from src.report import build, build_letter, build_pdf
 from src.report.errors import PdfNotBuilt, ReportError
-
-pytestmark = requires_data
 
 CHAT = 4001
 

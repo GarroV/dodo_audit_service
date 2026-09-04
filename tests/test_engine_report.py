@@ -13,9 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import Run, requires_data
-
-pytestmark = requires_data
+from conftest import Run
 
 HAS_RENDERER = importlib.util.find_spec("weasyprint") is not None
 # Правдоподобный «прошлый отчёт»: заголовок настоящего PDF и достаточный размер.

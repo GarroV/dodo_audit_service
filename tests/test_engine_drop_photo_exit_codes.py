@@ -14,15 +14,24 @@ import subprocess
 import sys
 from pathlib import Path
 
+from conftest import TEST_DATA
+
 ENGINE = Path(__file__).resolve().parents[1] / "engine" / "audit.py"
 
 
 def _run(state: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    # Методика задаётся явно (T141). Без `CHECKLIST_DIR` движок берёт её из своей
+    # копии рядом со скриптом — то есть из боевого `data/`, которого на чужой
+    # машине нет, а у нас он меняется чужими руками.
     return subprocess.run(  # noqa: S603 — аргументы собираем сами, ввода извне тут нет
         [sys.executable, str(ENGINE), *args],
         capture_output=True,
         text=True,
-        env={"INSPECTION_FILE": str(state), "PATH": "/usr/bin:/bin"},
+        env={
+            "INSPECTION_FILE": str(state),
+            "CHECKLIST_DIR": str(TEST_DATA),
+            "PATH": "/usr/bin:/bin",
+        },
     )
 
 

@@ -28,7 +28,6 @@ from pathlib import Path
 import pytest
 from bot_harness import AUDITOR_ID, CHAT_ID, feed, make_bot, text_message
 from bot_harness import callback_query as callback
-from conftest import requires_data
 
 from src.bot import sidecar
 from src.bot.app import build_dispatcher
@@ -36,9 +35,9 @@ from src.bot.config import BotSettings
 from src.bot.texts import t
 from src.domain import add_finding, start_inspection
 
-#: Только `requires_data`: последний случай синхронный — он смотрит на файл
-#: заметок, а не на диалог, и метка asyncio на нём была бы неправдой.
-pytestmark = [requires_data]
+# Меток у модуля нет: последний случай синхронный — он смотрит на файл заметок,
+# а не на диалог, и метка asyncio на нём была бы неправдой. Боевая методика
+# файлу не нужна: он идёт по синтетической через `domain_env` (T141).
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 

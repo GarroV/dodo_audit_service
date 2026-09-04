@@ -19,7 +19,6 @@ import pytest
 from aiogram.types import ErrorEvent, Update
 from bot_harness import CHAT_ID, text_message
 from bot_harness import callback_query as callback
-from conftest import requires_data
 
 from src import domain
 from src.bot import refusal
@@ -30,8 +29,6 @@ from src.bot.view import zone_title
 from src.domain.config import check_environment
 from src.domain.engine import state_file
 from src.domain.errors import ValidationError
-
-pytestmark = requires_data
 
 
 def начата(lang: str = "ru") -> None:

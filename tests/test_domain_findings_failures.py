@@ -13,13 +13,10 @@
 from __future__ import annotations
 
 import pytest
-from conftest import requires_data
 
 from src.domain import add_finding, attach_photo, drop_finding, start_inspection
 from src.domain.errors import EngineError, ValidationError
 from src.domain.findings import _finding_after, _number
-
-pytestmark = requires_data
 
 CHAT = 793_000_777
 
