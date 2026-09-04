@@ -19,9 +19,11 @@ from .state import (
     check_confidence,
     forget_source,
     forget_suggestion,
+    forget_words,
     read_state,
     remember_source,
     remember_suggestion,
+    remember_words,
 )
 
 #: Номер записи в ответе движка: «#3 CLN05 D1 / hot_kitchen: …».
@@ -71,6 +73,7 @@ def add_finding(
     *,
     comment: str = "",
     source: str = "",
+    words: str = "",
     suggested: Suggestion | None = None,
 ) -> Finding:
     """Зафиксировать запись.
@@ -94,6 +97,12 @@ def add_finding(
 
     Пусто — система не предлагала ничего (запись заведена вручную). Это не то же
     самое, что «предложила ровно это»: там тройка заполнена и совпадает.
+
+    `words` — сырые слова аудитора, из которых эта запись выросла (задача T183).
+    Ставятся здесь и только здесь: слова живут у бота один момент — пока идёт
+    разбор материала, — а в текст записи они не попадают намеренно. Правка
+    записи их не трогает (`edit_finding`), и это то же правило, что у
+    предложения: разница между сказанным и записанным и есть весь сигнал.
     """
     settings = check_environment()
     # До вызова движка: иначе запись есть, а источник у неё неизвестно какой.
@@ -127,6 +136,7 @@ def add_finding(
     n = _number(out, "add")
     path = state_file(chat_id, settings)
     remember_source(path, n, source)
+    remember_words(path, n, words)
     remember_suggestion(path, n, suggested)
     return _finding_after(chat_id, settings, n, "add")
 
@@ -164,6 +174,9 @@ def drop_finding(chat_id: int, n: int) -> None:
     # Номер после удаления освобождается, и оставленное предложение досталось бы
     # следующей записи — то есть в базу уехало бы предложение к чужой записи.
     forget_suggestion(path, n)
+    # По той же причине снимаются и слова аудитора (T183): в выборке они
+    # выглядели бы речью человека о нарушении, которого он не описывал.
+    forget_words(path, n)
     state = read_state(chat_id, settings)
     if state is not None and state.finding(n) is not None:
         raise EngineError(

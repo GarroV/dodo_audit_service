@@ -177,16 +177,34 @@ async def _show_candidates(message: Message, proposal: Proposal, lang: str) -> N
 
 
 async def _show_manual_page(message: Message, proposal: Proposal, page: int, lang: str) -> None:
-    """Страница ручного перечня: 70+ пунктов зоны кнопками разом не показать."""
+    """Страница ручного перечня: 70+ пунктов зоны кнопками разом не показать.
+
+    Занятые пары «пункт + зона» помечаются здесь же (T173), но не на кнопке:
+    под формулировку там отведено 34 знака, и пометка съела бы ровно то, ради
+    чего аудитор перечень открыл. Она уходит в текст над клавиатурой — у
+    ручного перечня он до сих пор нёс только номер страницы, тогда как у
+    перечня модели там стоит сам список.
+
+    Пометка нужна тут по той же причине, что и в перечне модели: занятый пункт
+    попадает в перечень штатно (на кадре бывает второе нарушение), и
+    непомеченным он неотличим от остальных — нажатие даёт отказ по поводу, о
+    котором бот уже говорил.
+    """
     pages = max(1, ceil(len(proposal.manual) / MANUAL_PAGE_SIZE))
     page = max(0, min(page, pages - 1))
     start = page * MANUAL_PAGE_SIZE
-    titles = [
-        (start + shift, item.code, item.title)
-        for shift, item in enumerate(proposal.manual[start : start + MANUAL_PAGE_SIZE])
-    ]
+    shown = proposal.manual[start : start + MANUAL_PAGE_SIZE]
+    titles = [(start + shift, item.code, item.title) for shift, item in enumerate(shown)]
+    # Зона перечня — та, по которой он собран: пара, а не код. Тот же пункт в
+    # другой зоне законен, и пометить его значило бы отговаривать от верного.
+    taken = view.manual_taken_line(
+        [item.code for item in shown],
+        proposal.zone_hint,
+        lang,
+        refusal.occupied_pairs(message.chat.id),
+    )
     await message.answer(
-        t("record.manual_page", lang, page=page + 1, pages=pages),
+        t("record.manual_page", lang, page=page + 1, pages=pages) + taken,
         reply_markup=manual_keyboard(titles, page, pages, lang),
     )
 
@@ -292,6 +310,11 @@ async def _try_fast(
         file_ids=base.file_ids,
         source=base.source,
         lang=lang,
+        # Здесь слова аудитора СОВПАДАЮТ с текстом записи, и всё равно
+        # передаются своим полем: совпадение это свойство быстрого пути, а не
+        # правило. Полагаться на него значило бы читать выборку по-разному в
+        # зависимости от того, каким путём легла запись.
+        words=base.note,
         auto=item,
         zone_guessed=not base.zone_spoken,
         # Быстрый путь — это и есть тот список терминов, который владелец просил
@@ -389,6 +412,7 @@ async def _save(
     file_ids: Sequence[str],
     source: str,
     lang: str,
+    words: str = "",
     auto: FastItem | None = None,
     zone_guessed: bool = False,
     suggested: domain.Suggestion | None = None,
@@ -411,6 +435,15 @@ async def _save(
     печатает в отчёте партнёру, а сказанное вслух на точке для партнёра не
     предназначено. В отчёт идёт формулировка, собранная по правилам фиксации.
 
+    `words` — те самые сказанные слова, и хранятся они ОТДЕЛЬНО от текста записи
+    (T183). До этой задачи они не доживали нигде: `pending` держит их в памяти
+    процесса, а в запись они не попадали по причине абзацем выше — и разобрать,
+    почему система промахнулась, было не по чему. Словами считается весь
+    материал аудитора об этом кадре, каким он пришёл: подпись, отдельное
+    сообщение и расшифровка голоса приходят сюда одной строкой (`Proposal.note`),
+    и разделять их нечем — для разбора промаха важно то, на чём система приняла
+    решение. Пусто — аудитор не сказал ничего (разбор голого кадра).
+
     `suggested` — что система предложила ДО нажатия (D077, T181). Передаётся
     здесь и только здесь: это единственный момент, когда предложение и запись
     существуют одновременно. Предложения живут в `pending`, то есть в памяти
@@ -432,6 +465,7 @@ async def _save(
             zone,
             text,
             source=source,
+            words=words,
             suggested=suggested,
         )
     except DomainError as exc:
@@ -591,6 +625,10 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             file_ids=proposal.file_ids,
             source=proposal.source,
             lang=lang,
+            # Текстом записи стала формулировка МОДЕЛИ, а слова аудитора — те,
+            # что он сказал об этом кадре (T183). Разница между ними и есть то,
+            # по чему потом разбирают промах.
+            words=proposal.note,
             # Зона — догадка ровно тогда, когда её никто не называл, а модель
             # вернула ту самую, которую ей подсказали из памяти (T156). Своя
             # зона модели памятью не является: это её ответ, а не прошлая
@@ -627,6 +665,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             file_ids=proposal.file_ids,
             source=proposal.source,
             lang=lang,
+            words=proposal.note,
             # Зону назвал человек кнопкой, а в предложении остаётся ответ
             # модели — `UNKNOWN`. Подставить сюда выбранную зону значило бы
             # спрятать её отказ и превратить промах в попадание.
@@ -706,6 +745,9 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             file_ids=proposal.file_ids,
             source=proposal.source,
             lang=lang,
+            # Модель тут промолчала, и слова аудитора становятся ценнее, а не
+            # наоборот: по ним видно, чего в списке слов не хватило.
+            words=proposal.note,
             # Перечень собран по зоне из памяти, и человек выбрал в нём пункт,
             # а не зону: пометка нужна здесь ровно по тому же правилу (T156).
             # Назвал зону сам — кнопкой или словами — `zone_spoken` уже стоит.

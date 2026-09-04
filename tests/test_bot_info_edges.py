@@ -132,7 +132,7 @@ async def test_кадр_без_подписи_не_теряется(domain_env: 
     await дойти(dp, bot)
     await feed(dp, bot, photo_message("info-frame", message_id=808))
 
-    assert t("info.photo_only_text", "ru") == session.last_text
+    assert t("info.photo_taken", "ru") == session.last_text
     кадры = [frame.file_id for frame in sidecar.read(CHAT_ID).frames]
     assert "info-frame" in кадры, "кадр из информационной части потерялся"
 

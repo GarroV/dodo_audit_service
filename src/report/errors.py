@@ -30,7 +30,7 @@ class PhotoMissing(ReportError):
     нарушение без доказательства и справедливо его оспаривает.
     """
 
-    def __init__(self, message: str, *, misses: list[tuple[int, str]]) -> None:
+    def __init__(self, message: str, *, misses: list[tuple[int | str, str]]) -> None:
         super().__init__(message)
         self.message = message
         #: Пары «номер записи, ссылка на кадр» — бот называет аудитору записи.

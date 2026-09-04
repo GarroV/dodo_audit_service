@@ -223,7 +223,11 @@ async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: b
         await message.answer(t("material.no_inspection", lang))
         return
     await message.answer(t("finish.building", lang))
+    # Кадры записей и кадры информационной части (T179) — одним списком: карту
+    # «ссылка → файл» блок `report` строит по обоим, и кадр поля, не скачанный
+    # здесь, напечатался бы партнёру красной отметкой «фотография не приложена».
     refs = [ref for finding in inspection.findings for ref in finding.photos]
+    refs += [ref for field in inspection.info.values() for ref in field.photos]
     with tempfile.TemporaryDirectory(prefix="bot-report-") as tmp:
         # Кадры живут только на время сборки: своего хранилища фотографий у
         # продукта нет (`docs/06-mvp-bot.md`, технические требования), хватает
