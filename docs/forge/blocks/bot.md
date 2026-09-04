@@ -115,7 +115,12 @@ build_info_router() -> Router                     # T158: информацион
 start_info(message, state, chat_id, lang)         # зовётся из `finish.on_build`
 build_records_router() -> Router                  # T139: `/records`, показ записанного
 show_records(message, chat_id, lang)              # первая часть итога, общая с `/finish`
-build_finish_router() -> Router                   # T058, T068
+build_finish_router() -> Router                   # T058, T068, T167
+# T167: расхождение версии методики (`domain.ChecklistVersionMismatch`) в чате
+# называется ОБЕИМИ версиями и двумя кнопками — перевести проверку на
+# действующую методику (`domain.sync_checklist_version`, след остаётся в самой
+# проверке) или оставить как есть и вернуть прежнюю версию на диск. За аудитора
+# бот не выбирает: молчаливый подсчёт по новой методике запрещает D033
 archive(message, chat_id, photos, lang, *, allow_missing)   # слив завершённой в историю (T123)
 make_material_handler(pending) / make_waiting_handler(pending)
 

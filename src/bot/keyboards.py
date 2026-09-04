@@ -169,6 +169,10 @@ FINISH_BUILD_NO_PHOTOS_CALLBACK = "fin:nophoto"
 FINISH_EDIT_CALLBACK = "fin:edit"
 FINISH_RESUME_CALLBACK = "fin:resume"
 FINISH_PICK_PREFIX = "fin:pick:"
+#: Расхождение версии методики (T167). Две кнопки, потому что выходов два и оба
+#: за человеком: молча выбрать любой из них бот права не имеет.
+VERSION_SYNC_CALLBACK = "fin:ver:sync"
+VERSION_KEEP_CALLBACK = "fin:ver:keep"
 
 #: Информационная часть в конце проверки (T158, D069, D070). Пропуск есть у
 #: каждого поля — ни одно из них не обязательно; «дальше к отчёту» снимает
@@ -338,6 +342,20 @@ def finish_keyboard(lang: str, *, can_edit: bool) -> InlineKeyboardMarkup:
         builder.button(text=t("btn.edit", lang), callback_data=FINISH_EDIT_CALLBACK)
     builder.button(text=t("btn.build", lang), callback_data=FINISH_BUILD_CALLBACK)
     builder.button(text=t("btn.resume", lang), callback_data=FINISH_RESUME_CALLBACK)
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def version_mismatch_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Расхождение версии методики: перевести проверку или разбираться с методикой (T167).
+
+    Кнопки две, и ни одна не нажимается за аудитора: перевод меняет то, чем
+    проверка будет измеряться, а возврат прежней версии делается вообще не в
+    боте. Молчаливого третьего варианта — посчитать как-нибудь — нет.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("btn.version_sync", lang), callback_data=VERSION_SYNC_CALLBACK)
+    builder.button(text=t("btn.version_keep", lang), callback_data=VERSION_KEEP_CALLBACK)
     builder.adjust(1)
     return builder.as_markup()
 

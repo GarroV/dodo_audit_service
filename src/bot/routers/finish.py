@@ -35,6 +35,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from src import db, domain
+from src.domain.errors import ChecklistVersionMismatch, DomainError
 from src.report import PhotoMissing, ReportError, build_letter, build_pdf
 
 from .. import sidecar, view
@@ -46,9 +47,12 @@ from ..keyboards import (
     FINISH_EDIT_CALLBACK,
     FINISH_PICK_PREFIX,
     FINISH_RESUME_CALLBACK,
+    VERSION_KEEP_CALLBACK,
+    VERSION_SYNC_CALLBACK,
     edit_keyboard,
     finish_keyboard,
     pick_record_keyboard,
+    version_mismatch_keyboard,
     without_photos_keyboard,
 )
 from ..lang import chat_ui_lang
@@ -77,7 +81,19 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
         await message.answer(t("material.no_inspection", lang))
         return
     # Подпроцесс (26 мс) — в поток, чтобы бот не вставал на время расчёта (T101).
-    score = await asyncio.to_thread(domain.score, chat_id)
+    try:
+        score = await asyncio.to_thread(domain.score, chat_id)
+    except ChecklistVersionMismatch as exc:
+        # Методику переиздали, пока проверка шла (T148). Отказ блока подробен и
+        # верен, но написан тому, кто зовёт блок из кода: в чат он уезжал общим
+        # текстом последнего рубежа, из которого не видно ни версий, ни выхода
+        # (T167). Обе версии — человеку, оба выхода — кнопками, выбор — за ним.
+        logger.warning("расхождение версии методики в чате %s: %s", chat_id, exc)
+        await message.answer(
+            t("finish.version_mismatch", lang, recorded=exc.recorded, current=exc.current),
+            reply_markup=version_mismatch_keyboard(lang),
+        )
+        return
     await message.answer(
         t(
             "finish.summary",
@@ -257,6 +273,52 @@ def build_finish_router() -> Router:
     async def on_finish(message: Message) -> None:
         chat_id = message.chat.id
         await show_summary(message, chat_id, chat_ui_lang(chat_id))
+
+    @router.callback_query(F.data == VERSION_SYNC_CALLBACK)
+    async def on_version_sync(callback: CallbackQuery) -> None:
+        """Перевести проверку на действующую методику — по явному нажатию (T167).
+
+        Перевод меняет то, чем проверка будет измеряться, поэтому он и в блоке
+        `domain` сделан отдельным вызовом, а не поведением подсчёта. След
+        остаётся в самой проверке: отвечать «по какой методике это посчитали»
+        придётся тогда, когда логов стенда уже не будет.
+        """
+        await callback.answer()
+        here = chat_of(callback)
+        if here is None:
+            return
+        message, chat_id, lang = here
+        try:
+            # Подпроцесса тут нет, но есть чтение и запись файла проверки под
+            # блокировкой — в поток по той же причине, что и подсчёт (T101).
+            inspection = await asyncio.to_thread(domain.sync_checklist_version, chat_id)
+        except DomainError:
+            logger.exception("перевод проверки чата %s на действующую методику не удался", chat_id)
+            await message.answer(t("finish.version_sync_failed", lang))
+            return
+        await message.answer(t("finish.version_synced", lang, current=inspection.checklist_version))
+        # Тупик кончается там же, где начался: аудитор снова видит итог и кнопки
+        # завершения, а не остаётся с одним сообщением о переводе.
+        await show_summary(message, chat_id, lang)
+
+    @router.callback_query(F.data == VERSION_KEEP_CALLBACK)
+    async def on_version_keep(callback: CallbackQuery) -> None:
+        """Второй выход: вернуть прежнюю версию методики. Делается не в боте.
+
+        Бот тут ничего не переставляет — он говорит, в каком положении осталась
+        проверка и что она никуда не делась. Решение принято человеком, и
+        подталкивать его ко второму нажатию нечем.
+        """
+        await callback.answer()
+        here = chat_of(callback)
+        if here is None:
+            return
+        message, chat_id, lang = here
+        inspection = read_inspection(chat_id)
+        if inspection is None:
+            await message.answer(t("material.no_inspection", lang))
+            return
+        await message.answer(t("finish.version_kept", lang, recorded=inspection.checklist_version))
 
     @router.callback_query(F.data == FINISH_EDIT_CALLBACK)
     async def on_edit(callback: CallbackQuery) -> None:
