@@ -74,6 +74,32 @@ def occupied_by(
     return None
 
 
+def occupied_pairs(chat_id: int) -> dict[tuple[str, str], int]:
+    """Карта «пункт + зона» → номер занявшей записи (T137).
+
+    Одно чтение состояния на весь перечень предложений: `occupied_by` выше
+    отвечает про одну пару и в цикле по кандидатам читала бы файл заново на
+    каждого.
+
+    Состояние не читается — перечень всё равно надо показать, просто без
+    пометок: молчание вместо предложений было бы хуже непомеченного пункта.
+    """
+    try:
+        inspection = read_inspection(chat_id)
+    except DomainError:
+        logger.exception("состояние чата %s не читается при разметке предложений", chat_id)
+        return {}
+    if inspection is None:
+        return {}
+    # Первая занявшая, а не последняя: отказ движка приводит именно к ней
+    # (`occupied_by` идёт по списку сверху), и номера в пометке и в отказе
+    # обязаны совпасть — иначе аудитор пойдёт править не ту запись.
+    pairs: dict[tuple[str, str], int] = {}
+    for finding in inspection.findings:
+        pairs.setdefault((finding.code, finding.zone), finding.n)
+    return pairs
+
+
 def _refusal(
     chat_id: int,
     *,

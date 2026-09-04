@@ -66,27 +66,44 @@ def zone_title(code: str, lang: str, titles: Mapping[str, str] | None = None) ->
     return known.get(code, code)
 
 
-def candidate_lines(candidates: Sequence[Candidate], lang: str) -> str:
+def candidate_lines(
+    candidates: Sequence[Candidate],
+    lang: str,
+    taken: Mapping[tuple[str, str], int] | None = None,
+) -> str:
     """Пронумерованный список предложений: пункт, класс, зона, формулировка.
 
     Претензии проверки правил (`Candidate.flags`) не прячутся: формулировку с
     пометкой аудитор обязан прочитать глазами, а не подтвердить не глядя.
+
+    `taken` — карта уже занятых пар «пункт + зона» (`refusal.occupied_pairs`,
+    задача T137). Занятый пункт попадает сюда штатно: сверка со списком
+    нарушений упирается в отказ движка, и материал уходит модели, потому что на
+    кадре бывает второе нарушение. Непомеченным он выглядит как обычное
+    предложение — и нажатие даёт второй отказ подряд по тому же поводу, о
+    котором продукт только что сказал сам.
+
+    Пара, а не код: тот же пункт в другой зоне — законная и частая запись, и
+    пометить её значило бы отговаривать аудитора от верного действия.
     """
     titles = zone_titles(lang)
+    occupied = taken or {}
     lines = []
     for index, candidate in enumerate(candidates, start=1):
         key = "record.candidate_flagged" if candidate.flags else "record.candidate_line"
-        lines.append(
-            t(
-                key,
-                lang,
-                index=index,
-                code=candidate.code,
-                level=candidate.level,
-                zone=zone_title(candidate.zone, lang, titles),
-                wording=candidate.wording,
-            )
+        line = t(
+            key,
+            lang,
+            index=index,
+            code=candidate.code,
+            level=candidate.level,
+            zone=zone_title(candidate.zone, lang, titles),
+            wording=candidate.wording,
         )
+        n = occupied.get((candidate.code, candidate.zone))
+        if n is not None:
+            line += t("record.candidate_taken", lang, n=n)
+        lines.append(line)
     return "\n".join(lines)
 
 
