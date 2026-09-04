@@ -37,6 +37,7 @@ from src import db, domain
 from src.report import PhotoMissing, ReportError, build_letter, build_pdf
 
 from .. import sidecar, view
+from ..errors import BotNotesError
 from ..inspection import read_inspection
 from ..keyboards import (
     FINISH_BUILD_CALLBACK,
@@ -230,6 +231,16 @@ async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: b
             return
 
         await message.answer_document(FSInputFile(pdf))
+        # Отчёт у аудитора — с этой секунды проверка сдана (T153). Отмечается
+        # именно отдача документа, а не нажатие кнопки: несобравшийся отчёт
+        # сданной проверку не делает.
+        try:
+            sidecar.mark_handed_over(chat_id, len(inspection.findings))
+        except BotNotesError:
+            # Отчёт уже у человека, письмо и слив в историю впереди — уронить
+            # их из-за незаписанной заметки было бы хуже самой заметки. Цена
+            # известна и названа: `/start` снова назовёт проверку незавершённой.
+            logger.exception("отметка о сдаче проверки чата %s не записалась", chat_id)
         try:
             letter = await asyncio.to_thread(build_letter, chat_id)
         except ReportError:

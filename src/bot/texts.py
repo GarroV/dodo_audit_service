@@ -142,6 +142,31 @@ TEXTS: dict[str, dict[str, str]] = {
             "Continue it or start a new one? A new one erases this."
         ),
     },
+    # Та же развилка, но по сданной проверке (T153). Прежняя фраза утверждала
+    # о ней две неправды разом: что она незавершённая и что новая её сотрёт.
+    # Признака «завершена» у движка нет, и выдумывать его бот не вправе — зато
+    # он помнит, что сам собрал и отдал отчёт, и говорит ровно это.
+    "start.resume_handed_over": {
+        "ru": (
+            "Проверка в этом чате уже сдана: отчёт по ней собран и отправлен.\n"
+            "Пиццерия: {unit}\n"
+            "Дата: {date}\n"
+            "Проверяющий: {auditor}\n"
+            "Записей: {findings}\n\n"
+            "Продолжить её — можно дописать и собрать отчёт заново. "
+            "Новая начнётся с чистого листа."
+        ),
+        "en": (
+            "The inspection in this chat is already handed over: its report was built "
+            "and sent.\n"
+            "Pizzeria: {unit}\n"
+            "Date: {date}\n"
+            "Auditor: {auditor}\n"
+            "Records: {findings}\n\n"
+            "Continue it — you can add more and rebuild the report. "
+            "A new one starts from a clean slate."
+        ),
+    },
     "start.resumed": {
         "ru": "Продолжаем: {unit}, {date}. Записей: {findings}.",
         "en": "Continuing: {unit}, {date}. Records: {findings}.",

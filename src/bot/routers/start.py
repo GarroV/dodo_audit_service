@@ -60,10 +60,24 @@ UNIT_NAME_LIMIT = 60
 
 
 async def _offer_resume(message: Message, inspection: domain.Inspection, lang: str) -> None:
-    """Показать незавершённую проверку и дать выбор — продолжить или начать новую."""
+    """Показать оставшуюся в чате проверку и дать выбор — продолжить или начать новую.
+
+    Фраз две, и разница между ними не косметическая (T153). Проверке в работе
+    правда, что она незавершённая и что новая её сотрёт. Проверке, по которой
+    отчёт уже собран и отдан, — неправда и то и другое, а звучала эта неправда
+    в начале каждой второй проверки за день.
+
+    Признака «завершена» у движка нет, и бот его не выдумывает: он опирается на
+    то, что сделал сам, — отдал ли он по этой проверке отчёт (`sidecar`).
+    """
+    ключ = (
+        "start.resume_handed_over"
+        if sidecar.handed_over(message.chat.id, len(inspection.findings))
+        else "start.resume_found"
+    )
     await message.answer(
         t(
-            "start.resume_found",
+            ключ,
             lang,
             unit=inspection.unit,
             date=inspection.date,
