@@ -1,0 +1,77 @@
+{
+  "_comment": "Набор иллюстративный. Собран для прогона тестов и НЕ описывает методику управляющей компании: формулировки, названия зон, критерии и подсказки здесь выдуманы. Совпадают только идентификаторы — ими связаны сущности продукта (`CLAUDE.md`).",
+  "_comment_en": "Illustrative fixture for the test suite. It does NOT describe any real audit methodology: wordings, zone names, criteria and photo cues are invented.",
+  "start_pct": 100.0,
+  "penalty": {
+    "D1": 0.5,
+    "D2": 2.0
+  },
+  "d3": {
+    "mode": "zero_zone_share",
+    "skip_other_violations_in_d3_zone": true
+  },
+  "cap_zone_loss_at_share": false,
+  "floor_pct": 0.0,
+  "grades": {
+    "_logic": "Проверяется строго в этом порядке, первое совпадение выигрывает.",
+    "rules": [
+      {
+        "grade": "D",
+        "if": {
+          "min_d3": 1
+        },
+        "label_ru": "Критично",
+        "label_en": "Critical"
+      },
+      {
+        "grade": "C",
+        "if": {
+          "min_d2": 2
+        },
+        "label_ru": "Ниже нормы",
+        "label_en": "Below"
+      },
+      {
+        "grade": "C",
+        "if": {
+          "pct_below": 90.0
+        },
+        "label_ru": "Ниже нормы",
+        "label_en": "Below"
+      },
+      {
+        "grade": "A",
+        "if": {
+          "pct_at_least": 95.0,
+          "max_d2": 0
+        },
+        "label_ru": "Норма",
+        "label_en": "Pass"
+      },
+      {
+        "grade": "B",
+        "if": {
+          "pct_at_least": 90.0,
+          "max_d2": 1
+        },
+        "label_ru": "Отклонения",
+        "label_en": "Deviations"
+      }
+    ],
+    "fallback": {
+      "grade": "C",
+      "label_ru": "Ниже нормы",
+      "label_en": "Below"
+    }
+  },
+  "deadlines": {
+    "max_days": {
+      "D1": 14,
+      "D2": 10,
+      "D3": 0
+    },
+    "d3_note_ru": "немедленно",
+    "d3_note_en": "immediately"
+  },
+  "plan_due_days": 10
+}

@@ -1,0 +1,14 @@
+entity,code,order
+# Набор иллюстративный. Собран для прогона тестов и НЕ описывает методику управляющей компании: формулировки, названия зон, критерии и подсказки здесь выдуманы. Совпадают только идентификаторы — ими связаны сущности продукта (`CLAUDE.md`).
+# Illustrative fixture for the test suite. It does NOT describe any real audit methodology: wordings, zone names, criteria and photo cues are invented.
+# Шаг 10 оставлен, чтобы вставить зону между соседними без перенумерации.
+zone,facade,10
+zone,dining,20
+zone,dry_storage,30
+zone,freezer,40
+zone,fridge,50
+zone,hot_kitchen,60
+zone,cold_kitchen,70
+zone,dough,80
+zone,dishwashing,90
+zone,staff,100

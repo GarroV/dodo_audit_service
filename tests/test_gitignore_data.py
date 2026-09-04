@@ -51,10 +51,12 @@ def repo(tmp_path: Path) -> Path:
     """
     repo = tmp_path / "repo"
     (repo / "demo" / "data").mkdir(parents=True)
+    (repo / "tests" / "methodology").mkdir(parents=True)
     (repo / "examples" / "belgrade-1").mkdir(parents=True)
     (repo / "elsewhere").mkdir()
     shutil.copy(GITIGNORE, repo / ".gitignore")
     (repo / "demo" / "data" / "checklist.csv").write_text("id,q\n", encoding="utf-8")
+    (repo / "tests" / "methodology" / "checklist.csv").write_text("id,q\n", encoding="utf-8")
     (repo / "examples" / "belgrade-1" / "inspection.json").write_text("{}", encoding="utf-8")
     (repo / "elsewhere" / "checklist.csv").write_text("боевая методика\n", encoding="utf-8")
     _git(repo, "init", "-q", ".")
@@ -96,4 +98,18 @@ def test_демо_набор_в_репозитории(repo: Path) -> None:
     assert not _ignored(repo, "demo/data/checklist.csv"), (
         "demo/data закрыт правилом — синтетический набор снова не попадёт в репозиторий, "
         "и make demo не заработает ни у кого, кроме автора"
+    )
+
+
+def test_учебная_методика_тестов_в_репозитории(repo: Path) -> None:
+    """Тот же T074, но для `tests/methodology`: без неё не соберётся весь набор.
+
+    Она названа как боевая (`checklist.csv`, `zones.csv`, `scoring.json`) и
+    потому подходит под любое правило, писанное «по имени файла методики».
+    Съеденная таким правилом, она исчезла бы молча: у автора набор зелёный,
+    у всех остальных не собирается ни один тест блока `domain`.
+    """
+    assert not _ignored(repo, "tests/methodology/checklist.csv"), (
+        "tests/methodology закрыт правилом — синтетическая методика не попадёт в "
+        "репозиторий, и набор тестов не соберётся ни у кого, кроме автора"
     )

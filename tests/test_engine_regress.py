@@ -2,6 +2,10 @@
 
 То же, что делает `make regress`, но внутри `make check` — чтобы расхождение
 ловилось обычным прогоном тестов, а не только отдельной командой.
+
+Методика здесь БОЕВАЯ и передаётся явно (`data_dir=DATA`): в этом весь смысл
+якоря. На синтетическом наборе он сошёлся бы по совпадению ставок и долей и
+перестал бы что-либо стеречь (T141).
 """
 
 from __future__ import annotations
@@ -9,7 +13,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from conftest import AUDIT, EXAMPLES, requires_data, requires_examples, run_engine
+from conftest import AUDIT, DATA, EXAMPLES, requires_data, requires_examples, run_engine
 
 pytestmark = [requires_data, requires_examples]
 
@@ -24,7 +28,7 @@ def test_боевая_проверка_считается_как_прежде(
     name: str, pct: float, grade: str, counts: dict[str, int]
 ) -> None:
     d = EXAMPLES / name
-    r = run_engine(AUDIT, "score", "--json", cwd=d, state=d / "inspection.json")
+    r = run_engine(AUDIT, "score", "--json", cwd=d, state=d / "inspection.json", data_dir=DATA)
     assert r.code == 0, r.text
     res = json.loads(r.out)
     assert res["pct"] == pct, f"{name}: процент разошёлся — это регрессия, а не уточнение"

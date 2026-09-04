@@ -21,14 +21,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import requires_data
 
 from src.recognize.classify import classify, needs_photo
 from src.recognize.client import ModelAnswer
 from src.recognize.models import UNKNOWN_ZONE
 from src.recognize.shortlist import shortlist
-
-pytestmark = requires_data
 
 
 class _Recorder:
@@ -65,7 +62,7 @@ def test_несколько_подсказок_требуют_кадр(domain_en
 
 
 def test_одна_подсказка_с_единственным_классом_кадр_не_нужен(domain_env: Path) -> None:
-    # CLN05 — «Печь без загрязнений (D1)», единственный допустимый класс
+    # CLN05 — единственный допустимый класс методики (tests/methodology/checklist.csv)
     assert needs_photo("печь грязная", ("CLN05",)) is False
 
 
@@ -387,12 +384,12 @@ def test_однозначный_комментарий_с_кадром_кадр_
 ) -> None:
     # Arrange: карта кадров подняла один код с одним классом — кадру
     # нечего добавить (`needs_photo` — экономия токенов, см. classify.py).
-    # «нет одноразовых халатов» → ровно CLN24, у него единственный класс D1.
+    # «короб с мукой не закрыт» → ровно PRD12, у него единственный класс D1.
     recorder = _Recorder(
         {
             "records": [
                 {
-                    "item": "CLN24:D1",
+                    "item": "PRD12:D1",
                     "zone": "hot_kitchen",
                     "wording": "x",
                     "reason": "",
@@ -403,10 +400,10 @@ def test_однозначный_комментарий_с_кадром_кадр_
         }
     )
     _patch(monkeypatch, recorder)
-    assert shortlist("нет одноразовых халатов", "hot_kitchen").cue_hits == ("CLN24",)
+    assert shortlist("короб с мукой не закрыт", "hot_kitchen").cue_hits == ("PRD12",)
 
     # Act
-    s = classify("нет одноразовых халатов", photo=b"jpeg-bytes", zone_hint="hot_kitchen")
+    s = classify("короб с мукой не закрыт", photo=b"jpeg-bytes", zone_hint="hot_kitchen")
 
     # Assert
     assert s.used_photo is False

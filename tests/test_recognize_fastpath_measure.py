@@ -28,15 +28,13 @@ from src.recognize.fastpath import NO_COLUMN, NO_ZONE, WRONG_ZONE
 from tools import fastpath_measure as fpm
 from tools.fastpath_measure import FROM_MEMORY, FROM_NOWHERE, FROM_WORDS, Mode, Record
 
-pytestmark = requires_data
-
 #: «Печь» — строка карты, произнесённая целиком, «нагар» выбирает колонку
 #: «Грязь». Зоны в этих словах нет: их у бота придётся брать из памяти.
 OVEN = "Печь: под лентой нагар"
 #: Те же слова, но зону аудитор назвал сам.
-OVEN_WITH_ZONE = "Горячий цех: печь, под лентой нагар"
+OVEN_WITH_ZONE = "Тепловой участок: печь, под лентой нагар"
 #: Зона названа («в зале»), строка карты произнесена, колонка выбрана «крошками».
-FURNITURE = "Мебель в зале: крошки на столах"
+FURNITURE = "Мебель участка в зале: крошки на столах"
 
 
 def test_замер_не_подставляет_эталонную_зону_которой_у_бота_нет(domain_env: Path) -> None:
@@ -63,17 +61,17 @@ def test_память_проверки_может_подставить_чужу�
 
     Первая запись сделана в зале, вторая — про печь, но зону аудитор не назвал.
     Бот подставит зал, и `CLN05` к залу не применим: законный отказ. Замер с
-    эталонной зоной этого не видел вовсе — он подставлял горячий цех и
+    эталонной зоной этого не видел вовсе — он подставлял тепловой участок и
     рапортовал срабатывание, которого на точке не будет.
     """
     records = (
-        Record(code="CLN13", zone="dining", note=FURNITURE, source="synthetic"),
+        Record(code="CLN06", zone="dining", note=FURNITURE, source="synthetic"),
         Record(code="CLN05", zone="hot_kitchen", note=OVEN, source="synthetic"),
     )
 
     first, second = fpm.measure(records)
 
-    assert first.fired == "CLN13"
+    assert first.fired == "CLN06"
     assert first.hint.source == FROM_WORDS
     assert second.fired is None
     assert second.reason == WRONG_ZONE
@@ -84,7 +82,7 @@ def test_память_проверки_может_подставить_чужу�
 def test_слова_комментария_сильнее_памяти(domain_env: Path) -> None:
     """Порядок бота: `spoken or memory`, а не наоборот (T124)."""
     records = (
-        Record(code="CLN13", zone="dining", note=FURNITURE, source="synthetic"),
+        Record(code="CLN06", zone="dining", note=FURNITURE, source="synthetic"),
         Record(code="CLN05", zone="hot_kitchen", note=OVEN_WITH_ZONE, source="synthetic"),
     )
 
@@ -99,7 +97,7 @@ def test_слова_комментария_сильнее_памяти(domain_en
 def test_память_не_переходит_из_одной_проверки_в_другую(domain_env: Path) -> None:
     """У каждой проверки свой чат и свои заметки: зона предыдущей сюда не течёт."""
     records = (
-        Record(code="CLN13", zone="dining", note=FURNITURE, source="belgrade-1"),
+        Record(code="CLN06", zone="dining", note=FURNITURE, source="belgrade-1"),
         Record(code="CLN05", zone="hot_kitchen", note=OVEN, source="belgrade-2"),
     )
 
@@ -140,7 +138,7 @@ def test_эталонная_зона_считается_отдельно_как_
 def test_доля_и_счёт_неверных_считаются_по_способу(domain_env: Path) -> None:
     """`Mode` отвечает за арифметику отчёта: срабатывания, доля, неверные."""
     records = (
-        Record(code="CLN13", zone="dining", note=FURNITURE, source="synthetic"),
+        Record(code="CLN06", zone="dining", note=FURNITURE, source="synthetic"),
         Record(code="TEH05", zone="hot_kitchen", note=OVEN_WITH_ZONE, source="synthetic"),
         Record(code="CLN05", zone="hot_kitchen", note=OVEN, source="belgrade-2"),
     )
@@ -179,7 +177,7 @@ def test_без_боевых_данных_код_возврата_2(
 
 def test_отчёт_несёт_дату_и_отпечаток_карты(domain_env: Path) -> None:
     """Число замера без версии карты через неделю нечем проверить (D066)."""
-    records = (Record(code="CLN13", zone="dining", note=FURNITURE, source="synthetic"),)
+    records = (Record(code="CLN06", zone="dining", note=FURNITURE, source="synthetic"),)
 
     text = fpm.render(fpm.modes(records))
 
@@ -199,8 +197,18 @@ def test_load_records_поднимает_боевые_записи() -> None:
         assert record.note
 
 
-def test_живой_замер_на_боевых_данных_зелёный(domain_env: Path) -> None:
-    """Ни одного неверного срабатывания на боевых данных — регрессионный якорь T113."""
+@requires_data
+def test_живой_замер_на_боевых_данных_зелёный(live_data_env: Path) -> None:
+    """Ни одного неверного срабатывания на боевых данных — регрессионный якорь T113.
+
+    Этому тесту нужна именно боевая методика (`data/`), а не синтетическая
+    (T141/T146): он гоняет `fast_path` по боевым записям
+    `examples/*/inspection.json`, и коды с зонами в них — боевые. На
+    синтетической методике (`tests/methodology`) те же записи не найдут ни
+    одного знакомого пункта — коды, формулировки и названия зон там выдуманы
+    и с боевыми записями не совпадают, поэтому регрессионным якорем T113 тут
+    служить не может.
+    """
     rc = fpm.main(["--root", str(ROOT)])
 
     assert rc == 0

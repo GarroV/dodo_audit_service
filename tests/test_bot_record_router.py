@@ -37,7 +37,6 @@ from bot_harness import (
     voice_message,
 )
 from bot_harness import callback_query as callback
-from conftest import requires_data
 
 from src.bot import sidecar
 from src.bot.app import build_dispatcher
@@ -52,7 +51,7 @@ from src.domain.errors import EngineError
 from src.recognize.errors import ModelUnavailable
 from src.recognize.models import UNKNOWN_ZONE
 
-pytestmark = [pytest.mark.asyncio, requires_data]
+pytestmark = [pytest.mark.asyncio]
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
 
@@ -161,7 +160,7 @@ async def test_confirmation_records_and_answers_with_one_line(
     assert len(saved) == 1
     line = session.texts[0]
     assert line.count("\n") == 0, "подтверждение обязано быть одной строкой, без таблицы"
-    for part in ("#1", "CLN05", "D1", "Горячий цех", f"{score(CHAT_ID).pct:.1f}%"):
+    for part in ("#1", "CLN05", "D1", "Тепловой участок", f"{score(CHAT_ID).pct:.1f}%"):
         assert part in line
 
 

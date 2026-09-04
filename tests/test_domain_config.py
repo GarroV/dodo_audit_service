@@ -15,12 +15,10 @@ import shutil
 from pathlib import Path
 
 import pytest
-from conftest import DATA, requires_data
+from conftest import DATA, TEST_DATA, requires_data
 
 from src.domain import add_finding, check_environment, list_items, start_inspection
 from src.domain.errors import ConfigError
-
-pytestmark = requires_data
 
 
 def подложить_правдоподобные_каталоги(tmp_path: Path) -> None:
@@ -30,7 +28,7 @@ def подложить_правдоподобные_каталоги(tmp_path: P
     путём по умолчанию: та тоже падает, просто по другой причине. Проверено
     порчей — подстановка `./data` теста не уронила.
     """
-    shutil.copytree(DATA, tmp_path / "data")
+    shutil.copytree(TEST_DATA, tmp_path / "data")
     (tmp_path / ".state").mkdir()
 
 
@@ -53,7 +51,7 @@ def test_без_переменной_каталога_состояния_пад�
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     подложить_правдоподобные_каталоги(tmp_path)
-    monkeypatch.setenv("AUDIT_DATA_DIR", str(DATA))
+    monkeypatch.setenv("AUDIT_DATA_DIR", str(TEST_DATA))
     monkeypatch.delenv("STATE_DIR", raising=False)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ConfigError) as e:
@@ -131,8 +129,21 @@ def test_чтение_чек_листа_без_настроенного_окру
         list_items()
 
 
-def test_боевой_каталог_методики_проходит_проверку(domain_env: Path) -> None:
+def test_каталог_методики_проходит_проверку(domain_env: Path) -> None:
     settings = check_environment()
-    assert settings.data_dir == DATA
+    assert settings.data_dir == TEST_DATA
     assert settings.state_dir == domain_env
     assert settings.audit_script.is_file(), "движок не найден по пути, который блок будет звать"
+
+
+@requires_data
+def test_боевой_каталог_методики_проходит_проверку(live_data_env: Path) -> None:
+    """Отдельно и намеренно на БОЕВОЙ методике (T141): это про неё, а не про продукт.
+
+    Смысл — «каталог управляющей компании полон настолько, что продукт на нём
+    поднимется». Синтетический набор такого не проверяет: он собран нами и
+    полон по построению, а неполнота боевого — отказ на старте у аудитора.
+    """
+    settings = check_environment()
+    assert settings.data_dir == DATA
+    assert settings.state_dir == live_data_env

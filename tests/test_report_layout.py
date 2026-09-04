@@ -11,15 +11,14 @@
 
 from __future__ import annotations
 
+import csv
 import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import ROOT, Run, requires_data
-
-pytestmark = requires_data
+from conftest import ROOT, TEST_DATA, Run
 
 ШРИФТЫ = ROOT / "engine" / "assets" / "fonts"
 
@@ -76,7 +75,15 @@ def test_кириллица_в_pdf_читается(
     assert r.code == 0, r.text
     текст = текст_pdf(workdir / "отчёт.pdf")
     assert "Отчёт о проверке пиццерии" in текст, "заголовок из PDF не читается как кириллица"
-    assert "Горячий цех" in текст, "название зоны из PDF не читается"
+    # Название зоны берётся из методики, а не вписано сюда (T146): вписанное
+    # означало бы копию данных управляющей компании в публичном репозитории, а
+    # проверяется здесь не оно, а то, что кириллица вышла буквами.
+    зона = next(
+        r["name_ru"]
+        for r in csv.DictReader((TEST_DATA / "zones.csv").open(encoding="utf-8-sig"))
+        if r["code"] == "hot_kitchen"
+    )
+    assert зона in текст, "название зоны из PDF не читается"
 
 
 # --- нумерация страниц -------------------------------------------------------

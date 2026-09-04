@@ -1,0 +1,44 @@
+id,kind,process_ru,process_en,question_ru,question_en,levels,zones,days
+PRD01,violation,Заготовки,Prep items,"(D1, D2) Заготовка размечена ярлыком образца А","(D1, D2) Prep item carries a sample-A tag",D1;D2,"fridge,cold_kitchen,hot_kitchen",10
+PRD02,violation,Заготовки,Prep items,(D2) Заготовки разных партий стоят в разной таре,(D2) Batches of different runs stand in separate tubs,D2,"cold_kitchen,fridge,hot_kitchen,dough",10
+PRD03,violation,Заготовки,Prep items,"(D1, D2) Витрина заполнена по схеме выкладки","(D1, D2) The display case is filled to the layout scheme",D1;D2,"hot_kitchen,cold_kitchen",5
+PRD04,violation,Заготовки,Prep items,(D3) В обороте только ингредиенты из утверждённого списка,(D3) Only ingredients from the approved list are in circulation,D3,"dry_storage,freezer,fridge,hot_kitchen,cold_kitchen,dough",5
+PRD05,violation,Заготовки,Prep items,"(D1, D2, D3) Тесто выдержано положенное время","(D1, D2, D3) The dough has rested for the required time",D1;D2;D3,"dough,fridge,hot_kitchen",10
+PRD06,violation,Заготовки,Prep items,(D1) Тара для заготовок накрыта крышкой,(D1) Prep tubs are covered with a lid,D1,"hot_kitchen,cold_kitchen",14
+PRD07,violation,Заготовки,Prep items,(D1) Температура заготовки внутри допуска,(D1) Prep item temperature is within tolerance,D1,"fridge,freezer,cold_kitchen,hot_kitchen,dough",5
+PRD08,violation,Заготовки,Prep items,(D3) Ярлык не переклеивают на новую дату,(D3) A tag is never re-stuck with a new date,D3,"dry_storage,freezer,fridge,hot_kitchen,cold_kitchen,dough",10
+PRD09,violation,Заготовки,Prep items,"(D1, D2, D3) На таре есть маркировка с датой","(D1, D2, D3) The tub carries a dated label",D1;D2;D3,"dry_storage,freezer,fridge,hot_kitchen,cold_kitchen,dough,dining",10
+PRD10,violation,Заготовки,Prep items,"(D1, D2, D3) Срок годности заготовки не вышел","(D1, D2, D3) The prep item is not past its shelf life",D1;D2;D3,"dry_storage,freezer,fridge,hot_kitchen,cold_kitchen,dough",10
+PRD11,violation,Заготовки,Prep items,(D1) Заготовки расставлены по полкам сверху вниз,(D1) Prep items are shelved top to bottom,D1,"dry_storage,freezer,fridge,hot_kitchen,cold_kitchen,dough,dining",7
+PRD12,violation,Заготовки,Prep items,(D1) Мука хранится в закрытом коробе,(D1) Flour is kept in a closed bin,D1,"dough,fridge,hot_kitchen",7
+PRD13,violation,Заготовки,Prep items,(D1) Соусы разлиты по дозаторам образца Б,(D1) Sauces are decanted into sample-B dispensers,D1,"hot_kitchen,cold_kitchen",7
+PRD14,violation,Заготовки,Prep items,(D1) Овощная нарезка сделана в смену подачи,(D1) Vegetable cuts are made on the shift they are served,D1,"hot_kitchen,cold_kitchen",5
+PRD15,violation,Заготовки,Prep items,(D1) Пробы смены отобраны и подписаны,(D1) Shift samples are taken and signed,D1,"hot_kitchen,cold_kitchen,dough,dishwashing,staff",1
+PRD16,aggregate,Заготовки,Prep items,Сводная строка по процессу «Заготовки»,Roll-up line for the Prep items process,,,1
+TEH01,violation,Техника,Equipment,"(D1, D2) Тепловой шкаф выходит на режим за норматив","(D1, D2) The heat cabinet reaches its mode within the norm",D1;D2,"hot_kitchen,cold_kitchen,dough,dishwashing",10
+TEH02,violation,Техника,Equipment,(D1) На технике нет посторонних наклеек,(D1) No stray stickers on the equipment,D1,"hot_kitchen,cold_kitchen,dough,dishwashing,dry_storage,staff,freezer,fridge",14
+TEH03,violation,Техника,Equipment,(D1) Ножи заточены и разложены по гнёздам,(D1) Knives are sharpened and racked in their slots,D1,"hot_kitchen,cold_kitchen,dough",1
+TEH04,violation,Техника,Equipment,(D1) Весы поверены и обнулены,(D1) Scales are verified and zeroed,D1,"hot_kitchen,cold_kitchen,dough,dishwashing,dry_storage,staff",14
+TEH05,violation,Техника,Equipment,(D1) Печь исправна: конвейер и вытяжка работают,(D1) The oven works: conveyor and hood are running,D1,hot_kitchen,14
+TEH06,violation,Техника,Equipment,(D1) Дверцы шкафов закрываются плотно,(D1) Cabinet doors shut tight,D1,"fridge,freezer,cold_kitchen,hot_kitchen",14
+TEH22,violation,Техника,Equipment,(D2) Розетки и провода не имеют видимых повреждений,(D2) Sockets and cables show no visible damage,D2,*,10
+FSB05,violation,Безопасность,Safety,"(D2, D3) Низкотемпературный шкаф держит заданный режим","(D2, D3) The low-temperature cabinet holds its set mode",D2;D3,freezer,10
+FSB17,violation,Безопасность,Safety,"(D1, D2, D3) Средства уборки хранятся отдельно от продукта","(D1, D2, D3) Cleaning supplies are stored away from food",D1;D2;D3,*,10
+CLN01,violation,Порядок,Tidiness,(D1) Пол участка вымыт и сухой,(D1) The station floor is washed and dry,D1,"hot_kitchen,cold_kitchen,dough,dishwashing",5
+CLN02,violation,Порядок,Tidiness,(D1) Раковина и смеситель без налёта,(D1) Sink and tap are free of scale,D1,dishwashing,7
+CLN03,violation,Порядок,Tidiness,(D1) Стены и потолок без подтёков,(D1) Walls and ceiling show no streaks,D1,"hot_kitchen,cold_kitchen,dough,dishwashing,dry_storage,staff,freezer,fridge",5
+CLN05,violation,Порядок,Tidiness,(D1) Печь без нагара и жировых следов,(D1) The oven is free of soot and grease marks,D1,hot_kitchen,14
+CLN06,violation,Порядок,Tidiness,(D1) Мебель участка без пятен и сколов,(D1) Station furniture is free of stains and chips,D1,"hot_kitchen,cold_kitchen,dough,dining",1
+CLN09,violation,Порядок,Tidiness,(D1) Шкафчики бытового блока закрыты,(D1) Utility block lockers are shut,D1,staff,7
+CLN12,violation,Порядок,Tidiness,(D1) Столы гостевого зала протёрты,(D1) Guest hall tables are wiped,D1,dining,5
+CLN13,violation,Порядок,Tidiness,(D1) Урны не переполнены,(D1) Bins are not overflowing,D1,"dining,staff",5
+CLN24,violation,Порядок,Tidiness,(D1) Стеллаж хранения подписан по ярусам,(D1) The storage rack is labelled by tier,D1,"staff,dry_storage",5
+MGM22,violation,Документы,Paperwork,(D3) Журнал смены заполняется в день смены,(D3) The shift log is filled in on the day of the shift,D3,*,10
+MGM23,violation,Документы,Paperwork,(D2) График уборки подписан ответственным,(D2) The cleaning schedule is signed by the person in charge,D2,*,10
+SFT03,aggregate,Охрана труда,Labour safety,Сводная строка по процессу «Охрана труда»,Roll-up line for the Labour safety process,,,1
+SFT08,violation,Охрана труда,Labour safety,(D1) Аптечка укомплектована по описи,(D1) The first-aid kit matches its inventory list,D1,*,14
+INF01,info,Замеры,Measurements,Справочная строка: состав смены,Reference line: shift roster,,,1
+INF09,violation,Замеры,Measurements,(D0) Замер температуры теплового шкафа,(D0) Heat cabinet temperature measurement,D0,hot_kitchen,0
+INF10,violation,Замеры,Measurements,"(D0) Замер, который не влияет на процент",(D0) A measurement that does not move the score,D0,*,0
+INF11,violation,Замеры,Measurements,(D0) Снимок настроек оборудования,(D0) A snapshot of the equipment settings,D0,*,0
+INF20,violation,Замеры,Measurements,(D0) Снимок готового изделия,(D0) A snapshot of the finished item,D0,*,0
