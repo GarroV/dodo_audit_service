@@ -31,7 +31,7 @@ CHAT = 65
 
 
 def начать() -> None:
-    start_inspection(CHAT, unit="Белград-1", kind="Плановая", report_lang="ru")
+    start_inspection(CHAT, unit="Белград-1", kind="planned", report_lang="ru")
 
 
 def сырое() -> dict[str, object]:

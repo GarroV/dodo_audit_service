@@ -420,7 +420,12 @@ async def _save(
         # партнёру. Код в строке глазами не проверяется, а формулировка —
         # проверяется, и прочитать её надо ДО того, как документ уедет.
         await message.answer(
-            view.confirmed_block(shown, lang, title=refusal.item_title(shown.code, lang)),
+            view.confirmed_block(
+                shown,
+                lang,
+                title=refusal.item_title(shown.code, lang),
+                zone_guessed=zone_guessed,
+            ),
             reply_markup=edit_keyboard(finding.n, lang),
         )
     else:
@@ -539,6 +544,15 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             file_ids=proposal.file_ids,
             source=proposal.source,
             lang=lang,
+            # Зона — догадка ровно тогда, когда её никто не называл, а модель
+            # вернула ту самую, которую ей подсказали из памяти (T156). Своя
+            # зона модели памятью не является: это её ответ, а не прошлая
+            # запись, и оговорка о нём соврала бы.
+            zone_guessed=(
+                not proposal.zone_spoken
+                and bool(proposal.zone_hint)
+                and candidate.zone == proposal.zone_hint
+            ),
         ):
             pending.take_proposal(chat_id)
 
@@ -581,7 +595,15 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             await stale(message, lang)
             return
         sidecar.remember_zone(chat_id, zone)
-        await _open_manual(message, chat_id, replace(proposal, zone_hint=zone), pending, lang)
+        # Зону назвал сам аудитор, пусть и кнопкой, а не словами: догадкой из
+        # памяти она после этого не является (T156).
+        await _open_manual(
+            message,
+            chat_id,
+            replace(proposal, zone_hint=zone, zone_spoken=True),
+            pending,
+            lang,
+        )
 
     @router.callback_query(F.data == MANUAL_CALLBACK)
     async def on_manual(callback: CallbackQuery) -> None:
@@ -632,6 +654,10 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             file_ids=proposal.file_ids,
             source=proposal.source,
             lang=lang,
+            # Перечень собран по зоне из памяти, и человек выбрал в нём пункт,
+            # а не зону: пометка нужна здесь ровно по тому же правилу (T156).
+            # Назвал зону сам — кнопкой или словами — `zone_spoken` уже стоит.
+            zone_guessed=not proposal.zone_spoken,
         ):
             pending.take_proposal(chat_id)
 

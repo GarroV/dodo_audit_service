@@ -25,7 +25,7 @@ def _начатая() -> None:
     start_inspection(
         CHAT,
         unit="Проверка отказов",
-        kind="Плановая",
+        kind="planned",
         report_lang="ru",
         date="2026-09-03",
         auditor="Тест",

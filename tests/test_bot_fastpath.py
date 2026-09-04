@@ -99,7 +99,7 @@ def spy_fast_path(monkeypatch: pytest.MonkeyPatch) -> Calls:
 
 
 def started() -> None:
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
 
 
 def findings() -> list[Finding]:

@@ -75,7 +75,7 @@ async def test_подтверждённая_запись_называет_пун
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Сам дефект: код глазами не читается, а вопрос пункта читается."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -90,7 +90,7 @@ async def test_подтверждённая_запись_показывает_т
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Формулировку партнёру аудитор обязан прочитать глазами, а не подтвердить вслепую."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -103,7 +103,7 @@ async def test_под_записью_остались_кнопки_правки(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Показ стал шире, а править запись по-прежнему нечем, кроме этих кнопок (T056)."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -124,7 +124,7 @@ async def test_пункт_не_повторяется_дважды_когда_т
 
     Показать его дважды — вопросом и «в отчёт» — значит выдать за две вещи одну.
     """
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     stub_classify(monkeypatch, suggestion())
     question = get_item("CLN05").question("ru")
     stub_manual(monkeypatch, (manual("CLN05", ("D1",), question),))
@@ -145,7 +145,7 @@ async def test_на_английской_проверке_пункт_назва�
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Язык — параметр: вопрос пункта берётся на языке разговора, а не константой."""
-    start_inspection(CHAT_ID, "Belgrade 2", "Planned", "en", ui_lang="en")
+    start_inspection(CHAT_ID, "Belgrade 2", "planned", "en", ui_lang="en")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -164,7 +164,7 @@ async def test_показ_подтверждённой_и_автоматичес
     вещи, которых у подтверждённой записи нет вовсе, — но общее у них одно:
     пункт, названный словами. Тест держит именно это общее.
     """
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 

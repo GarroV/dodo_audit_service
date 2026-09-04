@@ -37,7 +37,8 @@ from .errors import (
     InspectionNotStarted,
     ValidationError,
 )
-from .models import SOURCES, Finding, Inspection
+from .kinds import kind_title
+from .models import SOURCES, TEXT_LANGS, Finding, Inspection
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,11 @@ def _inspection(chat_id: int, raw: Mapping[str, Any], path: Path) -> Inspection:
     return Inspection(
         chat_id=chat_id,
         unit=str(meta.get("unit") or ""),
-        kind=str(meta.get("type") or ""),
+        # Вид проверки — КОД, и лежит он в блоке, а не в шапке движка (T152).
+        # В шапке (`meta.type`) стоит перевод этого кода на язык отчёта: её
+        # печатает движок партнёру, и читать оттуда обратно нельзя — там уже
+        # формулировка, а формулировки переводятся и правятся, коды нет.
+        kind=str(block.get("kind") or ""),
         date=str(meta.get("date") or ""),
         # Язык отчёта хранится там, откуда его берёт сборка отчёта, — в шапке
         # движка. Второй копии у блока нет намеренно: разошлись бы.
@@ -274,11 +279,29 @@ def start_inspection(
     здесь такой защиты нет. Дату по умолчанию (сегодня) ставит движок.
     """
     settings = check_environment()
+    # Вид проверки приходит КОДОМ и кодом же остаётся в проверке (T152). В
+    # шапку движка уходит перевод: её он печатает партнёру, и подставить слово
+    # больше негде — состояние он читает сам. Перевод берётся по языку ОТЧЁТА,
+    # то есть по тому же `meta.lang`, с которым движок эту шапку и напечатает,
+    # поэтому сопоставлять там строки не с чем и незачем.
+    #
+    # Отказ на неизвестном коде идёт ДО движка: иначе проверка окажется
+    # начатой, а связать её вид будет не с чем.
+    #
+    # Язык отчёта проверяется здесь же и первым, хотя его проверяет и движок:
+    # без слова на этом языке шапку не заполнить, а отказ «вид проверки не
+    # заведён на языке sr» объясняет человеку не то, что он сделал не так.
+    lang = report_lang.strip().lower()
+    if lang not in TEXT_LANGS:
+        raise ValidationError(
+            f"Язык отчёта «{report_lang}» в методике не заведён. Доступны: {', '.join(TEXT_LANGS)}"
+        )
+    header = kind_title(kind, lang)
     args = [
         "init",
         option("unit", unit),
-        option("type", kind),
-        option("lang", report_lang.strip().lower()),
+        option("type", header),
+        option("lang", lang),
         option("city", city),
         option("partner", partner),
         option("contact", contact),
@@ -292,6 +315,7 @@ def start_inspection(
         "schema": SCHEMA,
         "chat_id": chat_id,
         "tenant": tenant,
+        "kind": kind,
         "checklist_version": checklist_version(),
         "ui_lang": _clean_lang(ui_lang, "язык интерфейса"),
         "speech_lang": _clean_lang(speech_lang, "язык речи аудитора"),

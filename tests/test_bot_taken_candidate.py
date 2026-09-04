@@ -55,7 +55,7 @@ async def test_после_отказа_модель_предлагает_зан�
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Сам дефект, целиком: запись, второй такой же кадр, отказ, перечень модели."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     sidecar.remember_zone(CHAT_ID, "hot_kitchen")
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen", "Печь в нагаре")))
     bot, session = make_bot()
@@ -78,7 +78,7 @@ async def test_пометка_ставится_по_паре_пункт_и_зо�
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Тот же пункт в другой зоне — законная запись, отговаривать от неё нельзя."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар на подине печи")
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "dining", "Нагар")))
     bot, session = make_bot()
@@ -99,7 +99,7 @@ async def test_занятый_кандидат_остаётся_нажимаем
     это законный путь «доснять фото» или «поправить», а не тупик. Пропади кнопка,
     поехали бы и номера остальных кандидатов.
     """
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар на подине печи")
     stub_classify(
         monkeypatch,
@@ -122,7 +122,7 @@ async def test_пометка_называет_номер_занявшей_за�
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Номер — то, чем аудитор находит запись и правит её; без него пометка тупик."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     add_finding(CHAT_ID, "CLN02", "D1", "dishwashing", "Налёт")
     add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Нагар")
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen", "Нагар")))
@@ -138,7 +138,7 @@ async def test_пометка_называет_номер_занявшей_за�
 
 async def test_пометка_переводится(domain_env: object, monkeypatch: pytest.MonkeyPatch) -> None:
     """Язык — параметр: русская пометка в английском перечне так же неверна."""
-    start_inspection(CHAT_ID, "Belgrade 2", "Planned", "en", ui_lang="en")
+    start_inspection(CHAT_ID, "Belgrade 2", "planned", "en", ui_lang="en")
     add_finding(CHAT_ID, "CLN05", "D1", "hot_kitchen", "Soot")
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen", "Soot")))
     bot, session = make_bot()

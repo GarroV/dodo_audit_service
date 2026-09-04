@@ -47,7 +47,7 @@ async def test_voice_comment_is_transcribed_and_shown_back(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Услышанное показывается аудитору: ошибку распознавания он заметит только так."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     heard = stub_transcribe(monkeypatch, "пол в горячем цеху грязный")
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
     bot, session = make_bot()
@@ -64,7 +64,7 @@ async def test_failed_transcription_asks_for_text_and_keeps_inspection_alive(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Сбой транскрипции не роняет проверку и не уходит в модель разбором пустоты."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     stub_transcribe(monkeypatch, TranscriptionFailed("голосовое пустое"))
     asked = stub_classify(monkeypatch, suggestion())
     bot, session = make_bot()
@@ -81,7 +81,7 @@ async def test_long_comment_is_shortened_where_it_is_shown_back(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Длинное услышанное обрезается: аудитору нужна отметка, а не пересказ."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     long_note = "грязь под тестомесом " * 20
     stub_transcribe(monkeypatch, long_note)
     stub_classify(monkeypatch, suggestion())
@@ -100,7 +100,7 @@ async def test_album_timer_failure_is_logged_and_does_not_kill_the_bot(
     domain_env: object, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Отказ фоновой задачи альбома попадает в журнал, а бот продолжает работать."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
 
     async def refuse(message: object, material: Material, lang: str) -> None:
         raise RuntimeError("разбор недоступен")

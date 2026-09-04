@@ -2,15 +2,15 @@
 
 Callback-данные — код, а не формулировка (принцип проекта «сущности связываются
 кодами, не текстом»): текст кнопки можно менять и переводить, `callback_data`
-нет. Значение вида проверки, которое уходит в движок (`--type`), — свободный
-текст (см. `engine/audit.py: cmd_init`, поле `type` там без ограничения на
-перечень), поэтому код кнопки и текст, который увидит движок и в итоге отчёт,
-разведены явной таблицей `KIND_TITLES`.
+нет. Тем же кодом вид проверки и живёт дальше — в самой проверке, в базе, в
+отпечатке (T152): таблица перевода лежит в предметной области
+(`domain.INSPECTION_KINDS`), потому что перечень видов проверки — методика, а
+не набор надписей на кнопках.
 
-Языков у этой таблицы два, и это не дубль, а разные языки проекта (T131): на
-кнопке вид проверки стоит на языке ИНТЕРФЕЙСА, а в шапку отчёта партнёру
-уезжает на языке ОТЧЁТА. На английском стенде с русским отчётом кнопка обязана
-читаться «Planned», а в шапке обязана стоять «Плановая».
+Языки у этой таблицы разные не для красоты, а потому, что языков у проекта три
+(T131): на кнопке вид проверки стоит на языке ИНТЕРФЕЙСА, а в шапку отчёта
+партнёру уезжает на языке ОТЧЁТА. На английском стенде с русским отчётом кнопка
+обязана читаться «Planned», а в шапке обязана стоять «Плановая».
 """
 
 from __future__ import annotations
@@ -20,23 +20,23 @@ from collections.abc import Sequence
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from src.domain import INSPECTION_KINDS
+from src.domain import kind_title as domain_kind_title
+from src.domain.errors import ValidationError
+
 from .errors import BotTextError
 from .info import KIND_YES_NO
 from .texts import t
 
-#: Код кнопки → вид проверки на каждом языке. Это же значение уходит в
-#: `audit.py init --type` и дальше в шапку отчёта (`docs/06-mvp-bot.md`,
-#: сценарий, шаг 1) — но уже на языке отчёта, а не интерфейса.
+#: Код вида проверки → слово на каждом языке. Живёт в предметной области
+#: (`src/domain/kinds.py`), здесь только имя для чтения: своей копии у бота нет
+#: и быть не может — вид проверки нужен ещё и базе, и письму по записанной
+#: проверке, а две копии таблицы разошлись бы молча.
 #:
-#: В каталоге текстов (`texts.py`) этой таблицы нет намеренно: там строки,
-#: которые читает только аудитор, а эта уезжает партнёру в документ. Отчёт же
-#: и переводится по методике (`domain.models.TEXT_LANGS`), а не по интерфейсу,
-#: и в тот день, когда наборы языков разойдутся, разойтись обязаны и таблицы.
-KIND_TITLES: dict[str, dict[str, str]] = {
-    "planned": {"ru": "Плановая", "en": "Planned"},
-    "repeat": {"ru": "Повторная", "en": "Repeat"},
-    "unscheduled": {"ru": "Внеплановая", "en": "Unscheduled"},
-}
+#: В каталоге текстов (`texts.py`) её нет намеренно: там строки, которые читает
+#: только аудитор, а эта уезжает партнёру в документ, и переводится по языкам
+#: методики, а не интерфейса.
+KIND_TITLES = INSPECTION_KINDS
 
 #: Код кнопки языка отчёта = сам код языка методики (`ru`/`en`, `domain.models.TEXT_LANGS`).
 #: Второй копии не нужно: то, что летит в `callback_data`, и есть значение параметра.
@@ -61,16 +61,18 @@ RESUME_NEW_CALLBACK = "start:resume:new"
 def kind_title(code: str, lang: str) -> str:
     """Вид проверки словами. Язык — параметр, и он тут не всегда язык интерфейса.
 
+    Перевод берётся у предметной области; здесь только вид отказа приводится к
+    боту — остальной разговор падает `BotTextError`, и разбирать в одном месте
+    два разных класса ради одной надписи не за чем.
+
     Незаведённый язык — отказ, а не откат на русский: молчаливый откат поставил
     бы русское слово в шапку английского отчёта партнёру, и заметил бы это
     партнёр, а не мы.
     """
-    titles = KIND_TITLES[code]
-    if lang not in titles:
-        raise BotTextError(
-            f"Вид проверки «{code}» не заведён на языке «{lang}». Доступны: {', '.join(titles)}"
-        )
-    return titles[lang]
+    try:
+        return domain_kind_title(code, lang)
+    except ValidationError as exc:
+        raise BotTextError(str(exc)) from exc
 
 
 def new_inspection_keyboard(lang: str) -> InlineKeyboardMarkup:
@@ -167,6 +169,10 @@ FINISH_BUILD_NO_PHOTOS_CALLBACK = "fin:nophoto"
 FINISH_EDIT_CALLBACK = "fin:edit"
 FINISH_RESUME_CALLBACK = "fin:resume"
 FINISH_PICK_PREFIX = "fin:pick:"
+#: Расхождение версии методики (T167). Две кнопки, потому что выходов два и оба
+#: за человеком: молча выбрать любой из них бот права не имеет.
+VERSION_SYNC_CALLBACK = "fin:ver:sync"
+VERSION_KEEP_CALLBACK = "fin:ver:keep"
 
 #: Информационная часть в конце проверки (T158, D069, D070). Пропуск есть у
 #: каждого поля — ни одно из них не обязательно; «дальше к отчёту» снимает
@@ -336,6 +342,20 @@ def finish_keyboard(lang: str, *, can_edit: bool) -> InlineKeyboardMarkup:
         builder.button(text=t("btn.edit", lang), callback_data=FINISH_EDIT_CALLBACK)
     builder.button(text=t("btn.build", lang), callback_data=FINISH_BUILD_CALLBACK)
     builder.button(text=t("btn.resume", lang), callback_data=FINISH_RESUME_CALLBACK)
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def version_mismatch_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Расхождение версии методики: перевести проверку или разбираться с методикой (T167).
+
+    Кнопки две, и ни одна не нажимается за аудитора: перевод меняет то, чем
+    проверка будет измеряться, а возврат прежней версии делается вообще не в
+    боте. Молчаливого третьего варианта — посчитать как-нибудь — нет.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("btn.version_sync", lang), callback_data=VERSION_SYNC_CALLBACK)
+    builder.button(text=t("btn.version_keep", lang), callback_data=VERSION_KEEP_CALLBACK)
     builder.adjust(1)
     return builder.as_markup()
 

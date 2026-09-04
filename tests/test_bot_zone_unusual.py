@@ -48,7 +48,7 @@ SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_I
 
 def начать_с_записью() -> None:
     """Проверка с одной записью в правильной для пункта зоне."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru", date="2026-08-21", auditor="Гарро")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru", date="2026-08-21", auditor="Гарро")
     finding = add_finding(CHAT_ID, code=ПУНКТ, level="D1", zone=СВОЯ_ЗОНА, text="нагар на поду")
     assert finding.zone_unusual is False, "оснастка начала с уже нетипичной зоны"
 

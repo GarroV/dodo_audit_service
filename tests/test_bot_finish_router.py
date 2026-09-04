@@ -53,7 +53,7 @@ def started() -> None:
     start_inspection(
         CHAT_ID,
         "Белград 2",
-        "Плановая",
+        "planned",
         "ru",
         date="2026-08-21",
         auditor="Владимир Гарро",
@@ -154,8 +154,25 @@ async def test_empty_inspection_says_nothing_was_recorded(domain_env: object) ->
     assert "fin:edit" not in session.keyboard_data()
 
 
+def показанные_кадры(session: object) -> list[tuple[str, int | None]]:
+    """Кадр и сообщение-адресат по каждому `SendPhoto` (T138).
+
+    Номера сообщений аудитору больше не называются: в телеграме он их не видит.
+    Кадр возвращается самим кадром, ответом на своё же сообщение.
+    """
+    return [
+        (str(call.photo), call.reply_to_message_id)
+        for call in session.calls  # type: ignore[attr-defined]
+        if type(call).__name__ == "SendPhoto"
+    ]
+
+
 async def test_frames_without_a_record_are_listed(domain_env: object) -> None:
-    """Задача T068: кадр прислали, не разобрали — он не исчезает молча."""
+    """Задача T068: кадр прислали, не разобрали — он не исчезает молча.
+
+    Кадр возвращается сам и ответом на своё сообщение (T138): номером сообщения
+    аудитор его найти не мог — в телеграме номер не показывается.
+    """
     started()
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -163,8 +180,7 @@ async def test_frames_without_a_record_are_listed(domain_env: object) -> None:
     await feed(dp, bot, photo_message("lonely-frame", message_id=321))
     await feed(dp, bot, text_message("/finish"))
 
-    показано = "\n".join(session.texts)
-    assert t("finish.unclaimed_line", "ru", message_id=321) in показано
+    assert ("lonely-frame", 321) in показанные_кадры(session)
 
 
 async def test_frame_that_became_a_record_is_not_listed_as_lost(domain_env: object) -> None:
@@ -179,8 +195,7 @@ async def test_frame_that_became_a_record_is_not_listed_as_lost(domain_env: obje
     session.clear()
     await feed(dp, bot, text_message("/finish"))
 
-    показано = "\n".join(session.texts)
-    assert t("finish.unclaimed_line", "ru", message_id=322) not in показано
+    assert показанные_кадры(session) == []
 
 
 async def test_unclaimed_frames_survive_a_restart(domain_env: object) -> None:
@@ -192,7 +207,7 @@ async def test_unclaimed_frames_survive_a_restart(domain_env: object) -> None:
     session.clear()
     await feed(build_dispatcher(SETTINGS), bot, text_message("/finish"))
 
-    assert t("finish.unclaimed_line", "ru", message_id=333) in "\n".join(session.texts)
+    assert ("lonely-frame", 333) in показанные_кадры(session)
 
 
 async def test_edit_from_the_summary_opens_the_record(domain_env: object) -> None:

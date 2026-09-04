@@ -105,7 +105,7 @@ def test_старая_проверка_без_версии_читается(ме
     from src.domain.state import DOMAIN_KEY, state_file
 
     _издано(методика, "imf 2026-09-01")
-    start_inspection(4242, "Белград-1", "плановая", "ru")
+    start_inspection(4242, "Белград-1", "planned", "ru")
     path = state_file(4242, check_environment())
     raw = path.read_text(encoding="utf-8").replace(
         f'"checklist_version": "{checklist_version()}"', '"checklist_version": ""'

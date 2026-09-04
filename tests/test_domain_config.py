@@ -110,7 +110,7 @@ def test_форк_чек_листа_в_папке_чата_останавлив�
     Явный `CHECKLIST_DIR` перебивает такой форк по приоритету, но полагаться на
     один заслон нельзя: методику из-под ног не выдёргивают посреди проверки.
     """
-    start_inspection(42, unit="Белград-1", kind="Плановая", report_lang="ru")
+    start_inspection(42, unit="Белград-1", kind="planned", report_lang="ru")
     (domain_env / "chat_42" / "checklist_data").mkdir()
     with pytest.raises(ConfigError) as e:
         add_finding(42, code="CLN05", level="D1", zone="hot_kitchen", text="нагар")

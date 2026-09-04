@@ -51,7 +51,7 @@ SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_I
 
 def испортить_состояние() -> Path:
     """Начать проверку и испортить её файл — как при обрыве записи на точке."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru", date="2026-08-21", auditor="Гарро")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru", date="2026-08-21", auditor="Гарро")
     файл = state_file(CHAT_ID, check_environment())
     файл.write_text(МУСОР, encoding="utf-8")
     return файл

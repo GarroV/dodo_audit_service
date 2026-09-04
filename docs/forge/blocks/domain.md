@@ -16,6 +16,12 @@ get_item(code: str) -> ChecklistItem
 allowed_levels(code: str) -> list[str]
 checklist_version() -> str
 get_state(chat_id: int) -> Inspection | None
+kind_title(code: str, lang: str) -> str        # вид проверки словами (T152)
+INSPECTION_KINDS                               # код вида → слово на каждом языке
+# `kind` ниже — КОД из этой таблицы (`planned`), а не формулировка: формулировки
+# переводятся и правятся, коды нет. Слово на языке отчёта блок кладёт в шапку для
+# движка сам, `Inspection.kind` отдаёт код. Неизвестный код и незаведённый язык —
+# `ValidationError` до вызова движка, а не молчаливый возврат исходника
 start_inspection(chat_id: int, unit: str, kind: str, report_lang: str, *,
                  ui_lang: str = "ru", speech_lang: str = "ru", date: str | None = None,
                  city: str = "", partner: str = "", contact: str = "", auditor: str = "",

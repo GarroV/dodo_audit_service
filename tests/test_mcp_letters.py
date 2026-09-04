@@ -44,7 +44,7 @@ def _строка(*, version: str = ВЕРСИЯ, pct: float = 99.5, grade: str 
         tenant_code="укашка",
         unit_name="Белград-1",
         chat_id=744230399,
-        kind="Плановая",
+        kind="planned",
         inspection_date=date(2026, 8, 19),
         report_lang="ru",
         checklist_version=version,

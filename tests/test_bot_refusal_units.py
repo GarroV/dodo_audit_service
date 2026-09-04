@@ -34,7 +34,7 @@ from src.domain.errors import ValidationError
 def начата(lang: str = "ru") -> None:
     """Проверка начата — минимум, нужный `occupied_by`, `not_recorded`, `not_changed`."""
     domain.start_inspection(
-        CHAT_ID, "Белград 2", "Плановая", lang, ui_lang=lang, date="2026-08-21", auditor="Гарро"
+        CHAT_ID, "Белград 2", "planned", lang, ui_lang=lang, date="2026-08-21", auditor="Гарро"
     )
 
 

@@ -11,12 +11,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from src import domain
 from src.recognize.models import UNKNOWN_ZONE, Candidate
 
-from . import sidecar
 from .texts import t
 
 #: Информационный уровень записи: замеры и фото продукта (`INF09`–`INF11`,
@@ -148,7 +147,9 @@ def confirm_line(finding: domain.Finding, lang: str) -> str:
     return line + zone_unusual_mark(finding, lang)
 
 
-def confirmed_block(finding: domain.Finding, lang: str, *, title: str) -> str:
+def confirmed_block(
+    finding: domain.Finding, lang: str, *, title: str, zone_guessed: bool = False
+) -> str:
     """Запись, которую аудитор подтвердил кнопкой (T055, расширен T135).
 
     Раньше здесь была одна строка `confirm_line`, и спека (`docs/06-mvp-bot.md`,
@@ -166,12 +167,20 @@ def confirmed_block(finding: domain.Finding, lang: str, *, title: str) -> str:
 
     Совпали текст записи и вопрос пункта — показывается одно: так ложится ручной
     выбор пункта по кадру без комментария, и повтор выдал бы за две вещи одну.
+
+    `zone_guessed` — та же оговорка и тем же текстом, что у `fixed_block` (T156).
+    Правило про зону из памяти одно на все пути записи, а стояло оно только на
+    быстром: подсказка уходила в модель, модель возвращала зону как свою, и
+    подтверждение печаталось без оговорки. Опасность здесь меньше — зона видна
+    на кнопке кандидата, — но вычет уезжает партнёру в ту же зону, и пометка,
+    которая появляется через раз, перестаёт что-либо значить.
     """
     line = confirm_line(finding, lang)
+    guess = t("record.fixed_zone_guess", lang) if zone_guessed else ""
     note = shorten(finding.text, FAST_NOTE_LIMIT)
     if note.strip() == title.strip():
-        return t("record.confirmed_plain", lang, line=line, title=title)
-    return t("record.confirmed", lang, line=line, title=title, note=note)
+        return t("record.confirmed_plain", lang, line=line, guess=guess, title=title)
+    return t("record.confirmed", lang, line=line, guess=guess, title=title, note=note)
 
 
 def fixed_block(
@@ -276,8 +285,3 @@ def record_lines(findings: Sequence[domain.Finding], lang: str) -> str:
             )
         )
     return "\n".join(lines)
-
-
-def unclaimed_lines(frames: Iterable[sidecar.SeenFrame], lang: str) -> str:
-    """Кадры, не попавшие ни в одну запись (T068)."""
-    return "\n".join(t("finish.unclaimed_line", lang, message_id=f.message_id) for f in frames)

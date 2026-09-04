@@ -47,7 +47,7 @@ def restart() -> object:
 async def test_inspection_survives_restart_and_is_offered_to_continue(
     domain_env: object,
 ) -> None:
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru", auditor="Владимир Гарро")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru", auditor="Владимир Гарро")
     add_finding(CHAT_ID, "PRD01", "D1", "hot_kitchen", "Пол в горячем цеху загрязнён")
 
     bot, session = make_bot()
@@ -62,7 +62,7 @@ async def test_material_intake_works_after_restart(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Фиксация продолжается без дополнительного шага «восстановить»."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     stub_classify(monkeypatch, suggestion(candidate("PRD01", "D1", "hot_kitchen", "скол на борту")))
 
     bot, session = make_bot()
@@ -84,7 +84,7 @@ async def test_uncommented_frame_does_not_survive_restart(domain_env: object) ->
     комментарий, присланный уже после перезапуска, привязать не к чему — и бот
     говорит об этом прямо, а не молчит.
     """
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
 
     bot, session = make_bot()
     await feed(restart(), bot, photo_message("photo-1"))

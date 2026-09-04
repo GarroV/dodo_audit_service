@@ -26,7 +26,7 @@ def проверка(domain_env: Path) -> Path:
     start_inspection(
         CHAT,
         unit="Белград-1",
-        kind="Плановая",
+        kind="planned",
         report_lang="ru",
         date="2026-08-21",
         auditor="Василий Гарро",

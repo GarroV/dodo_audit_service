@@ -65,7 +65,7 @@ async def test_кнопка_из_прошлой_версии_получает_и
     domain_env: object,
 ) -> None:
     """Часики сняты, и человек прочитал, что делать, — вместо тишины до таймаута."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -79,7 +79,7 @@ async def test_нажатие_старше_48_часов_отвечает_всп
     domain_env: object,
 ) -> None:
     """Сообщения у такого нажатия нет — отвечать в чат некуда, но молчать нельзя."""
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -110,7 +110,7 @@ async def test_живые_кнопки_рубежом_не_перехвачен�
 
 async def test_на_английском_стенде_рубеж_отвечает_по_английски(domain_env: object) -> None:
     """Язык — параметр и у последнего рубежа: проверка английская, ответ тоже."""
-    start_inspection(CHAT_ID, "Belgrade 2", "Planned", "en", ui_lang="en")
+    start_inspection(CHAT_ID, "Belgrade 2", "planned", "en", ui_lang="en")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 

@@ -38,7 +38,7 @@ from src.mcp.tools import list_inspections, network_summary, unit_history
 
 def _проверка(chat_id: int, *, точка: str = "Белград-1", дата: str) -> str:
     start_inspection(
-        chat_id, unit=точка, kind="Плановая", report_lang="ru", tenant=АРЕНДАТОР, date=дата
+        chat_id, unit=точка, kind="planned", report_lang="ru", tenant=АРЕНДАТОР, date=дата
     )
     add_finding(chat_id, code="CLN05", level="D1", zone="hot_kitchen", text="нагар на печи")
     return push_inspection(chat_id)

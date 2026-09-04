@@ -53,7 +53,7 @@ def _кадр(file_id: str) -> bytes | None:
 
 def _проверка_с_кадрами(chat_id: int, *, кадры: tuple[str, ...]) -> str:
     """Настоящая проверка через контракт `domain`, затем слив в базу."""
-    start_inspection(chat_id, unit=ТОЧКА, kind="Плановая", report_lang="ru")
+    start_inspection(chat_id, unit=ТОЧКА, kind="planned", report_lang="ru")
     add_finding(chat_id, code="CLN05", level="D1", zone="hot_kitchen", text="нагар на печи")
     for file_id in кадры:
         attach_photo(chat_id, 1, file_id)

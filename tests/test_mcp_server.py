@@ -116,7 +116,7 @@ def _проверка(chat_id: int, *, арендатор: str, точка: str,
     from src.domain import add_finding, start_inspection
 
     start_inspection(
-        chat_id, unit=точка, kind="Плановая", report_lang="ru", tenant=арендатор, date="2026-08-15"
+        chat_id, unit=точка, kind="planned", report_lang="ru", tenant=арендатор, date="2026-08-15"
     )
     for номер in range(находок):
         add_finding(chat_id, code="CLN05", level="D1", zone=ЗОНЫ[номер], text="нагар на печи")

@@ -98,7 +98,7 @@ def _hot_kitchen_manual_items() -> tuple[ManualCandidate, ...]:
 
 
 def started() -> None:
-    start_inspection(CHAT_ID, "Белград 2", "Плановая", "ru")
+    start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
 
 
 def findings() -> list[object]:

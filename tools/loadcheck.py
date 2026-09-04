@@ -62,7 +62,7 @@ def _one_inspection(chat_id: int, findings: int) -> tuple[int, float, int]:
     start_inspection(
         chat_id,
         unit=f"Load {chat_id}",
-        kind="Planned",
+        kind="planned",
         report_lang="en",
         date="2026-09-03",
         auditor="loadcheck",
@@ -138,7 +138,7 @@ def _album_burst(chat_id: int, findings: int) -> int:
     start_inspection(
         chat_id,
         unit="Album burst",
-        kind="Planned",
+        kind="planned",
         report_lang="en",
         date="2026-09-03",
         auditor="loadcheck",

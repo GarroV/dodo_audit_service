@@ -34,7 +34,7 @@ pytestmark = requires_db
 
 def _завершённая(chat_id: int = 301) -> str:
     """Проверка, слитая продуктовым путём: она и есть «документ, ушедший партнёру»."""
-    start_inspection(chat_id, unit="Белград-1", kind="Плановая", report_lang="ru")
+    start_inspection(chat_id, unit="Белград-1", kind="planned", report_lang="ru")
     add_finding(chat_id, code="CLN05", level="D1", zone="hot_kitchen", text="нагар на печи")
     return push_inspection(chat_id)
 
@@ -185,7 +185,7 @@ def test_формулировки_завершённой_проверки_зам
 
 
 def test_кадр_завершённой_проверки_нельзя_удалить(domain_env: Path, db_env: str) -> None:
-    start_inspection(302, unit="Белград-1", kind="Плановая", report_lang="ru")
+    start_inspection(302, unit="Белград-1", kind="planned", report_lang="ru")
     add_finding(302, code="CLN05", level="D1", zone="hot_kitchen", text="нагар на печи")
     attach_photo(302, 1, "file-302")
     inspection_id = push_inspection(302)
@@ -204,7 +204,7 @@ def test_кадр_выгружается_один_раз_и_дальше_зам�
     И ровно один раз: подменить ссылку на объект задним числом нельзя, иначе
     доказательство в отчёте партнёра указывало бы на другой кадр.
     """
-    start_inspection(303, unit="Белград-1", kind="Плановая", report_lang="ru")
+    start_inspection(303, unit="Белград-1", kind="planned", report_lang="ru")
     add_finding(303, code="CLN05", level="D1", zone="hot_kitchen", text="нагар на печи")
     attach_photo(303, 1, "file-303")
     inspection_id = push_inspection(303)
@@ -235,7 +235,7 @@ insert into inspections (
     tenant_code, unit_id, chat_id, kind, inspection_date, report_lang,
     ui_lang, speech_lang, checklist_version, pct, grade, source_fingerprint, status
 ) values (
-    'default', %s, 555, 'Плановая', current_date, 'ru', 'ru', 'ru', 'v1',
+    'default', %s, 555, 'planned', current_date, 'ru', 'ru', 'ru', 'v1',
     90.0, 'B', 'черновик-555', 'draft'
 )
 returning id

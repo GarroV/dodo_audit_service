@@ -114,7 +114,7 @@ def seed() -> Path:
     domain.start_inspection(
         DEMO_CHAT_ID,
         unit="Demo Pizzeria #1",
-        kind="Planned",
+        kind="planned",
         report_lang="en",
         ui_lang="en",
         speech_lang="en",

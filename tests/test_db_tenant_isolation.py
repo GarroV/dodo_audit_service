@@ -68,7 +68,7 @@ def test_проверка_не_может_ссылаться_на_точку_ч�
             cur.execute(
                 "insert into inspections (tenant_code, unit_id, chat_id, kind, inspection_date, "
                 "report_lang, ui_lang, speech_lang, checklist_version, pct, grade, "
-                "source_fingerprint) values (%s, %s, 1, 'Плановая', '2026-09-03', 'ru', 'ru', "
+                "source_fingerprint) values (%s, %s, 1, 'planned', '2026-09-03', 'ru', 'ru', "
                 "'ru', 'v1', 100, 'A', 'отпечаток-теста')",
                 (СВОЙ, чужая_точка),
             )

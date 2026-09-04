@@ -327,15 +327,15 @@ TEXTS: dict[str, dict[str, str]] = {
     # бывает: текстом стала формулировка модели, и звать её словами аудитора
     # было бы враньём. Таблицы после каждого кадра нет (`docs/06-mvp-bot.md`).
     "record.confirmed": {
-        "ru": "{line}\n{title}\n\nВ отчёт: «{note}»",
-        "en": "{line}\n{title}\n\nInto the report: “{note}”",
+        "ru": "{line}{guess}\n{title}\n\nВ отчёт: «{note}»",
+        "en": "{line}{guess}\n{title}\n\nInto the report: “{note}”",
     },
     # Тот же показ, когда формулировкой записи стал сам вопрос пункта: так
     # ложится ручной выбор пункта по кадру без комментария (`_save_manual`).
     # Показать одно и то же дважды — выдать за две вещи одну.
     "record.confirmed_plain": {
-        "ru": "{line}\n{title}",
-        "en": "{line}\n{title}",
+        "ru": "{line}{guess}\n{title}",
+        "en": "{line}{guess}\n{title}",
     },
     "record.fixed": {
         "ru": (
@@ -554,6 +554,58 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Итог: {pct}% — {grade}, {label}.\nЗаписей: {total}. {counts}",
         "en": "Result: {pct}% — {grade}, {label}.\nRecords: {total}. {counts}",
     },
+    # Расхождение версии методики (T167, задача #135). Отказ движка написан
+    # тому, кто зовёт блок из кода; здесь то же самое сказано человеку, который
+    # стоит на точке. Обе версии названы обязательно: по ним и видно, что
+    # методику переиздали под идущей проверкой. Выхода два, оба решает он.
+    "finish.version_mismatch": {
+        "ru": (
+            "⚠ Методику переиздали, пока шла проверка, и посчитать её сейчас нечем.\n\n"
+            "Проверка помечена версией: {recorded}\n"
+            "Сейчас на диске версия: {current}\n\n"
+            "Посчитать по новой методике под старой отметкой нельзя: оценка вышла бы "
+            "несравнимой с соседними проверками, а разницы в отчёте видно не будет.\n\n"
+            "Выхода два, и выбираете вы:\n"
+            "• перевести проверку на действующую методику — оценка будет по ней, "
+            "а перевод останется в самой проверке следом;\n"
+            "• вернуть прежнюю версию методики на место и досчитать по ней — это "
+            "не в боте, это к тому, кто её переиздал."
+        ),
+        "en": (
+            "⚠ The methodology was republished while the inspection was running, so it "
+            "cannot be scored as it stands.\n\n"
+            "The inspection is marked with version: {recorded}\n"
+            "The version on disk now is: {current}\n\n"
+            "Scoring by the new methodology under the old mark is not allowed: the grade "
+            "would not be comparable with neighbouring inspections, and the report would "
+            "not show the difference.\n\n"
+            "There are two ways out, and the choice is yours:\n"
+            "• move the inspection to the current methodology — it will be scored by it, "
+            "and the move stays recorded inside the inspection;\n"
+            "• put the previous version of the methodology back and score by it — that is "
+            "not done in the bot, it is done by whoever republished it."
+        ),
+    },
+    "finish.version_synced": {
+        "ru": "Проверка переведена на методику {current}. Перевод записан в саму проверку.",
+        "en": "The inspection now runs on methodology {current}. The move is recorded in it.",
+    },
+    "finish.version_kept": {
+        "ru": (
+            "Оставил как есть: проверка по-прежнему помечена версией {recorded}.\n"
+            "Считать её будет нечем, пока эта версия методики не вернётся на диск. "
+            "Записи никуда не делись — «Завершить» можно нажать снова."
+        ),
+        "en": (
+            "Left as it is: the inspection is still marked with version {recorded}.\n"
+            "It cannot be scored until that version of the methodology is back on disk. "
+            "The records are intact — you can press “Finish” again."
+        ),
+    },
+    "finish.version_sync_failed": {
+        "ru": "Перевести проверку на действующую методику не вышло. Попробуйте ещё раз.",
+        "en": "Moving the inspection to the current methodology failed. Please try again.",
+    },
     "finish.records": {
         "ru": "Зафиксировано:\n{lines}",
         "en": "Recorded:\n{lines}",
@@ -570,14 +622,30 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Ни одной записи не зафиксировано.",
         "en": "No records have been made.",
     },
+    # Номера сообщения здесь больше нет (T138, задача #109): в телеграме он
+    # человеку не показывается, и назвать кадр им — то же, что промолчать.
+    # Кадры идут следом сами, ответом на свои же сообщения.
     "finish.unclaimed": {
-        "ru": "Кадры без записи — {count}. Они никуда не пропали, но и в отчёт не войдут:\n{lines}",
-        "en": "Photos with no record — {count}. Not lost, but they will not be in the report:\n"
-        "{lines}",
+        "ru": "Кадры без записи — {count}. Они никуда не пропали, но и в отчёт не войдут. "
+        "Показываю их ниже — каждый ответом на сообщение, которым он пришёл.",
+        "en": "Photos with no record — {count}. Not lost, but they will not be in the report. "
+        "They follow below — each as a reply to the message it arrived in.",
     },
-    "finish.unclaimed_line": {
-        "ru": "— кадр из сообщения {message_id}",
-        "en": "— photo from message {message_id}",
+    "finish.unclaimed_frame": {
+        "ru": "Этот кадр остался без записи.",
+        "en": "This photo has no record.",
+    },
+    "finish.unclaimed_rest": {
+        "ru": "Ещё {rest} — показываю по одной пачке: разберите эти и вызовите /records, "
+        "покажу следующие.",
+        "en": "And {rest} more — shown one batch at a time: deal with these and call /records "
+        "for the next ones.",
+    },
+    "finish.unclaimed_failed": {
+        "ru": "Кадров показать не удалось: {failed}. Телеграм их не отдал — они остались "
+        "в переписке выше.",
+        "en": "Photos that could not be shown: {failed}. Telegram refused them — they are "
+        "still in the chat above.",
     },
     "finish.ask": {
         "ru": "Поправить запись или собирать отчёт?",
@@ -830,6 +898,14 @@ TEXTS: dict[str, dict[str, str]] = {
     "btn.build_without_photos": {"ru": "Собрать без кадров", "en": "Build without photos"},
     "btn.edit": {"ru": "Поправить запись", "en": "Edit a record"},
     "btn.resume": {"ru": "Продолжить проверку", "en": "Continue the inspection"},
+    "btn.version_sync": {
+        "ru": "Перевести на действующую методику",
+        "en": "Move to the current methodology",
+    },
+    "btn.version_keep": {
+        "ru": "Оставить как есть, разберусь с методикой",
+        "en": "Leave it, I will sort the methodology out",
+    },
 }
 
 

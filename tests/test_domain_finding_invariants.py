@@ -31,7 +31,7 @@ from src.domain.errors import EngineError, InspectionNotStarted, ValidationError
 def начать(chat_id: int = 42, **kw: str) -> Inspection:
     params: dict[str, str] = {
         "unit": "Белград-1",
-        "kind": "Плановая",
+        "kind": "planned",
         "report_lang": "ru",
     }
     params.update(kw)

@@ -52,7 +52,7 @@ def _проверка(
     находок: int = 1,
 ) -> str:
     """Завершённая проверка нужного арендатора через официальный контракт домена."""
-    start_inspection(chat_id, unit=точка, kind="Плановая", report_lang="ru", tenant=арендатор)
+    start_inspection(chat_id, unit=точка, kind="planned", report_lang="ru", tenant=арендатор)
     for номер in range(находок):
         add_finding(chat_id, code="CLN05", level="D1", zone=ЗОНЫ[номер], text=текст)
     return push_inspection(chat_id)
@@ -189,7 +189,7 @@ insert into inspections (
     ui_lang, speech_lang, checklist_version, pct, grade, source_fingerprint
 )
 select
-    %(tenant)s, т.id, 1, 'Плановая', date '2026-01-01' + g, 'ru',
+    %(tenant)s, т.id, 1, 'planned', date '2026-01-01' + g, 'ru',
     'ru', 'ru', 'v1', 97.5, 'A', %(tenant)s || '-' || g
 from generate_series(1, %(сколько)s) g
 join точки т on т.ном = g %% %(точек)s
