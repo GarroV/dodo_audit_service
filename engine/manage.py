@@ -36,7 +36,7 @@ import argparse, csv, json, os, re, shutil, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from audit import (  # noqa: E402
-    ZONE_SHARE_TOLERANCE, ZONE_SHARE_TOTAL, active_dir, data_path, load_zones,
+    ZONE_SHARE_TOLERANCE, ZONE_SHARE_TOTAL, active_dir, data_path, is_comment_row, load_zones,
 )
 
 PLUGIN_DATA = os.path.normpath(os.path.join(HERE, os.pardir, "data"))
@@ -420,7 +420,13 @@ def zone_problems(zrows):
 
 def cmd_validate(a):
     problems = []
-    rows = read_rows()
+    # Строки-комментарии — заявленная возможность чтения (`is_comment_row`), а
+    # не поломка. Проверка знала о ней меньше движка и объявляла комментарий
+    # строкой без вида записи: пометку в методике оставить было нельзя, хотя
+    # движок такую строку молча пропускал. Трактовка теперь одна на оба места —
+    # запрети её здесь, и комментарии перестанут работать там, где работают
+    # сегодня (T168).
+    rows = [r for r in read_rows() if not is_comment_row(r.get("id"))]
     zrows = zone_rows_raw()
     zc = {(r.get("code") or "").strip() for r in zrows}
     seen = set()

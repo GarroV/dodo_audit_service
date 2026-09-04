@@ -67,6 +67,19 @@ def data_path(name):
     return os.path.normpath(os.path.join(DATA, name))
 
 
+#: Строка методики, которую движок пропускает намеренно: `id` начинается с
+#: решётки. Так в `checklist.csv` оставляют пометки — «набор иллюстративный»,
+#: «дальше пошёл склад». Правило живёт в одной функции на весь движок: своя
+#: трактовка у `manage.py validate` уже разошлась с этой и объявляла
+#: комментарий сломанной строкой (T168).
+COMMENT_PREFIX = "#"
+
+
+def is_comment_row(qid):
+    """Строка-комментарий чек-листа: `id` начинается с решётки."""
+    return str(qid or "").strip().startswith(COMMENT_PREFIX)
+
+
 def load_checklist():
     """Вопросы чек-листа. Дубль id и нечитаемый срок устранения — отказ, не подмена.
 
@@ -88,7 +101,7 @@ def load_checklist():
     out = []
     for n, r in enumerate(rows, start=2):
         qid = (r.get("id") or "").strip()
-        if not qid or qid.startswith("#"):
+        if not qid or is_comment_row(qid):
             continue
         if qid in seen:
             sys.exit(
