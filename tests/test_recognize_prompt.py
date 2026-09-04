@@ -82,10 +82,10 @@ def test_боевые_ошибки_остаются_в_тексте_правил
 
 
 def test_instructions_содержит_правила_и_пороги_классов() -> None:
-    text = instructions("PRD09 D1 менее 4 упаковок")
+    text = instructions("PRD09 D1 порог из набора тестов")
 
     assert "ПРАВИЛА ФИКСАЦИИ" in text
-    assert "PRD09 D1 менее 4 упаковок" in text
+    assert "PRD09 D1 порог из набора тестов" in text
     assert rules_text() in text
 
 

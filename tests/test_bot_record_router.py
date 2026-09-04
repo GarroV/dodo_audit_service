@@ -342,7 +342,7 @@ async def test_model_outage_falls_back_to_manual_pick(
     """Недоступная модель не останавливает проверку: пункт выбирается кнопками (T034)."""
     started()
     stub_classify(monkeypatch, ModelUnavailable("таймаут"))
-    stub_manual(monkeypatch, (manual("CLN05", ("D1",), "Печь без загрязнений"),))
+    stub_manual(monkeypatch, (manual("CLN05", ("D1",), "Пункт синтетического набора"),))
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -437,7 +437,7 @@ async def test_empty_answer_opens_the_manual_list(
     """Пустой ответ модели — валидный: бот переспрашивает человека, а не выдумывает."""
     started()
     stub_classify(monkeypatch, suggestion(question="Что именно на кадре загрязнено?"))
-    stub_manual(monkeypatch, (manual("CLN05", ("D1",), "Печь без загрязнений"),))
+    stub_manual(monkeypatch, (manual("CLN05", ("D1",), "Пункт синтетического набора"),))
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
