@@ -221,6 +221,30 @@ async def _open_manual(
     await _show_manual_page(message, ready, 0, lang)
 
 
+def _model_suggestion(proposal: Proposal) -> domain.Suggestion | None:
+    """Что предложила МОДЕЛЬ по этому материалу (D077, T181).
+
+    Берётся ПЕРВЫЙ кандидат, а не тот, который аудитор нажал. Разница здесь и
+    есть весь смысл задачи: запиши мы нажатую кнопку, предложенная и итоговая
+    тройки совпадали бы всегда, и «модель предложила одно, аудитор поправил на
+    другое» перестало бы существовать как явление. Выбор второго кандидата —
+    это и есть правка, ради которой сигнал собирается.
+
+    Пустая зона приводится к `UNKNOWN`: у модели это осмысленный ОТВЕТ — «из
+    слов аудитора места не видно», — а пустая строка уехала бы в базу как
+    `NULL`, то есть как «модель промолчала», рядом с названным пунктом.
+    """
+    top = proposal.candidates[0] if proposal.candidates else None
+    if top is None:
+        return None
+    return domain.Suggestion(
+        code=top.code,
+        level=top.level,
+        zone=top.zone or UNKNOWN_ZONE,
+        confidence=top.confidence,
+    )
+
+
 async def _try_fast(
     message: Message, chat_id: int, base: Proposal, pending: PendingStore, lang: str
 ) -> bool:
@@ -270,6 +294,13 @@ async def _try_fast(
         lang=lang,
         auto=item,
         zone_guessed=not base.zone_spoken,
+        # Быстрый путь — это и есть тот список терминов, который владелец просил
+        # пополнять (D077). Промах здесь опаснее всего: подтверждения у него нет
+        # (D064), и увидеть его можно только правкой записи следом. Уверенности
+        # у сверки нет вовсе — строгий критерий либо сходится, либо нет, — и
+        # ноль вместо неё был бы ложью: «система ни в чём не уверена» это
+        # осмысленное утверждение, и по нему ставят порог отбора.
+        suggested=domain.Suggestion(code=item.code, level=item.level, zone=item.zone),
     )
     if not saved:
         return False
@@ -360,6 +391,7 @@ async def _save(
     lang: str,
     auto: FastItem | None = None,
     zone_guessed: bool = False,
+    suggested: domain.Suggestion | None = None,
 ) -> bool:
     """Зафиксировать запись и показать её (T055, T121).
 
@@ -378,6 +410,14 @@ async def _save(
     Комментарий аудитора в запись не пишется намеренно: поле `comment` движок
     печатает в отчёте партнёру, а сказанное вслух на точке для партнёра не
     предназначено. В отчёт идёт формулировка, собранная по правилам фиксации.
+
+    `suggested` — что система предложила ДО нажатия (D077, T181). Передаётся
+    здесь и только здесь: это единственный момент, когда предложение и запись
+    существуют одновременно. Предложения живут в `pending`, то есть в памяти
+    процесса, и после перезапуска взять их будет неоткуда — сигнал о промахе
+    терялся бы целиком, как терялся до этой задачи. Пусто — предложения не было
+    (ручной перечень); домен запишет это как «система не предлагала ничего», и
+    в базе такая запись не выглядит попаданием модели.
     """
     # Движок вызывается подпроцессом, и это 27 мс на вызов. В цикле событий
     # такой вызов останавливает бота ЦЕЛИКОМ — он не обслуживает ни других
@@ -385,7 +425,14 @@ async def _save(
     # 47 мс, и очередь росла линейно — двадцать аудиторов, секунда последнему).
     try:
         finding = await asyncio.to_thread(
-            domain.add_finding, chat_id, code, level, zone, text, source=source
+            domain.add_finding,
+            chat_id,
+            code,
+            level,
+            zone,
+            text,
+            source=source,
+            suggested=suggested,
         )
     except DomainError as exc:
         # Отказ движка разбирается, а не пересказывается (T127): пункт и зона
@@ -553,6 +600,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
                 and bool(proposal.zone_hint)
                 and candidate.zone == proposal.zone_hint
             ),
+            suggested=_model_suggestion(proposal),
         ):
             pending.take_proposal(chat_id)
 
@@ -579,6 +627,10 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             file_ids=proposal.file_ids,
             source=proposal.source,
             lang=lang,
+            # Зону назвал человек кнопкой, а в предложении остаётся ответ
+            # модели — `UNKNOWN`. Подставить сюда выбранную зону значило бы
+            # спрятать её отказ и превратить промах в попадание.
+            suggested=_model_suggestion(proposal),
         ):
             pending.take_proposal(chat_id)
 
@@ -658,6 +710,13 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             # а не зону: пометка нужна здесь ровно по тому же правилу (T156).
             # Назвал зону сам — кнопкой или словами — `zone_spoken` уже стоит.
             zone_guessed=not proposal.zone_spoken,
+            # Предложения здесь нет и быть не может: ручной перечень
+            # показывается ровно тогда, когда модель не ответила ничего —
+            # недоступна или вернула пустой список. Записать предложением
+            # выбранный человеком пункт значило бы утопить настоящие промахи в
+            # выборке для управляющей компании: ручных записей на порядок
+            # больше, и все они выглядели бы попаданием модели (D077).
+            suggested=None,
         ):
             pending.take_proposal(chat_id)
 
