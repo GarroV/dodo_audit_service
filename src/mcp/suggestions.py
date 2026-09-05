@@ -26,7 +26,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..db.models import FindingRow
@@ -136,15 +136,10 @@ class _Bucket:
     """Копилка одной пары «предложено → записано»."""
 
     count: int = 0
-    units: set[str] = None  # type: ignore[assignment]
-    codes: set[str] = None  # type: ignore[assignment]
-    known: list[float] = None  # type: ignore[assignment]
+    units: set[str] = field(default_factory=set)
+    codes: set[str] = field(default_factory=set)
+    known: list[float] = field(default_factory=list)
     unknown: int = 0
-
-    def __post_init__(self) -> None:
-        self.units = set()
-        self.codes = set()
-        self.known = []
 
     def add(self, row: FindingRow) -> None:
         self.count += 1
