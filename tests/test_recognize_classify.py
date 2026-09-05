@@ -52,23 +52,22 @@ def _patch(monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> None:
 # --- needs_photo ------------------------------------------------------------
 
 
-def test_пустой_комментарий_всегда_требует_кадр(domain_env: Path) -> None:
-    assert needs_photo("", ()) is True
-    assert needs_photo("   ", ("CLN05",)) is True
+def test_кадр_нужен_только_когда_слов_нет_вовсе(domain_env: Path) -> None:
+    """Решение владельца D081: есть комментарий — разбираем комментарий."""
+    assert needs_photo("") is True
+    assert needs_photo("   ") is True
 
 
-def test_несколько_подсказок_требуют_кадр(domain_env: Path) -> None:
-    assert needs_photo("грязно", ("CLN05", "CLN06")) is True
+def test_любой_комментарий_отменяет_кадр(domain_env: Path) -> None:
+    """Ни число поднятых пунктов, ни выбор класса на это больше не влияют.
 
-
-def test_одна_подсказка_с_единственным_классом_кадр_не_нужен(domain_env: Path) -> None:
-    # CLN05 — единственный допустимый класс методики (tests/methodology/checklist.csv)
-    assert needs_photo("печь грязная", ("CLN05",)) is False
-
-
-def test_одна_подсказка_с_выбором_класса_требует_кадр(domain_env: Path) -> None:
-    # PRD09 — пункт с выбором класса (D1/D2/D3): кадр разрешает спор
-    assert needs_photo("нет маркировки", ("PRD09",)) is True
+    До D081 кадр не отправлялся ровно в одном случае из семнадцати боевых —
+    когда карта слов поднимала один пункт с единственным классом. Владелец
+    развилку снял: «фото с комментм - обрабатываем коммент».
+    """
+    assert needs_photo("грязно") is False  # много пунктов — раньше кадр уходил
+    assert needs_photo("печь грязная") is False  # один пункт с одним классом
+    assert needs_photo("нет маркировки") is False  # один пункт, выбор класса
 
 
 # --- classify: разбор ответа -------------------------------------------------
@@ -379,12 +378,13 @@ def test_без_кадра_и_без_комментария_модель_всё_
     assert recorder.last["photo"] is None
 
 
-def test_однозначный_комментарий_с_кадром_кадр_не_смотрят(
+def test_комментарий_с_кадром_разбирается_по_комментарию(
     domain_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Arrange: карта кадров подняла один код с одним классом — кадру
-    # нечего добавить (`needs_photo` — экономия токенов, см. classify.py).
-    # «короб с мукой не закрыт» → ровно PRD12, у него единственный класс D1.
+    # Arrange: комментарий есть — значит разбирается он, а кадр в запрос не
+    # уходит (D081). До этого решения кадр не отправлялся только при одном
+    # поднятом пункте с единственным классом; здесь как раз такой случай —
+    # «короб с мукой не закрыт» → ровно PRD12 с единственным классом D1.
     recorder = _Recorder(
         {
             "records": [
@@ -404,6 +404,28 @@ def test_однозначный_комментарий_с_кадром_кадр_
 
     # Act
     s = classify("короб с мукой не закрыт", photo=b"jpeg-bytes", zone_hint="hot_kitchen")
+
+    # Assert
+    assert s.used_photo is False
+    assert recorder.last["photo"] is None
+
+
+def test_неоднозначный_комментарий_с_кадром_тоже_разбирается_по_комментарию(
+    domain_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Случай, из-за которого кадр уходил в модель в 16 боевых записях из 17.
+
+    Слово поднимает несколько пунктов — раньше это и было основанием
+    отправить картинку («поймать расхождение слов с изображением»). Владелец
+    развилку снял решением D081: разбирается комментарий.
+    """
+    # Arrange
+    recorder = _Recorder({"records": [], "question": ""})
+    _patch(monkeypatch, recorder)
+    assert len(shortlist("грязно", "hot_kitchen").cue_hits) != 1
+
+    # Act
+    s = classify("грязно", photo=b"jpeg-bytes", zone_hint="hot_kitchen")
 
     # Assert
     assert s.used_photo is False

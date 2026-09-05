@@ -119,6 +119,10 @@ not_changed(chat_id, n, *, code, zone, lang, exc) -> Refusal
 
 build_start_router(settings, pending=None) -> Router  # T050, T051, T052, T063
 build_material_router(*, store, albums, on_material, on_waiting=..., album_window=...) -> Router
+# T202: кадр с комментарием в модель не уходит и даже не скачивается у
+# телеграма — разбирается комментарий (D081). Кадр без комментария
+# разбирается кадром, как и раньше, по кнопке «Разобрать». Решает не бот:
+# правило живёт одним местом в `recognize.needs_photo(note)`
 build_record_router(*, store, pending) -> Router  # T055, T057, T067, T181, T183
 # T183: вместе с записью в домен уходят СЫРЫЕ СЛОВА аудитора — `add_finding(...,
 # words=...)`. Словами считается весь его материал об этом кадре, каким он

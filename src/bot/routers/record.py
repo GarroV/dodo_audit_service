@@ -8,6 +8,14 @@
 сильнее догадки по картинке. Это не таймер и не окно ожидания (те были в
 отменённом D045), а явное действие.
 
+**Есть комментарий — разбирается комментарий, кадр в модель не уходит** (D081,
+задача T202). Владелец, дословно: «фото с комментм - обрабатываем коммент. фото
+без коммента - разбираем фотку, возвращаем то что мы вычитали». Два потока, а не
+два источника одного разбора. Кадр без комментария по-прежнему разбирается сам
+собой только по кнопке (D046, выше). Правило живёт одним местом —
+`recognize.needs_photo(note)`, — и здесь оно спрашивается, а не повторяется: две
+копии одного правила разошлись бы, и увидел бы это счёт за токены, а не человек.
+
 **Запись ПО РАЗБОРУ появляется только после подтверждения** (задача T055,
 принцип 3 конституции «модель предлагает, фиксирует человек»). Кандидаты
 показываются кнопками, и по ним `add_finding` зовётся из обработчика нажатия.
@@ -56,7 +64,7 @@ from aiogram.types import CallbackQuery, Message
 
 from src import domain
 from src.domain.errors import DomainError
-from src.recognize.classify import classify
+from src.recognize.classify import classify, needs_photo
 from src.recognize.errors import ModelUnavailable, RecognizeError
 from src.recognize.fastpath import FastItem, fast_path
 from src.recognize.manual import manual_candidates
@@ -343,9 +351,11 @@ async def _analyze(
 ) -> None:
     """Сверить со списком нарушений, а если не сошлось — спросить разбор.
 
-    Кадр в запрос кладёт `recognize`, а не бот: он один знает, неоднозначен ли
-    комментарий. Здесь кадр только скачивается — байты нужны и для разбора
-    голого кадра по «Разобрать», и для случая, когда слов не хватило.
+    Есть комментарий — разбирается комментарий, и кадр не уходит в модель
+    (D081, T202). Скачивания у телеграма тогда тоже не происходит: байты,
+    которые никуда не поедут, стоили бы запроса к телеграму на каждый
+    прокомментированный кадр. Правило одно на продукт и живёт в `recognize`
+    (`needs_photo`) — бот его не повторяет своими словами, а спрашивает.
 
     `fast=False` приходит с кнопки «Разобрать моделью»: второй заход обязан
     дойти до модели, иначе кнопка возвращала бы тот же быстрый ответ по кругу.
@@ -368,7 +378,11 @@ async def _analyze(
         return
 
     bot = message.bot
-    photo = await fetch_bytes(bot, file_ids[0]) if bot is not None and file_ids else None
+    photo = (
+        await fetch_bytes(bot, file_ids[0])
+        if needs_photo(note) and bot is not None and file_ids
+        else None
+    )
 
     await message.answer(t("record.thinking", lang))
     try:
