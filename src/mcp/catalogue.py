@@ -928,6 +928,13 @@ TOOLS: tuple[ToolSpec, ...] = (
                         "misses of all."
                     ),
                 },
+                # Not _LIMIT_PROPERTY: that one caps rows of a flat
+                # inspection list and rejects a value above the server's own
+                # ceiling (`src.db.queries.MAX_LIMIT`) outright. This limit
+                # caps miss patterns *per group* of a grouped answer, and a
+                # cut-off here is signalled through the 'truncated' field,
+                # not a rejection — reusing the same property would have
+                # attached the wrong behaviour's wording to this one.
                 "limit": {
                     "type": "integer",
                     "minimum": 1,
