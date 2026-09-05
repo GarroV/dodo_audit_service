@@ -25,6 +25,15 @@
 проверки бесследно исчез бы список кадров, а задача T068 существует ровно
 затем, чтобы кадры не терялись молча. Поэтому любая нечитаемая или неполная
 форма поднимает `BotNotesError`, а не подменяется пустыми заметками.
+
+По той же причине заметки пишутся под блокировкой (T155). Каждое изменение
+здесь — «прочитать, дополнить, положить обратно», и два писателя внахлёст
+читают одну основу: положивший вторым стирает чужое дополнение. Молча — то
+есть теми самыми кадрами, которые T068 обязана не терять (замерено: три
+процесса по двадцать кадров дали 36 записанных из 60). Раньше на этом месте
+стояло допущение «двух писателей здесь не бывает, обновления идут строго
+последовательно»; его снимают перекрытие при перезапуске и вторая копия
+сервиса, а файл проверки в этой же папке от того же случая защищён.
 """
 
 from __future__ import annotations
@@ -32,13 +41,16 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Container, Iterable
+from collections.abc import Callable, Container, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from src.domain import check_environment
 from src.domain.engine import chat_dir
+from src.domain.errors import DomainError
+from src.domain.state import state_lock
 
 from .errors import BotNotesError
 
@@ -154,9 +166,9 @@ def handed_over(chat_id: int, findings: int) -> bool:
 def _write(chat_id: int, notes: Notes) -> None:
     """Временный файл рядом, `os.replace` — та же схема, что у движка (`domain/state.py`).
 
-    Обновления бота идут строго последовательно (`handle_as_tasks=False`),
-    поэтому блокировка не нужна: конкурентной записи в один файл заметок
-    здесь не бывает, в отличие от `inspection.json`, куда пишет ещё и движок.
+    Зовётся только из-под `_change`: `os.replace` спасает читателя от
+    обрезанного файла, но не спасает от потерянного дополнения — для этого
+    нужна блокировка вокруг всей тройки «прочитать, дополнить, записать».
     """
     path = notes_path(chat_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -176,9 +188,44 @@ def _write(chat_id: int, notes: Notes) -> None:
         raise
 
 
+@contextmanager
+def _lock(chat_id: int) -> Iterator[None]:
+    """Замок заметок: `bot.json.lock` рядом, тем же `flock`, что и у проверки.
+
+    Берётся `domain.state.state_lock` — второй экземпляр протокола разошёлся бы
+    с первым, а опознаётся блокировка по имени файла, а не по коду. Отказ
+    приводится к своему типу: чей это контракт, читатель кода должен видеть по
+    типу исключения.
+    """
+    try:
+        with state_lock(notes_path(chat_id)):
+            yield
+    except DomainError as exc:
+        raise BotNotesError(f"Заметки бота заняты другим процессом: {notes_path(chat_id)}") from exc
+
+
+def _change(chat_id: int, изменение: Callable[[Notes], Notes | None]) -> None:
+    """Прочитать, дополнить и записать — целиком под замком.
+
+    Именно тройка целиком, а не одна запись: основа, прочитанная до чужой
+    записи, дополняется и кладётся поверх неё, и чужое дополнение исчезает
+    молча. `None` от `изменение` означает «писать нечего».
+    """
+    with _lock(chat_id):
+        новые = изменение(read(chat_id))
+        if новые is not None:
+            _write(chat_id, новые)
+
+
 def reset(chat_id: int) -> None:
-    """Начата новая проверка — заметки с нуля. Файла не было — тоже нормальный исход."""
-    notes_path(chat_id).unlink(missing_ok=True)
+    """Начата новая проверка — заметки с нуля. Файла не было — тоже нормальный исход.
+
+    Тоже под замком: снятие файла в обход его позволило бы писателю, уже
+    прочитавшему старую основу, положить её обратно — и кадры прошлой проверки
+    воскресли бы в новой.
+    """
+    with _lock(chat_id):
+        notes_path(chat_id).unlink(missing_ok=True)
 
 
 def remember_frames(chat_id: int, frames: Iterable[SeenFrame]) -> None:
@@ -187,23 +234,25 @@ def remember_frames(chat_id: int, frames: Iterable[SeenFrame]) -> None:
     Дедуп идёт и против уже сохранённых кадров, и внутри самого добавляемого
     пакета — иначе повтор `file_id` в одном вызове проскочил бы мимо проверки.
     """
-    notes = read(chat_id)
-    seen = {f.file_id for f in notes.frames}
-    additions: list[SeenFrame] = []
-    for frame in frames:
-        if frame.file_id in seen:
-            continue
-        seen.add(frame.file_id)
-        additions.append(frame)
-    if not additions:
-        return
-    _write(chat_id, replace(notes, frames=notes.frames + tuple(additions)))
+
+    def дополнить(notes: Notes) -> Notes | None:
+        seen = {f.file_id for f in notes.frames}
+        additions: list[SeenFrame] = []
+        for frame in frames:
+            if frame.file_id in seen:
+                continue
+            seen.add(frame.file_id)
+            additions.append(frame)
+        if not additions:
+            return None
+        return replace(notes, frames=notes.frames + tuple(additions))
+
+    _change(chat_id, дополнить)
 
 
 def remember_zone(chat_id: int, zone: str) -> None:
     """Запомнить последнюю названную зону. Пустая строка стирает память о ней."""
-    notes = read(chat_id)
-    _write(chat_id, replace(notes, zone=zone))
+    _change(chat_id, lambda notes: replace(notes, zone=zone))
 
 
 def mark_handed_over(chat_id: int, findings: int) -> None:
@@ -212,8 +261,7 @@ def mark_handed_over(chat_id: int, findings: int) -> None:
     Зовётся ПОСЛЕ того, как PDF действительно ушёл в чат, а не по нажатию
     кнопки: сданной проверку делает отданный отчёт, а не намерение его собрать.
     """
-    notes = read(chat_id)
-    _write(chat_id, replace(notes, handed_over_findings=findings))
+    _change(chat_id, lambda notes: replace(notes, handed_over_findings=findings))
 
 
 def unclaimed(chat_id: int, used: Container[str]) -> tuple[SeenFrame, ...]:
