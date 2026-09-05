@@ -93,3 +93,20 @@ def test_другая_оценка_меняет_отпечаток() -> None:
     базовый = compute_fingerprint(_inspection(), _score(), tenant_code="default")
     другой = compute_fingerprint(_inspection(), _score(pct=50.0, grade="C"), tenant_code="default")
     assert базовый != другой
+
+
+def test_источник_записи_не_влияет_на_отпечаток() -> None:
+    """Откуда взялась запись — обстоятельство фиксации, а не содержимое (#158).
+
+    Тем же доводом из отпечатка исключены сырые слова аудитора и предложение
+    модели: партнёру уходит документ, и «со слов» против «по кадру» в нём не
+    печатается ни строкой. Оставшись в отпечатке, источник делал бы две
+    одинаковые для читателя проверки разными строками истории точки.
+    """
+    со_слов = compute_fingerprint(
+        _inspection(findings=[_finding(source="comment")]), _score(), tenant_code="default"
+    )
+    по_кадру = compute_fingerprint(
+        _inspection(findings=[_finding(source="photo")]), _score(), tenant_code="default"
+    )
+    assert со_слов == по_кадру

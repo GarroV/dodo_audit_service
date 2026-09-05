@@ -29,7 +29,7 @@ from src.domain.models import Finding, Inspection, Score
 from .config import check_environment
 from .directory import resolve_unit_id
 from .errors import PushError, VersionMismatchError
-from .fingerprint import compute_fingerprint
+from .fingerprint import compute_fingerprint, previous_fingerprints
 from .units import normalize_unit_name
 
 #: Арендатор по умолчанию, пока в проверке своего не задано. Совпадает со
@@ -233,6 +233,19 @@ def _push(conn: psycopg.Connection[Any], inspection: Inspection, result: Score) 
     inspection_date = _parse_date(inspection.date, chat_id=inspection.chat_id)
 
     with conn.cursor() as cur:
+        # Прежде всего — не лежит ли проверка в базе под ОТПЕЧАТКОМ ПРЕЖНЕГО
+        # РЕЦЕПТА (T193). Рецепт менялся, и слитая до этого проверка по
+        # текущему отпечатку не находится: без этой сверки повторный слив
+        # положил бы её второй строкой в историю точки, а разделить их обратно
+        # уже нечем — запечатанная проверка не правится и не удаляется
+        # (миграция `0004`). Сверка стоит до любой записи намеренно: у слива,
+        # который ничего не сливает, не должно оставаться следов вовсе.
+        for legacy in previous_fingerprints(inspection, result, tenant_code=tenant_code):
+            cur.execute(_SELECT_BY_FINGERPRINT_SQL, (legacy,))
+            row = cur.fetchone()
+            if row is not None:
+                return str(row[0])
+
         cur.execute(_INSERT_TENANT_SQL, (tenant_code,))
         # Сначала справочник и карта синонимов (T092): «БГ2», введённое на
         # бегу, обязано лечь в ту же точку, что «Белград 2», — иначе у одной
