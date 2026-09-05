@@ -222,10 +222,22 @@ async def warn_untranslated(message: Message, inspection: domain.Inspection, lan
 
     Читается методика с диска, поэтому вызов уходит в поток — как и остальные
     обращения к ней из разговора.
+
+    Собственный отказ этой проверки ничего за собой не роняет — по той же
+    причине, по которой её не делают отказом: за ней стоят письмо партнёру и
+    слив в историю (T123), и уронить их из-за непрочитанной методики было бы
+    хуже, чем не прочитать её. Цена известна и названа: предупреждения не
+    будет, причина — в журнале.
     """
     codes = {finding.code for finding in inspection.findings}
     zones = {finding.zone for finding in inspection.findings}
-    found = await asyncio.to_thread(untranslated, inspection.report_lang, codes=codes, zones=zones)
+    try:
+        found = await asyncio.to_thread(
+            untranslated, inspection.report_lang, codes=codes, zones=zones
+        )
+    except (DomainError, OSError):
+        logger.exception("язык методики не проверен для чата %s", message.chat.id)
+        return
     if not found:
         return
     logger.warning(

@@ -50,6 +50,7 @@ from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.texts import t
 from src.domain import add_finding, start_inspection
+from src.domain.errors import ConfigError
 from src.domain.translation import is_foreign, untranslated
 
 SETTINGS = BotSettings(token="unused-in-tests", allowed_ids=frozenset({AUDITOR_ID}), mode="polling")
@@ -203,3 +204,32 @@ async def test_на_русском_отчёте_предупреждения_н�
     head = t("finish.untranslated", "ru", lang="?", codes="?").split("(")[0]
     shown = [text for text in session.texts if text.startswith(head)]
     assert not shown, f"предупреждение показано там, где печатать нечего: {shown}"
+
+
+@pytest.mark.asyncio
+async def test_отказ_самой_проверки_не_роняет_сдачу(
+    untranslated_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """За предупреждением стоят письмо партнёру и слив в историю (T123).
+
+    Проверка языка методики читает диск и вправе отказать. Уронить этим уже
+    начатую сдачу нельзя: отчёт у аудитора в руках, а письма он бы не получил.
+    """
+    start_inspection(CHAT_ID, "Демо", "planned", "en")
+    add_finding(CHAT_ID, BROKEN_CODE, BROKEN_LEVEL, BROKEN_ZONE, "Наблюдение аудитора")
+
+    def сломано(*_args: object, **_kw: object) -> tuple[object, ...]:
+        raise ConfigError("методика исчезла между сборкой отчёта и проверкой языка")
+
+    monkeypatch.setattr("src.bot.routers.finish.untranslated", сломано)
+
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+    await feed(dp, bot, text_message("/finish"))
+    await build_report(dp, bot)
+
+    assert session.documents, "отчёт не отдан — отказ проверки языка уронил сдачу"
+    letter = t("finish.letter", "ru", letter="")
+    assert [text for text in session.texts if text.startswith(letter.strip())], (
+        f"письмо партнёру не дошло: разговор оборвался на проверке языка: {session.texts[-2:]}"
+    )
