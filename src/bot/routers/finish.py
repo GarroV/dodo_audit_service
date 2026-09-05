@@ -36,6 +36,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from src import db, domain
 from src.domain.errors import ChecklistVersionMismatch, DomainError
+from src.domain.translation import untranslated
 from src.report import PhotoMissing, ReportError, build_letter, build_pdf
 
 from .. import sidecar, view
@@ -206,6 +207,55 @@ async def archive(
         await message.answer(t("finish.photos_not_archived", lang))
 
 
+async def warn_untranslated(message: Message, inspection: domain.Inspection, lang: str) -> None:
+    """Сказать, что часть отчёта напечатана не на языке отчёта (T186, задача #153).
+
+    Отчёт к этому моменту уже у аудитора, и это не оплошность порядка. Отказ
+    здесь означал бы, что человек уезжает с точки без документа из-за
+    непереведённого справочного поля: ошибка не его, править данные управляющей
+    компании он не может, а партнёру нужен отчёт. Молча же печатать чужой язык
+    нельзя — партнёр заметит это первым и будет прав.
+
+    В чат идут коды: они не переводятся, и именно с ними идут в управляющую
+    компанию. Сами значения полей — в журнал стенда: аудитору на точке они
+    ничего не решают, а тому, кто понесёт правку, нужны дословно.
+
+    Читается методика с диска, поэтому вызов уходит в поток — как и остальные
+    обращения к ней из разговора.
+
+    Собственный отказ этой проверки ничего за собой не роняет — по той же
+    причине, по которой её не делают отказом: за ней стоят письмо партнёру и
+    слив в историю (T123), и уронить их из-за непрочитанной методики было бы
+    хуже, чем не прочитать её. Цена известна и названа: предупреждения не
+    будет, причина — в журнале.
+    """
+    codes = {finding.code for finding in inspection.findings}
+    zones = {finding.zone for finding in inspection.findings}
+    try:
+        found = await asyncio.to_thread(
+            untranslated, inspection.report_lang, codes=codes, zones=zones
+        )
+    except (DomainError, OSError):
+        logger.exception("язык методики не проверен для чата %s", message.chat.id)
+        return
+    if not found:
+        return
+    logger.warning(
+        "методика не переведена на язык отчёта %s (чат %s): %s",
+        inspection.report_lang,
+        message.chat.id,
+        "; ".join(f"{one.code}.{one.field} = «{one.text}»" for one in found),
+    )
+    await message.answer(
+        t(
+            "finish.untranslated",
+            lang,
+            lang=inspection.report_lang,
+            codes=", ".join(dict.fromkeys(one.code for one in found)),
+        )
+    )
+
+
 async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: bool) -> None:
     """Собрать отчёт и письмо, отдать их в чат и записать проверку в историю.
 
@@ -257,6 +307,9 @@ async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: b
             return
 
         await message.answer_document(FSInputFile(pdf))
+        # Сразу под документом, а не до сборки: предупреждение говорит о том,
+        # что в этом самом файле напечатано, и читается вместе с ним.
+        await warn_untranslated(message, inspection, lang)
         # Отчёт у аудитора — с этой секунды проверка сдана (T153). Отмечается
         # именно отдача документа, а не нажатие кнопки: несобравшийся отчёт
         # сданной проверку не делает.
