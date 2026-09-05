@@ -191,8 +191,14 @@ def photo_message(
     user_id: int = AUDITOR_ID,
     chat_id: int = CHAT_ID,
     message_id: int | None = None,
+    reply_to: Message | None = None,
 ) -> Message:
-    """Кадр так, как его присылает Telegram: несколько размеров, крупный последним."""
+    """Кадр так, как его присылает Telegram: несколько размеров, крупный последним.
+
+    `reply_to` — кадр, присланный ОТВЕТОМ (T205). Отвечают им и на своё же
+    голосовое, и на чужое сообщение, и разница между этими случаями — весь
+    смысл задачи, поэтому цель ответа задаётся сообщением целиком, а не флагом.
+    """
     sizes = [
         PhotoSize(file_id=f"{file_id}-small", file_unique_id=f"{file_id}-s", width=90, height=60),
         PhotoSize(file_id=file_id, file_unique_id=f"{file_id}-l", width=1280, height=960),
@@ -205,6 +211,7 @@ def photo_message(
         photo=sizes,
         caption=caption,
         media_group_id=media_group_id,
+        reply_to_message=reply_to,
     )
 
 
@@ -247,12 +254,20 @@ def callback_query(
     chat_id: int = CHAT_ID,
     full_name: str = "Владимир Гарро",
     with_message: bool = True,
+    message_id: int | None = None,
 ) -> CallbackQuery:
     """Нажатие на кнопку.
 
     `with_message=False` — настоящий случай телеграма, а не выдумка теста: у
     нажатия нет сообщения, если оно старше 48 часов или пришло из инлайн-режима.
     Бот тогда не знает, в какой чат отвечать, и обязан промолчать, а не упасть.
+
+    `message_id` — номер того сообщения БОТА, под которым стоит кнопка
+    (`RecordingSession.sent_ids`). Нужен там, где предложений в чате несколько
+    разом (пачка кадров, T206): адресность нажатия и есть смысл задачи, а без
+    номера тест нажимал бы «какую-нибудь» кнопку и зеленел бы на боте, который
+    записывает не тот кадр. Не указан — телеграм присылает сообщение, о котором
+    бот ничего не знает, и это тоже настоящий случай: перезапуск, чужая кнопка.
     """
     return CallbackQuery(
         id=f"cb-{next_message_id()}",
@@ -260,7 +275,7 @@ def callback_query(
         chat_instance="chat-instance",
         data=data,
         message=Message(
-            message_id=next_message_id(),
+            message_id=next_message_id() if message_id is None else message_id,
             date=datetime.now(tz=timezone.utc),
             chat=Chat(id=chat_id, type="private"),
         )
