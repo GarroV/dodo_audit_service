@@ -27,7 +27,7 @@ import pytest
 from mcp_checklist_harness import build_methodology
 
 from src.mcp import checklist as store_api
-from src.mcp.checklist import Store, apply_change, read_journal, versions
+from src.mcp.checklist import ENGINE_ATTEMPTS, Store, apply_change, read_journal, versions
 from src.mcp.errors import ChecklistError
 
 АРЕНДАТОР = "укашка"
@@ -39,6 +39,54 @@ from src.mcp.errors import ChecklistError
 УБИТЫЙ = "import os, signal\nos.kill(os.getpid(), signal.SIGKILL)\n"
 ЗАВИСШИЙ = "import time\ntime.sleep(30)\n"
 МОЛЧАЛИВЫЙ = "import sys\nsys.exit(3)\n"
+
+
+#: Что печатает интерпретатор питона, умерший ДО первой строки скрипта. Это и
+#: есть настоящая причина T187, пойманная полным прогоном на машине под
+#: нагрузкой (load average 609 на 10 ядрах): под нагрузкой системный вызов на
+#: старте интерпретатора прерывается сигналом, `getpath` получает
+#: `InterruptedError: [Errno 4] Interrupted system call`, и процесс умирает,
+#: не выполнив ни строки движка. Хранилище читало это как «движок вашу
+#: методику не принял».
+СТАРТ_НЕ_СОСТОЯЛСЯ = (
+    "import sys\n"
+    'print("Exception ignored error evaluating path:", file=sys.stderr)\n'
+    'print("InterruptedError: [Errno 4] Interrupted system call", file=sys.stderr)\n'
+    'print("Fatal Python error: error evaluating path", file=sys.stderr)\n'
+    'print("Python runtime state: core initialized", file=sys.stderr)\n'
+    "sys.exit(1)\n"
+)
+
+#: Тот же фатальный отказ рантайма, но УЖЕ ПОСЛЕ инициализации: строки движка
+#: могли выполниться, и повторять такой запуск нельзя — правка кандидата могла
+#: остаться сделанной наполовину.
+РАНТАЙМ_УМЕР_ПОЗЖЕ = (
+    "import sys\n"
+    'print("Fatal Python error: Segmentation fault", file=sys.stderr)\n'
+    'print("Python runtime state: initialized", file=sys.stderr)\n'
+    "sys.exit(1)\n"
+)
+
+
+def _счётчик(tmp_path: Path) -> Path:
+    return tmp_path / "запусков.txt"
+
+
+def _считалка(tmp_path: Path, тело: str) -> str:
+    """Подделка, считающая свои запуски: сколько раз её звали, столько строк."""
+    счёт = _счётчик(tmp_path)
+    return (
+        "from pathlib import Path\n"
+        f"счёт = Path({str(счёт)!r})\n"
+        'счёт.write_text(счёт.read_text() + "x" if счёт.exists() else "x")\n'
+    ) + тело
+
+
+def _запусков(tmp_path: Path) -> int:
+    счёт = _счётчик(tmp_path)
+    return len(счёт.read_text()) if счёт.exists() else 0
+
+
 #: Убитый на полуслове: успел напечатать и снят. Самый опасный из трёх — у
 #: него ЕСТЬ вывод, и по одному лишь коду возврата он неотличим от разбора,
 #: кончившегося отказом: обрывок вывода уехал бы вызывающему как «движок
@@ -192,3 +240,88 @@ def test_настоящий_отказ_движка_остаётся_отказ�
     assert итог.accepted is False
     assert итог.refusal
     assert read_journal(хранилище)[-1]["outcome"] == "refused"
+
+
+# --- интерпретатор, не доживший до первой строки движка (настоящая причина T187) ---
+
+
+def test_несостоявшийся_старт_повторяется_а_не_объявляется_отказом_методики(
+    хранилище: Store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Интерпретатор умер в `getpath` — ни одной строки движка не выполнено,
+    кандидат не тронут, повторить запуск безопасно. Это и есть исход, который
+    ронял прогон на занятой машине."""
+    monkeypatch.setattr(
+        store_api, "MANAGE_SCRIPT", _подделка(tmp_path, _считалка(tmp_path, СТАРТ_НЕ_СОСТОЯЛСЯ))
+    )
+
+    with pytest.raises(ChecklistError) as отказ:
+        _добавить(хранилище)
+
+    assert _запусков(tmp_path) == ENGINE_ATTEMPTS, "несостоявшийся старт обязан повторяться"
+    assert "не дал ответа" in str(отказ.value).lower()
+
+
+def test_повторный_запуск_доводит_правку_до_конца(
+    хранилище: Store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Главное утверждение: правка, у которой первый старт не состоялся,
+    проходит со второго — а не отклоняется. Ровно это чинит T187.
+
+    Подделка на втором запуске подменяет себя настоящим движком через
+    `os.execv`: окружение и рабочий каталог достаются ему те же самые, то есть
+    дальше работает продукт, а не заглушка."""
+    подделка = _подделка(
+        tmp_path,
+        _считалка(
+            tmp_path,
+            "import os, sys\n"
+            "if len(Path(%r).read_text()) == 1:\n"
+            '    print("Fatal Python error: error evaluating path", file=sys.stderr)\n'
+            '    print("Python runtime state: core initialized", file=sys.stderr)\n'
+            "    sys.exit(1)\n"
+            "os.execv(sys.executable, [sys.executable, %r, *sys.argv[1:]])\n"
+            % (str(_счётчик(tmp_path)), str(store_api.MANAGE_SCRIPT)),
+        ),
+    )
+    monkeypatch.setattr(store_api, "MANAGE_SCRIPT", подделка)
+
+    итог = _добавить(хранилище)
+
+    assert итог.accepted is True, итог.refusal
+    # Запусков больше двух: подделкой подменён `manage.py`, а его зовут дважды
+    # — на правку и на `validate`. Важно здесь не число, а то, что первый
+    # несостоявшийся старт правку не отклонил.
+    assert _запусков(tmp_path) > 1
+
+
+def test_рантайм_умерший_после_инициализации_не_повторяется(
+    хранилище: Store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Повтор безопасен ровно тогда, когда до кода движка дело не дошло: об
+    этом говорит сам интерпретатор («core initialized»). Умерший позже мог
+    успеть переписать половину кандидата, и второй заход дописал бы поверх."""
+    monkeypatch.setattr(
+        store_api, "MANAGE_SCRIPT", _подделка(tmp_path, _считалка(tmp_path, РАНТАЙМ_УМЕР_ПОЗЖЕ))
+    )
+
+    with pytest.raises(ChecklistError) as отказ:
+        _добавить(хранилище)
+
+    assert _запусков(tmp_path) == 1, "после инициализации повторять нельзя"
+    assert "не дал ответа" in str(отказ.value).lower()
+
+
+def test_фатальный_отказ_рантайма_не_уезжает_вызывающему_как_слова_движка(
+    хранилище: Store, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """До T187 текст «Fatal Python error» приходил агенту как вердикт движка, и
+    человек шёл искать дефект в методике по сообщению интерпретатора."""
+    monkeypatch.setattr(
+        store_api, "MANAGE_SCRIPT", _подделка(tmp_path, _считалка(tmp_path, РАНТАЙМ_УМЕР_ПОЗЖЕ))
+    )
+
+    with pytest.raises(ChecklistError) as отказ:
+        _добавить(хранилище)
+
+    assert "Fatal Python error" not in str(отказ.value)
