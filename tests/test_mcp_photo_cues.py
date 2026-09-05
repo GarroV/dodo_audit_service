@@ -90,7 +90,7 @@ def test_добавленную_строку_видит_разборщик_пр�
         version_name="imf",
     )
 
-    assert итог.accepted is True
+    assert итог.accepted is True, итог.refusal
     assert итог.version is not None and итог.version != было
     строки = {cue.phrase: cue.codes for cue in _карта(store, итог.version)}
     assert строки["Нагар на печи, копоть"] == ("CLN02",)
@@ -217,7 +217,7 @@ def test_правка_меняет_коды_строки(store: Store) -> None:
         store, tenant=АРЕНДАТОР, phrase="Стена в подтёках", codes=["CLN01"], version_name="imf"
     )
 
-    assert итог.accepted is True
+    assert итог.accepted is True, итог.refusal
     assert итог.version is not None
     строки = {cue.phrase: cue.codes for cue in _карта(store, итог.version)}
     assert строки["Стена в подтёках"] == ("CLN01",)
@@ -257,7 +257,7 @@ def test_правка_без_единого_изменения_отказ(store:
 def test_снятая_строка_исчезает_из_карты_продукта(store: Store) -> None:
     итог = photo_cues.remove(store, tenant=АРЕНДАТОР, phrase="Стена в подтёках", version_name="imf")
 
-    assert итог.accepted is True
+    assert итог.accepted is True, итог.refusal
     assert итог.version is not None
     assert "Стена в подтёках" not in _фразы(store, итог.version)
     assert "Пол в разводах, лужа на полу" in _фразы(store, итог.version)

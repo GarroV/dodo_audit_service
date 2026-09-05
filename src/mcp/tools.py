@@ -134,6 +134,54 @@ def _read_everything(*, tenant: str, date_from: date | None, date_to: date | Non
     return _read(tenant=tenant, date_from=date_from, date_to=date_to, limit=MAX_LIMIT)
 
 
+@dataclass(frozen=True)
+class Findings:
+    """Находки за период вместе с тем, из чего они собраны."""
+
+    rows: tuple[FindingRow, ...]
+    inspections: int
+    units: int
+    #: Чтение упёрлось в потолок: за выдачей остались ещё проверки или находки.
+    #: Предложение, собранное по половине периода, выглядит ровно так же, как
+    #: собранное по всему, — поэтому признак идёт наружу, а не теряется здесь.
+    truncated: bool
+
+
+def read_findings_over_period(
+    *, tenant: str, date_from: date | None, date_to: date | None
+) -> Findings:
+    """Все находки арендатора за период — через официальный контракт блока `db`.
+
+    Запросов получается один плюс по одному на ТОЧКУ, а не на проверку: чтения
+    «дай находки всей сети за период» слой чтения сегодня не отдаёт (названо в
+    отчёте блока), а перебор по проверкам стоил бы до тысячи запросов вместо
+    десятка. Список точек берётся из проверок периода, а не из справочника:
+    точка без единой проверки в периоде запроса не стоит.
+
+    Период отбирается по НАБОРУ проверок, попавших в окно, а не повторным
+    сравнением дат здесь: даты уже сравнил слой чтения, и вторая формула
+    разошлась бы с первой на границах окна.
+    """
+    from ..db.queries import MAX_LIMIT, findings_by_unit
+
+    page = _read_everything(tenant=tenant, date_from=date_from, date_to=date_to)
+    названия = tuple(dict.fromkeys(row.unit_name for row in page.rows))
+    в_периоде = {row.id for row in page.rows}
+    собранные: list[FindingRow] = []
+    обрезано = page.truncated
+    with _history():
+        for имя in названия:
+            найденные = findings_by_unit(tenant=tenant, unit=имя, limit=MAX_LIMIT)
+            обрезано = обрезано or len(найденные) >= MAX_LIMIT
+            собранные.extend(row for row in найденные if row.inspection_id in в_периоде)
+    return Findings(
+        rows=tuple(собранные),
+        inspections=len(page.rows),
+        units=len(названия),
+        truncated=обрезано,
+    )
+
+
 def _require_limit(limit: int | None) -> int | None:
     """Предел выдачи в границах слоя чтения — или явный отказ.
 
@@ -173,7 +221,7 @@ def _parse_date(value: str | None, *, field: str) -> date | None:
         ) from None
 
 
-def _parse_window(date_from: str | None, date_to: str | None) -> tuple[date | None, date | None]:
+def parse_window(date_from: str | None, date_to: str | None) -> tuple[date | None, date | None]:
     """Границы периода. Перевёрнутый период — отказ, а не пустая выдача."""
     since = _parse_date(date_from, field="date_from")
     until = _parse_date(date_to, field="date_to")
@@ -366,7 +414,7 @@ def list_inspections(
     нет». Упёршееся в предел чтение ответ помечает само.
     """
     rows_limit = _require_limit(limit)
-    since, until = _parse_window(date_from, date_to)
+    since, until = parse_window(date_from, date_to)
     page = _read(tenant=tenant, unit=unit, date_from=since, date_to=until, limit=rows_limit)
     return {
         "tenant": tenant,
@@ -416,7 +464,7 @@ def network_summary(
     Есть распределение записанных букв, счёт проверок, точек и находок, а
     лучшая и худшая проверки — это ссылки на конкретные записанные строки.
     """
-    since, until = _parse_window(date_from, date_to)
+    since, until = parse_window(date_from, date_to)
     page = _read_everything(tenant=tenant, date_from=since, date_to=until)
     rows = page.rows
     best = max(rows, key=lambda row: row.pct, default=None)

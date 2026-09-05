@@ -48,6 +48,17 @@ class ToolSpec:
     input_schema: dict[str, object]
     handler: Callable[..., dict[str, object]]
     kind: str = KIND_INSPECTIONS
+    #: Инструмент читает историю проверок из базы.
+    #:
+    #: Объявляется отдельно от `kind`, а не выводится из него, и это не
+    #: дублирование. Перебор в `tests/test_mcp_no_history.py` («пусто и
+    #: «читать неоткуда» — не одно и то же») шёл по `kind ==
+    #: KIND_INSPECTIONS`. Инструмент методики, который тоже ходит в базу
+    #: (`photo_cue_suggestions`, T165), по виду в этот перебор не попадает и
+    #: проехал бы мимо заслона молча — а стенд с намеренно не поднятой базой
+    #: у продукта есть, и на нём такой инструмент ответил бы «промахов не
+    #: найдено» вместо «читать неоткуда».
+    history: bool = False
 
 
 def _date_property(*, meaning: str) -> dict[str, object]:
@@ -236,6 +247,7 @@ TOOLS: tuple[ToolSpec, ...] = (
             "additionalProperties": False,
         },
         handler=tools.list_inspections,
+        history=True,
     ),
     ToolSpec(
         name="unit_history",
@@ -256,6 +268,7 @@ TOOLS: tuple[ToolSpec, ...] = (
             "additionalProperties": False,
         },
         handler=tools.unit_history,
+        history=True,
     ),
     ToolSpec(
         name="network_summary",
@@ -280,6 +293,7 @@ TOOLS: tuple[ToolSpec, ...] = (
             "additionalProperties": False,
         },
         handler=tools.network_summary,
+        history=True,
     ),
     ToolSpec(
         name="get_inspection",
@@ -302,6 +316,7 @@ TOOLS: tuple[ToolSpec, ...] = (
             "additionalProperties": False,
         },
         handler=tools.get_inspection,
+        history=True,
     ),
     ToolSpec(
         name="findings_by_unit",
@@ -322,6 +337,7 @@ TOOLS: tuple[ToolSpec, ...] = (
             "additionalProperties": False,
         },
         handler=tools.findings_by_unit,
+        history=True,
     ),
     ToolSpec(
         name="inspection_letter",
@@ -361,6 +377,7 @@ TOOLS: tuple[ToolSpec, ...] = (
             "additionalProperties": False,
         },
         handler=tools.inspection_letter,
+        history=True,
     ),
     # --- методика: чтение --------------------------------------------------
     ToolSpec(
@@ -866,6 +883,82 @@ TOOLS: tuple[ToolSpec, ...] = (
         },
         handler=checklist_tools.remove_photo_cue,
         kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="photo_cue_suggestions",
+        description=(
+            "Report where the model has been systematically wrong, and propose "
+            "what to add to the word map because of it. Every finding stores "
+            "what the model proposed before the auditor fixed the record; the "
+            "difference between the two is a miss, and identical misses are "
+            "grouped and counted here. For each one the answer names the cue "
+            "rows that lead to the wrong item code and gives a ready "
+            "edit_photo_cue call. "
+            "Nothing is applied: the word map is a management-company document, "
+            "and a wrong word added automatically would reach a partner's "
+            "report through the fast path without anyone confirming it "
+            "(decision D077). Applying a proposal is a separate call, and even "
+            "that only stores a new methodology version beside the one in "
+            "force — publishing it is a third call. "
+            "The auditor's raw words are not stored in the history yet, so a "
+            "proposal can name the cue row behind a miss but not the phrase "
+            "the auditor actually used."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "date_from": _date_property(
+                    meaning="Only look at findings from inspections on or after this date."
+                ),
+                "date_to": _date_property(
+                    meaning="Only look at findings from inspections on or before this date."
+                ),
+                "min_confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": (
+                        "Only count a miss when the model's confidence was at "
+                        "least this high. A fraction between 0 and 1, not a "
+                        "percentage. Records made by matching the word map "
+                        "carry no confidence at all — that path never measures "
+                        "one — and they are never filtered out by this "
+                        "threshold: they are the records made without the "
+                        "auditor confirming the item, and so the most valuable "
+                        "misses of all."
+                    ),
+                },
+                # Not _LIMIT_PROPERTY: that one caps rows of a flat
+                # inspection list and rejects a value above the server's own
+                # ceiling (`src.db.queries.MAX_LIMIT`) outright. This limit
+                # caps miss patterns *per group* of a grouped answer, and a
+                # cut-off here is signalled through the 'truncated' field,
+                # not a rejection — reusing the same property would have
+                # attached the wrong behaviour's wording to this one.
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": (
+                        "Maximum number of miss patterns to return in each "
+                        "group. A cut-off answer says so in its 'truncated' "
+                        "field rather than passing for a complete one."
+                    ),
+                },
+                "version": _code_property(
+                    meaning=(
+                        "Checklist version whose word map the proposals refer "
+                        "to. Defaults to the version in force. A proposal must "
+                        "point at a row that exists in that version: a row "
+                        "from another version is edited by another phrase."
+                    )
+                ),
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
+        handler=checklist_tools.photo_cue_suggestions,
+        kind=KIND_CHECKLIST,
+        history=True,
     ),
     ToolSpec(
         name="publish_checklist_version",

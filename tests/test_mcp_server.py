@@ -296,6 +296,8 @@ def test_перечень_инструментов_отдаётся_целико
         "add_photo_cue",
         "edit_photo_cue",
         "remove_photo_cue",
+        # предложения для управляющей компании из расхождений модели (T165)
+        "photo_cue_suggestions",
     }
     assert all("inputSchema" in инструмент for инструмент in ответ["result"]["tools"])
 

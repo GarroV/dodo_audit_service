@@ -59,7 +59,7 @@ from pathlib import Path
 from ..domain.config import DATA_FILES, REQUIRED_DATA_FILES
 from ..domain.version import VERSION_FILE, compose, fingerprint, published
 from ..recognize.cues import CUES_FILE as RECOGNIZE_CUES_FILE
-from .errors import ChecklistError
+from .errors import ChecklistError, EngineNoVerdictError
 
 #: Подкаталог со снимками версий. Отдельный уровень, чтобы указатель и журнал
 #: не лежали среди версий и не притворялись одной из них.
@@ -117,6 +117,27 @@ DATE_TAIL = re.compile(r"\d{4}-\d{2}-\d{2}$")
 #: Сколько ждём движок. Правка методики — это разбор пары CSV, секунды; всё,
 #: что дольше, — зависший подпроцесс, держащий поток сервера.
 ENGINE_TIMEOUT_SEC = 60
+
+#: Что печатает сам интерпретатор питона, умерший фатально. В выводе движка
+#: такого не бывает: свои отказы он объясняет словами и выходит нормально.
+RUNTIME_FATAL = "Fatal Python error"
+
+#: ...и что при этом инициализация не закончилась. Интерпретатор сообщает своё
+#: состояние сам, и `core initialized` означает, что до первой строки скрипта
+#: дело НЕ дошло: кандидат не тронут, повторить запуск безопасно.
+RUNTIME_BEFORE_SCRIPT = "Python runtime state: core initialized"
+
+#: Сколько раз пробуем запустить движок, если старт не состоялся. Настоящая
+#: причина T187: на занятой машине системный вызов на старте интерпретатора
+#: прерывается сигналом, `getpath` получает `InterruptedError: [Errno 4]
+#: Interrupted system call`, и процесс умирает, не выполнив ни строки. Поймано
+#: полным прогоном при load average 609 на 10 ядрах — восемь падений из девяти
+#: были этим.
+#:
+#: Повтор безопасен ровно потому, что старт не состоялся: ни `manage.py`, ни
+#: `audit.py` не начинали работать, кандидат остался как был. Умерший ПОЗЖЕ
+#: интерпретатор не повторяется — он мог успеть переписать половину.
+ENGINE_ATTEMPTS = 3
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 MANAGE_SCRIPT = _REPO_ROOT / "engine" / "manage.py"
@@ -232,7 +253,47 @@ def check_code(code: str) -> str:
 def _run(
     script: Path, args: list[str], *, data_dir: Path, cwd: Path, state: Path | None
 ) -> tuple[int, str]:
-    """Запустить скрипт движка над указанным каталогом методики.
+    """Вердикт движка — или отказ окружения, если вердикта не будет.
+
+    Ненулевой код возврата вердиктом считается НЕ всегда: движок объясняет
+    словами каждый свой отказ, а умерший процесс, вышедший срок и не
+    стартовавший интерпретатор ненулевым кодом тоже кончаются. Выданные за
+    вердикт, они говорят вызывающему «движок вашу методику не принял» — и
+    человек чинит методику, в которой чинить нечего (T187).
+
+    Несостоявшийся старт при этом повторяется: до первой строки движка дело не
+    дошло, кандидат не тронут. Об этом говорит сам интерпретатор своим
+    `Python runtime state`, а не догадка по коду возврата.
+    """
+    for попытка in range(1, ENGINE_ATTEMPTS + 1):
+        код, вывод = _launch(script, args, data_dir=data_dir, cwd=cwd, state=state)
+        if код == 0:
+            return код, вывод
+        if RUNTIME_FATAL in вывод:
+            повторим = RUNTIME_BEFORE_SCRIPT in вывод and попытка < ENGINE_ATTEMPTS
+            _to_log(
+                f"интерпретатор движка умер (попытка {попытка}"
+                f"{', повторяем' if повторим else ', больше не повторяем'})",
+                скрипт=script,
+                каталог=data_dir,
+            )
+            if повторим:
+                continue
+            раз = "" if попытка == 1 else f" {попытка} раза подряд"
+            raise EngineNoVerdictError(_нет_ответа(script, f"умер до ответа{раз}"))
+        if not вывод.strip():
+            _to_log("движок вышел молча", скрипт=script, каталог=data_dir)
+            raise EngineNoVerdictError(
+                _нет_ответа(script, f"вышел с кодом {код} и не сказал ни слова")
+            )
+        return код, вывод
+    raise AssertionError("недостижимо: цикл попыток всегда выходит возвратом или отказом")
+
+
+def _launch(
+    script: Path, args: list[str], *, data_dir: Path, cwd: Path, state: Path | None
+) -> tuple[int, str]:
+    """Один запуск скрипта движка над указанным каталогом методики.
 
     `CHECKLIST_DIR` — тот же рычаг, которым методику подкладывают движку в
     бою: `active_dir()` смотрит на него первым. Рабочий каталог нейтральный —
@@ -246,15 +307,50 @@ def _run(
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     if state is not None:
         env["INSPECTION_FILE"] = str(state)
-    завершение = subprocess.run(  # noqa: S603 — список аргументов собран здесь, оболочки нет
-        [sys.executable, str(script), *args],
-        cwd=str(cwd),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=ENGINE_TIMEOUT_SEC,
+    try:
+        завершение = subprocess.run(  # noqa: S603 — список аргументов собран здесь, оболочки нет
+            [sys.executable, str(script), *args],
+            cwd=str(cwd),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=ENGINE_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired as срок:
+        # Текст исключения наружу не уезжает: `TimeoutExpired` печатает всю
+        # командную строку, а в ней путь к интерпретатору и к скрипту движка
+        # (T120). В лог процесса он уходит целиком — лог остаётся на машине.
+        _to_log("движок не уложился в срок", скрипт=script, каталог=data_dir)
+        raise EngineNoVerdictError(
+            _нет_ответа(script, f"не уложился в {срок.timeout:g} с")
+        ) from None
+    if завершение.returncode < 0:
+        # Снятый сигналом проверяется здесь и ПЕРВЫМ. Убитый на полуслове
+        # движок успевает напечатать начало вывода, и по одному коду возврата
+        # он неотличим от разбора, кончившегося отказом: обрывок уехал бы
+        # вызывающему как «движок сказал вот что».
+        _to_log("движок снят сигналом", скрипт=script, каталог=data_dir)
+        raise EngineNoVerdictError(_нет_ответа(script, f"снят сигналом {-завершение.returncode}"))
+    return завершение.returncode, завершение.stdout + завершение.stderr
+
+
+def _нет_ответа(script: Path, что_случилось: str) -> str:
+    """Отказ окружения словами: движок до разбора методики не дошёл.
+
+    Формулировка одна на три случая (снят сигналом, вышел срок, вышел молча)
+    намеренно: различаются они причиной, а следствие у них одно — вердикта
+    нет, и выдавать за вердикт нечего. Три разных текста разошлись бы в
+    главном утверждении при первой же правке одного из них.
+
+    Имя скрипта в отказе есть, пути к нему — нет: по «manage.py» чинить можно,
+    а устройство машины по нему не читается (T120).
+    """
+    return (
+        f"Движок не дал ответа: {script.name} {что_случилось}. Это отказ окружения, а не "
+        f"отклонение методики: методику никто не рассматривал, и чинить в ней нечего. "
+        f"Так выглядит снятый или не успевший процесс на занятой машине — повторите правку. "
+        f"{IN_LOG}"
     )
-    return завершение.returncode, (завершение.stdout + завершение.stderr)
 
 
 def _argv(command: str, positional: str | None, options: Mapping[str, object]) -> list[str]:
@@ -669,7 +765,15 @@ def apply_edit(
     with _holder(store) as holder:
         кандидат = holder / "data"
         shutil.copytree(base_dir, кандидат)
-        отказ_правки, вывод = mutate(кандидат, holder)
+        # Отказ окружения записывается в журнал СВОИМ исходом и уходит наверх
+        # отказом, а не превращается в «правка отклонена»: `refused` в журнале
+        # означает «движок методику не принял», и машинная беда, записанная тем
+        # же словом, через год читалась бы как история отклонённых правок (T187).
+        try:
+            отказ_правки, вывод = mutate(кандидат, holder)
+        except EngineNoVerdictError as беда:
+            _failed(store, tenant=tenant, tool=tool, base_version=base_version, note=note)
+            raise беда from None
         if отказ_правки is not None:
             return _refused(
                 store,
@@ -680,7 +784,11 @@ def apply_edit(
                 refusal=отказ_правки,
             )
         (кандидат / VERSION_FILE).write_text(f"{name} {day.isoformat()}\n", encoding="utf-8")
-        отказ = _engine_accepts(кандидат, day)
+        try:
+            отказ = _engine_accepts(кандидат, day)
+        except EngineNoVerdictError as беда:
+            _failed(store, tenant=tenant, tool=tool, base_version=base_version, note=note)
+            raise беда from None
         if отказ is not None:
             return _refused(
                 store,
@@ -730,6 +838,27 @@ def apply_edit(
         base_version=base_version,
         version=version,
         engine=сказано,
+    )
+
+
+def _failed(store: Store, *, tenant: str, tool: str, base_version: str, note: str | None) -> None:
+    """Правка, до которой движок не дошёл: версии нет, но событие записано.
+
+    Исход назван `failed`, а не `refused`, потому что это разные события:
+    первое чинится на машине, второе — в методике. Слитые в одно слово, они
+    отправили бы читающего журнал чинить не то.
+    """
+    _journal(
+        store,
+        {
+            "tenant": tenant,
+            "tool": tool,
+            "outcome": "failed",
+            "base_version": base_version,
+            "version": None,
+            "refusal": None,
+            "note": note,
+        },
     )
 
 
