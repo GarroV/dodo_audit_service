@@ -18,13 +18,14 @@ T113), то есть её правка меняет то, что уезжает 
 from __future__ import annotations
 
 import hashlib
+from datetime import date
 from pathlib import Path
 
 import pytest
 from mcp_checklist_harness import build_methodology
 
 from src.mcp import photo_cues
-from src.mcp.checklist import CUES_FILE, Store, _version_dir, current_version
+from src.mcp.checklist import CUES_FILE, VERSION_FILE, Store, _version_dir, current_version
 from src.mcp.errors import ChecklistError
 from src.recognize.cues import load_cues
 
@@ -35,6 +36,21 @@ from src.recognize.cues import load_cues
 @pytest.fixture
 def store(tmp_path: Path) -> Store:
     return Store(root=tmp_path / "хранилище", live=build_methodology(tmp_path / "живая"))
+
+
+@pytest.fixture
+def изданный(tmp_path: Path) -> Store:
+    """Хранилище над методикой, изданной СЕГОДНЯ.
+
+    Дата издания входит в идентификатор версии, поэтому «завели строку и тут
+    же убрали» упирается в уже занятое имя версии ровно тогда, когда обе
+    правки сделаны в один день, — то есть в тот самый день, когда управляющая
+    компания правит карту. Общая оснастка `store` этого не показывает: её
+    методику никто не издавал, и нулевая версия там `local-…`.
+    """
+    живая = build_methodology(tmp_path / "живая-изданная")
+    (живая / VERSION_FILE).write_text(f"imf {date.today().isoformat()}\n", encoding="utf-8")
+    return Store(root=tmp_path / "хранилище-изданное", live=живая)
 
 
 def _карта(store: Store, version: str) -> tuple:
@@ -398,3 +414,39 @@ def test_снятие_не_подействовавшее_возвращаетс
 
     with pytest.raises(ChecklistError, match="осталась в карте"):
         photo_cues.remove(store, tenant=АРЕНДАТОР, phrase="Стена в подтёках", version_name="imf")
+
+
+# --- откат правки не выдаётся за повтор (T218) --------------------------------
+
+
+def test_снятие_только_что_заведённой_строки_повтором_не_называется(изданный: Store) -> None:
+    """T218 (#166): строку карты завели и тут же попросили убрать.
+
+    Снятие возвращает методику к прежнему отпечатку, и хранилище упирается в
+    имя версии, которая у него уже есть. Прежний отказ говорил «ровно эта
+    правка от этого же набора и этой же датой уже сделана» — и это неверно
+    дважды: правка НЕ сделана (строка на месте), а совпавшая версия получилась
+    не ею. Агент управляющей компании прочитал бы отказ как «убрано, повторять
+    нечего», и строка осталась бы в карте, по которой быстрый путь пишет в
+    отчёт партнёру без подтверждения аудитора.
+    """
+    прежняя = current_version(изданный)
+    заведено = photo_cues.add(
+        изданный,
+        tenant=АРЕНДАТОР,
+        section=РАЗДЕЛ,
+        phrase="Мусор у входа",
+        codes=["CLN02"],
+    )
+    assert "Мусор у входа" in _фразы(изданный, заведено.version)
+
+    with pytest.raises(ChecklistError) as отказ:
+        photo_cues.remove(изданный, tenant=АРЕНДАТОР, phrase="Мусор у входа")
+
+    текст = str(отказ.value)
+    assert "уже сделан" not in текст, f"снятие названо повтором правки: {текст!r}"
+    assert прежняя in текст, "не названа версия, состоянием которой это стало"
+    assert "publish_checklist_version" in текст, "не сказано, чем откатываются"
+    assert "Мусор у входа" in _фразы(изданный, заведено.version), (
+        "строка обязана остаться на месте: отказ описывает то, чего не случилось"
+    )
