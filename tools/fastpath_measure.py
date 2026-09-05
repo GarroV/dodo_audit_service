@@ -43,6 +43,16 @@
 управляющая компания). Поэтому замер печатает дату и отпечаток карты сам:
 число без версии карты через неделю нечем проверить.
 
+**Второй раздел (T195, задача #160) меряет отдельный вопрос:** не «какой код
+показан», а «сколько отрицаний правило `_denied_words`
+(`src/recognize/fastpath.py`) действительно замечает». Корпус строится ИЗ
+САМОЙ КАРТЫ на ходу (`render_negation_section`, `affirmative_bases`,
+`negation_outcomes`, `insurance_lost`) — тем же приёмом, что иглы в
+`tests/test_methodology_leak.py`: замороженный список строк карты был бы
+такой же утечкой методики, как и её цитата. Число тоже привязано к отпечатку
+карты в шапке первого раздела и живёт ровно до той же правки (D066). На код
+возврата этот раздел не влияет: коды 0/1/2 остаются про первый раздел.
+
 Ни одного обращения к сети: `fast_path` детерминированный, замер бесплатный.
 
 Запуск:  python tools/fastpath_measure.py [--root PATH]
@@ -55,6 +65,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from collections import Counter
 from collections.abc import Sequence
@@ -71,7 +82,10 @@ sys.path.insert(0, str(ROOT))
 # `pyproject.toml`) этим не задет — он описывает пакет `src`, а `tools/` это
 # инструменты ПОВЕРХ продукта, не его ярус.
 from src.bot.zones import zone_from_words  # noqa: E402
-from src.recognize.cues import cues_path  # noqa: E402
+from src.domain import get_item  # noqa: E402
+from src.domain.errors import ConfigError  # noqa: E402
+from src.recognize import language  # noqa: E402
+from src.recognize.cues import Cue, cues_path, load_cues, stems  # noqa: E402
 from src.recognize.fastpath import fast_path  # noqa: E402
 
 #: Откуда взялась зона, с которой позвали быстрый путь.
@@ -306,6 +320,296 @@ def render(measured: Sequence[Mode]) -> str:
     return "\n".join(lines)
 
 
+# --- Раздел 2: замер защиты от отрицания (T195, задача #160) ---------------
+#
+# У раздела выше — 17 боевых записей и один вопрос («какой код фактически
+# показан»). Здесь вопрос другой: «сколько ОТРИЦАНИЙ правило T195 замечает»,
+# и боевых записей для него не хватит — отрицание в них случается на
+# единицах комментариев. Корпус строится ИЗ САМОЙ КАРТЫ на ходу, тем же
+# приёмом, что и иглы в `tests/test_methodology_leak.py`: репозиторий
+# публичный, а замороженный список строк карты был бы такой же утечкой
+# методики управляющей компании, как и цитата в тесте.
+#
+# Числа живут ровно до следующей правки карты (D066), как и у раздела выше —
+# отдельный отпечаток тут не печатается: он уже стоит в шапке первого
+# раздела, и оба раздела гоняются по одной и той же карте одного вызова.
+
+#: Вид отрицания — те же четыре способа, которыми T195 переворачивает смысл
+#: слова (`_denied_words`, `src/recognize/fastpath.py`): частица перед словом,
+#: частица «без» перед словом, «нет» после слова и частица, отделённая от
+#: слова служебным словом, которое отрицание обязано перешагнуть.
+NEGATION_BEFORE = "«не» перед словом"
+NEGATION_WITHOUT = "«без» перед словом"
+NEGATION_AFTER = "«нет» после слова"
+NEGATION_THROUGH_FUNCTION_WORD = "через служебное слово"
+
+#: Порядок видов — он же порядок строк во второй таблице отчёта.
+_NEGATION_KINDS = (
+    NEGATION_BEFORE,
+    NEGATION_WITHOUT,
+    NEGATION_AFTER,
+    NEGATION_THROUGH_FUNCTION_WORD,
+)
+
+#: Слово фразы строки карты. Своя регулярка, а не импорт `_WORD` из
+#: `src.recognize.cues`: там она приватная, и тянуть приватность модуля
+#: продукта в инструмент поверх него — значило бы держать эти два места
+#: синхронными по соглашению, а не по контракту. Символ `ё` в класс не входит
+#: намеренно: фраза перед разбором приводится к тому же виду, что видит сам
+#: продукт (`.lower().replace("ё", "е")`), и после замены он в тексте уже не
+#: встречается.
+_PHRASE_WORD = re.compile(r"[а-яa-z0-9]+")
+
+
+@dataclass(frozen=True)
+class AffirmativeBase:
+    """Заметка и зона, на которых строка карты сработала утвердительно.
+
+    Отрицать есть что только там, где уже есть утверждение: строка карты, для
+    которой не нашлось ни одной пары (заметка, зона) со срабатыванием, в
+    замер отрицания не попадает вовсе — шаг 1 задания.
+
+    `code` запомнен отдельно от `note`/`zone` не для количества полей, а для
+    перестраховки (ниже): она обязана убедиться, что на безобидной приписке
+    срабатывает ТОТ ЖЕ пункт, а не любой, — иначе приписка могла бы незаметно
+    подменить код, и это выглядело бы в отчёте как «срабатывание сохранено»,
+    хотя аудитору подсунули другой пункт.
+    """
+
+    cue: Cue
+    note: str
+    zone: str
+    code: str
+
+
+def _column_probe_words() -> tuple[str, ...]:
+    """По одному слову на каждую колонку встроенного словаря — добавка к фразе.
+
+    Строка карты не всегда однозначна сама по себе: «Печь» распадается на
+    «грязь» и «поломку», и без слова колонки быстрый путь честно откажет по
+    `NO_COLUMN`. Слово встроенного словаря (не карты: `language.column_words()`,
+    а не `cues.column_words()`) добирается детерминированно — первое по
+    алфавиту, — чтобы прогон за прогоном пробовал одно и то же слово, а не
+    зависел от порядка словаря в файле правил.
+    """
+    return tuple(sorted(words)[0] for words in language.column_words().values())
+
+
+def _zones_for_cue(cue: Cue) -> tuple[str, ...]:
+    """Зоны, в которых применим хоть один код строки — кандидаты для зова `fast_path`.
+
+    Зона `*` («применимо везде», `ChecklistItem.zones`) пропускается: это не
+    имя зоны, а отсутствие ограничения, и подставить её в `zone_hint` нельзя —
+    у неё нет соответствующей записи в `zones.csv`, с которой сверяется бот.
+    """
+    zones: list[str] = []
+    seen: set[str] = set()
+    for code in cue.codes:
+        for zone in get_item(code).zones:
+            if zone == "*" or zone in seen:
+                continue
+            seen.add(zone)
+            zones.append(zone)
+    return tuple(zones)
+
+
+def find_affirmative_base(cue: Cue) -> AffirmativeBase | None:
+    """Первая пара (заметка, зона), на которой строка сработала утвердительно.
+
+    Перебор идёт по зонам строки, а внутри зоны — по заметкам: сама фраза,
+    затем фраза с одним словом каждой колонки (шаг 1 задания). Первое
+    срабатывание и есть база; строка, не сработавшая ни на одной комбинации
+    (в названной методике нет зоны, применимой к её кодам, либо колонка не
+    выбирается embedded-словарём вовсе), в замер не попадает — проверять
+    отрицание тут не на чем, а не дефект правила.
+    """
+    probes = (cue.phrase, *(f"{cue.phrase}, {word}" for word in _column_probe_words()))
+    for zone in _zones_for_cue(cue):
+        for note in probes:
+            result = fast_path(note, zone)
+            if result.item is not None:
+                return AffirmativeBase(cue=cue, note=note, zone=zone, code=result.item.code)
+    return None
+
+
+def affirmative_bases(cues: Sequence[Cue]) -> tuple[AffirmativeBase, ...]:
+    """Строки карты, для которых нашлась утвердительная база — корпус замера отрицания."""
+    bases: list[AffirmativeBase] = []
+    for cue in cues:
+        base = find_affirmative_base(cue)
+        if base is not None:
+            bases.append(base)
+    return tuple(bases)
+
+
+@dataclass(frozen=True)
+class NegationOutcome:
+    """Один вызов `fast_path` на отрицании утвердительной базы.
+
+    `missed` — правило T195 отрицания НЕ заметило: быстрый путь сработал так
+    же, как на утвердительной заметке. Пропуском считается именно ЭТО, любое
+    срабатывание, а не несовпадение кода с базой: `_covered`
+    (`src/recognize/fastpath.py`) не пытается угадывать код по огрызку слов,
+    она либо видит строку целиком с тем же отрицанием, либо не видит вовсе —
+    третьего, «увидела не то», в её устройстве нет.
+    """
+
+    base: AffirmativeBase
+    kind: str
+    note: str
+    missed: bool
+
+
+def _negation_variants(base: AffirmativeBase) -> tuple[tuple[str, str], ...]:
+    """Четыре отрицания на каждое значимое слово ФРАЗЫ строки (шаг 2 задания).
+
+    Позиции слова берутся из фразы, приведённой к тому виду, в котором её
+    видит сам разбор (`.lower().replace("ё", "е")`) — так же, как это делает
+    `_denied_words` в `src/recognize/fastpath.py` через `words_and_gaps`. Срез
+    применяется уже к НАЙДЕННОЙ ЗАМЕТКЕ, а не к фразе: заметка либо равна
+    фразе, либо начинается с неё и продолжается словом колонки через запятую
+    (шаг 1), поэтому индексы фразы остаются верными индексами её префикса и в
+    заметке тоже.
+    """
+    phrase_lower = base.cue.phrase.lower().replace("ё", "е")
+    note = base.note
+    variants: list[tuple[str, str]] = []
+    for match in _PHRASE_WORD.finditer(phrase_lower):
+        word = match.group()
+        if not stems(word):
+            continue
+        start, end = match.span()
+        variants.append((NEGATION_BEFORE, f"{note[:start]}не {note[start:]}"))
+        variants.append((NEGATION_WITHOUT, f"{note[:start]}без {note[start:]}"))
+        variants.append((NEGATION_AFTER, f"{note[:end]} нет{note[end:]}"))
+        variants.append((NEGATION_THROUGH_FUNCTION_WORD, f"{note[:start]}не в {note[start:]}"))
+    return tuple(variants)
+
+
+def negation_outcomes(bases: Sequence[AffirmativeBase]) -> tuple[NegationOutcome, ...]:
+    """Прогнать все четыре отрицания по каждому значимому слову каждой базы."""
+    outcomes: list[NegationOutcome] = []
+    for base in bases:
+        for kind, note in _negation_variants(base):
+            missed = fast_path(note, base.zone).item is not None
+            outcomes.append(NegationOutcome(base=base, kind=kind, note=note, missed=missed))
+    return tuple(outcomes)
+
+
+def _insurance_notes(note: str) -> tuple[str, str, str]:
+    """Три безобидных отрицания вокруг заметки — половина смысла замера (шаг 3 задания).
+
+    Отрицание здесь стоит в другой части фразы или после точки — ровно тот
+    случай, для которого `_denied_words` останавливается на знаке препинания
+    (T195): без этой остановки «жалоб нет, в зале урна переполнена» теряет
+    срабатывание вовсе, потому что «нет» и «урна» стоят по соседству через
+    запятую. Каждая из трёх обязана СОХРАНИТЬ срабатывание — иначе правило не
+    осторожничает, а тихо обнуляет быстрый путь.
+    """
+    return (
+        f"жалоб нет, {note}",
+        f"{note}, остальное без замечаний",
+        f"замечаний нет. {note}",
+    )
+
+
+def insurance_lost(bases: Sequence[AffirmativeBase]) -> tuple[AffirmativeBase, ...]:
+    """Базы, потерявшие срабатывание хоть на одном из трёх безобидных отрицаний.
+
+    Слишком строгое правило обнуляет быстрый путь молча, и цена такой
+    перестраховки не видна нигде, кроме как в замере вроде этого: доля
+    срабатываний просто падает, а выглядит это как «стало безопаснее». Именно
+    поэтому перестраховка — не строка в скобках к основной таблице, а
+    отдельная проверка: без неё правило могло бы стать неотличимо строгим
+    (отрицающим всё подряд) и остаться зелёным по всем меркам раздела выше.
+    """
+    lost: list[AffirmativeBase] = []
+    for base in bases:
+        for note in _insurance_notes(base.note):
+            result = fast_path(note, base.zone)
+            if result.item is None or result.item.code != base.code:
+                lost.append(base)
+                break
+    return tuple(lost)
+
+
+def _negation_summary_table(
+    bases: Sequence[AffirmativeBase], outcomes: Sequence[NegationOutcome]
+) -> list[str]:
+    total = len(outcomes)
+    missed = sum(1 for o in outcomes if o.missed)
+    share = (total - missed) / total * 100 if total else 0.0
+    return [
+        "| Строк с утвердительным срабатыванием | Отрицаний всего | Пропущено | Доля пойманных |",
+        "|---|---|---|---|",
+        f"| {len(bases)} | {total} | {missed} | {share:.0f}% |",
+    ]
+
+
+def _negation_kinds_table(outcomes: Sequence[NegationOutcome]) -> list[str]:
+    lines = ["| Вид отрицания | Всего | Пропущено |", "|---|---|---|"]
+    for kind in _NEGATION_KINDS:
+        of_kind = [o for o in outcomes if o.kind == kind]
+        lines.append(f"| {kind} | {len(of_kind)} | {sum(1 for o in of_kind if o.missed)} |")
+    return lines
+
+
+def render_negation_section(cues: Sequence[Cue]) -> str:
+    """Замер защиты от отрицания (T195) — второй раздел отчёта.
+
+    Пустая карта (`load_cues()` не нашёл файл или файл пуст, D068 — карта
+    необязательна) — не поломка инструмента и не повод падать: раздел тогда
+    печатает ровно одну объясняющую строку и ничего не считает, как и весь
+    остальной продукт при отсутствующей карте (быстрый путь просто молчит).
+    """
+    if not cues:
+        return "карты нет — отрицание проверять не на чем"
+
+    bases = affirmative_bases(cues)
+    outcomes = negation_outcomes(bases)
+    lost = insurance_lost(bases)
+
+    lines = [
+        "Замер защиты от отрицания (T195)",
+        "",
+        *_negation_summary_table(bases, outcomes),
+        "",
+        *_negation_kinds_table(outcomes),
+        "",
+        f"Перестраховка: потеряно {len(lost)} из {len(bases)} строк на трёх "
+        "безобидных отрицаниях («жалоб нет, …», «…, остальное без замечаний», "
+        "«замечаний нет. …»).",
+        "",
+        "Пропуск — не всегда дефект правила T195. Строка карты, сама "
+        "сформулированная через отсутствие («без ярлыка»), законно совпадает "
+        "с повторным отрицанием — это двойное отрицание, а не брешь. Тот же "
+        "эффект даёт повтор одной и той же основы внутри строки: второе "
+        "вхождение слова остаётся сказанным, даже когда отрицания коснулось "
+        "только первое. Третья причина — попадание в строку-двойник, которая "
+        "сама сформулирована через отрицание и потому реагирует зеркально.",
+    ]
+    return "\n".join(lines)
+
+
+def _cues_or_empty() -> tuple[Cue, ...]:
+    """Строки карты — или пустой корпус, если окружение вовсе не настроено.
+
+    `load_cues()` сам не глотает `ConfigError`: без `AUDIT_DATA_DIR` продукту
+    неоткуда узнать методику, и молчаливый пустой чек-лист выглядел бы как
+    честное «нарушений нет» (`src/domain/errors.py`). У ЭТОГО инструмента
+    вход шире: свежая копия репозитория без единого файла методики — обычное
+    дело (D002), а не поломка, и трассировка исключения вместо отчёта здесь
+    обрывала бы замер там, где первый раздел просто печатает «боевых данных
+    нет» и код 2. Отсутствие карты внутри настроенного окружения (D068) до
+    сюда не доходит вовсе — там `load_cues()` и без этой обёртки отдаёт пустой
+    кортеж, не поднимая исключения.
+    """
+    try:
+        return load_cues()
+    except ConfigError:
+        return ()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -316,20 +620,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # Читается независимо от боевых записей ниже: карте кадров examples/ не
+    # нужны, а раздел про отрицание — не про то, что подтвердил аудитор, а
+    # про саму карту (D066). Без боевых записей первый раздел печатать нечего
+    # (код возврата 2), а этот — есть что, если карта на месте.
+    negation_section = render_negation_section(_cues_or_empty())
+
     records = load_records(args.root)
     if not records:
         print(
             "Боевых данных нет: examples/*/inspection.json не найдены (они вне git, "
             "решение D002). Замерять нечего — это не поломка инструмента."
         )
+        print()
+        print(negation_section)
         return 2
 
     measured = modes(records)
     print(render(measured))
+    print()
+    print(negation_section)
 
     # Ненулевой код — на неверное срабатывание в ЛЮБОМ из способов. У боевого
     # оно опаснее всего, но и на эталонной зоне оно значит, что карта слов
     # ведёт к чужому пункту, — а эталонную зону часто подставляет та же память.
+    # Раздел про отрицание на код возврата не влияет вовсе: перестраховка и
+    # пропуск здесь — числа для замера, а не сигнал «неверное срабатывание»
+    # в смысле первого раздела, и мешать их в одну цифру значило бы одной
+    # придиркой к отрицанию красить прогон, который проверяет совсем другое.
     if any(mode.wrong for mode in measured):
         return 1
     return 0

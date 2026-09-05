@@ -50,6 +50,7 @@ from src.domain import list_items  # noqa: E402
 from src.domain.config import check_environment  # noqa: E402
 from src.domain.errors import DomainError  # noqa: E402
 from src.domain.state import read_words  # noqa: E402
+from src.recognize.config import DEFAULT_LANG  # noqa: E402
 from src.recognize.cues import stems  # noqa: E402
 from src.recognize.process_hint import CONNECTIVE, process_hint  # noqa: E402
 
@@ -65,6 +66,10 @@ class Corpus:
     #: Чем корпус НЕ является — печатается рядом с числами, чтобы их не путали.
     caveat: str
     texts: tuple[str, ...]
+    #: На каком языке корпус написан. Не украшение: и связка, и имена процессов
+    #: у каждого языка свои, и померить английский корпус русскими именами
+    #: значило бы получить ноль и принять его за отсутствие ложных срабатываний.
+    lang: str = DEFAULT_LANG
 
 
 @dataclass(frozen=True)
@@ -80,8 +85,8 @@ class Result:
     fired: tuple[tuple[str, str], ...]
 
 
-def _process_stems() -> list[frozenset[str]]:
-    return [frozenset(stems(i.process("ru"))) for i in list_items() if stems(i.process("ru"))]
+def _process_stems(lang: str) -> list[frozenset[str]]:
+    return [frozenset(stems(i.process(lang))) for i in list_items() if stems(i.process(lang))]
 
 
 def _has_connective(text: str) -> bool:
@@ -116,9 +121,15 @@ def example_texts(root: Path) -> tuple[str, ...]:
     return tuple(texts)
 
 
-def checklist_questions() -> tuple[str, ...]:
-    """Вопросы методики: речь управляющей компании о нарушениях."""
-    return tuple(i.question("ru") for i in list_items() if i.question("ru"))
+def checklist_questions(lang: str = DEFAULT_LANG) -> tuple[str, ...]:
+    """Вопросы методики: речь управляющей компании о нарушениях.
+
+    Язык — параметр: та же методика заполнена на обоих языках, и английская
+    колонка (T196) — единственный корпус того же рода, какой у английской
+    связки вообще есть. Связка «is» частотнее русской «это», и без этого
+    корпуса про неё нечего было бы сказать, кроме предположения.
+    """
+    return tuple(i.question(lang) for i in list_items() if i.question(lang))
 
 
 def criteria_lines(data_dir: Path) -> tuple[str, ...]:
@@ -146,9 +157,16 @@ def corpora(root: Path) -> Iterator[Corpus]:
         example_texts(root),
     )
     yield Corpus(
-        "Вопросы методики",
+        "Вопросы методики по-русски",
         "речь управляющей компании: указанием словарю не является ни один",
-        checklist_questions(),
+        checklist_questions("ru"),
+    )
+    yield Corpus(
+        "Вопросы методики по-английски — ЕДИНСТВЕННЫЙ корпус английской связки",
+        "та же речь управляющей компании на втором языке; боевых английских "
+        "проверок не существует, и живой английской речи здесь нет",
+        checklist_questions("en"),
+        lang="en",
     )
     yield Corpus(
         "Критерии классов, построчно",
@@ -158,7 +176,7 @@ def corpora(root: Path) -> Iterator[Corpus]:
 
 
 def measure(corpus: Corpus) -> Result:
-    names = _process_stems()
+    names = _process_stems(corpus.lang)
     named = linked = 0
     fired: list[tuple[str, str]] = []
     for text in corpus.texts:
@@ -167,7 +185,7 @@ def measure(corpus: Corpus) -> Result:
             named += 1
         if _has_connective(text):
             linked += 1
-        hint = process_hint(text)
+        hint = process_hint(text, lang=corpus.lang)
         if hint is not None:
             fired.append((hint.process, hint.said[:_SNIPPET]))
     return Result(corpus=corpus, named=named, linked=linked, fired=tuple(fired))

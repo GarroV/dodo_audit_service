@@ -14,12 +14,19 @@
 
 1. **Зона названа человеком.** Правило 6 `docs/03-recording-rules.md`: зону
    определяет аудитор, не догадка по словам.
-2. **Слова покрывают строку карты целиком.** Не «задели общим словом», а
-   произнесли подсказку `data/photo-cues.md` полностью. Порог сужения (два
-   слова или одно различающее) для решения за человека слишком мягкий:
-   комментарий про пол в подсобной зоне задевает перечислительную строку карты
-   про полы и стены производственных помещений одним словом из пяти, и по
-   такому касанию показывать готовый пункт нельзя.
+2. **Слова покрывают строку карты целиком — и утвердительно.** Не «задели
+   общим словом», а произнесли подсказку `data/photo-cues.md` полностью.
+   Порог сужения (два слова или одно различающее) для решения за человека
+   слишком мягкий: комментарий про пол в подсобной зоне задевает
+   перечислительную строку карты про полы и стены производственных помещений
+   одним словом из пяти, и по такому касанию показывать готовый пункт нельзя.
+   **Отрицание сверяется с двух сторон (T195).** Слово, отрицаемое в словах
+   аудитора, строку не покрывает: «в одной таре НЕ смешаны разные партии» —
+   не про смешение партий. Обратное тоже верно: строка карты, сформулированная
+   через отсутствие («Тара без ярлыка»), требует отрицания и в словах, иначе
+   «тара с ярлыком» покрывала бы её ровно наоборот. Таких строк в боевой карте
+   13 из 75 — правило «в комментарии есть отрицание, значит отказ» отключило бы
+   их все, и это была бы не осторожность, а тихая потеря быстрого пути.
 3. **Строка даёт ровно один код — в названной зоне.** Карта различает грязь и
    поломку одного объекта колонками («Печь | CLN05 | TEH05») и сама объясняет
    разницу — значит, слова должны сказать, о чём речь. Не сказали или сказали
@@ -57,7 +64,7 @@ from src.domain import allowed_levels, get_item, list_items
 
 from . import language
 from .config import DEFAULT_LANG
-from .cues import Cue, load_cues, stems, tokens
+from .cues import Cue, load_cues, stems, words_and_gaps
 from .cues import column_words as map_column_words
 from .shortlist import MANUAL_ONLY
 
@@ -71,10 +78,11 @@ SEVERAL_LEVELS = "класс выбирает аудитор: у пункта и
 WRONG_ZONE = "пункт не применим к названной зоне"
 NOT_OFFERED = "пункт служебный или его ставит только аудитор"
 
-#: Частицы, которые переворачивают смысл соседнего слова. «Печь без нагара» —
-#: это не нагар, «нагара нет» — тем более, а совпадение идёт по основам слов и
-#: частицу не видит. Поэтому слово рядом с отрицанием в выборе колонки не
-#: участвует вовсе: отказ стоит вызова модели, срабатывание — записи в отчёте.
+#: Частицы, которые переворачивают смысл слова, и куда каждая смотрит. «Печь
+#: без нагара» — это не нагар, «нагара нет» — тем более, а совпадение идёт по
+#: основам слов и частицу не видит. Поэтому отрицаемое слово не участвует ни в
+#: выборе колонки, ни в покрытии строки карты: отказ стоит вызова модели,
+#: срабатывание — записи в отчёте партнёру, показанной без подтверждения (D064).
 #:
 #: Частицы всех языков лежат в `language_rules.json` (T192): по-английски то же
 #: правило нужно слово в слово («oven without soot»), и оставить его русским
@@ -86,17 +94,66 @@ def _vocabulary(words: tuple[str, ...]) -> frozenset[str]:
     return frozenset(stem for word in words for stem in stems(word))
 
 
-def _column_words(note: str) -> set[str]:
-    """Основы слов, которыми выбирается колонка: без тех, что стоят при отрицании."""
-    sequence = tokens(note)
-    picked: set[str] = set()
-    for index, word in enumerate(sequence):
-        before = sequence[index - 1] if index else ""
-        after = sequence[index + 1] if index + 1 < len(sequence) else ""
-        if {word, before, after} & NEGATIONS:
+def _denied_words(words: tuple[str, ...], gaps: tuple[str, ...]) -> set[int]:
+    """Номера слов, стоящих под отрицанием.
+
+    Частица относится к **ближайшему значимому** слову в свою сторону, а не к
+    буквально соседнему: между ними сплошь и рядом стоит предлог, и «не в одной
+    таре» — это то же отрицание, что «не смешаны». Служебные слова частица
+    перешагивает, другую частицу — тоже («нет ни одного ярлыка»).
+
+    Знак препинания её останавливает. Это не тонкость: без него «жалоб нет, в
+    зале урна переполнена» теряет срабатывание, потому что «нет» и «урна» стоят
+    рядом. Замер на боевой карте — так теряются 30 строк из 32, то есть быстрый
+    путь обнуляется молча и выглядит это как «стало безопаснее».
+    """
+    denied: set[int] = set()
+    for index, word in enumerate(words):
+        direction = NEGATIONS.get(word)
+        if direction is None:
             continue
-        picked |= stems(word)
-    return picked
+        if direction in (language.FORWARD, language.BOTH):
+            _reach(words, gaps, index, +1, denied)
+        if direction in (language.BACKWARD, language.BOTH):
+            _reach(words, gaps, index, -1, denied)
+    return denied
+
+
+def _reach(
+    words: tuple[str, ...], gaps: tuple[str, ...], start: int, step: int, denied: set[int]
+) -> None:
+    """Отметить ближайшее значимое слово в сторону `step`, не пересекая знаков."""
+    previous, index = start, start + step
+    while 0 <= index < len(words):
+        if gaps[min(previous, index)].strip():
+            return
+        if words[index] not in NEGATIONS and stems(words[index]):
+            denied.add(index)
+            return
+        previous, index = index, index + step
+
+
+def _said(text: str) -> tuple[frozenset[str], frozenset[str]]:
+    """Основы слов текста: сказанные утвердительно и сказанные под отрицанием.
+
+    Считается одинаково и для комментария аудитора, и для строки карты: строки
+    вида «Тара без ярлыка» описывают отсутствие, и сверять их с комментарием
+    можно только тем же разбором, каким разобран комментарий.
+
+    Сами частицы не попадают ни в тот набор, ни в другой: это служебные слова, и
+    по-русски они и так стоп-слова, а по-английски («without», «no») стоп-словами
+    объявлены быть не могут — иначе строка карты со словом «without» покрывалась
+    бы комментарием, который говорит обратное.
+    """
+    words, gaps = words_and_gaps(text)
+    denied_at = _denied_words(words, gaps)
+    spoken: set[str] = set()
+    denied: set[str] = set()
+    for index, word in enumerate(words):
+        if word in NEGATIONS:
+            continue
+        (denied if index in denied_at else spoken).update(stems(word))
+    return frozenset(spoken), frozenset(denied)
 
 
 #: Заголовок колонки → **встроенный минимум** слов, которым она выбирается.
@@ -150,12 +207,27 @@ class FastPath:
     reason: str
 
 
-def _covered(words: set[str]) -> list[Cue]:
-    """Строки карты, произнесённые целиком: все значимые слова подсказки в словах."""
-    return [cue for cue in load_cues() if (phrase := stems(cue.phrase)) and phrase <= words]
+def _covered(spoken: frozenset[str], denied: frozenset[str]) -> list[Cue]:
+    """Строки карты, произнесённые целиком и с тем же отрицанием, что в них самих.
+
+    Двух проверок ровно две, и обе обязательны: утвердительные слова строки
+    должны быть сказаны утвердительно, а отрицаемые строкой — отрицаемы и в
+    комментарии. Одна половина без другой даёт либо запись того, что аудитор
+    отрицал, либо потерю всех строк карты про отсутствие.
+    """
+    covered: list[Cue] = []
+    for cue in load_cues():
+        phrase_spoken, phrase_denied = _said(cue.phrase)
+        if not (phrase_spoken or phrase_denied):
+            continue
+        if phrase_spoken <= spoken and phrase_denied <= denied:
+            covered.append(cue)
+    return covered
 
 
-def _resolve(cue: Cue, spoken: set[str], vocabulary: dict[str, frozenset[str]]) -> tuple[str, ...]:
+def _resolve(
+    cue: Cue, spoken: frozenset[str], vocabulary: dict[str, frozenset[str]]
+) -> tuple[str, ...]:
     """Коды строки после разбора колонок. Пусто — колонка не выбрана словами."""
     distinct = {column[1] for column in cue.by_column}
     if len(distinct) == 1:
@@ -227,11 +299,11 @@ def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> 
     # зависел бы от того, задел ли комментарий строку карты, и опечатка в коде
     # зоны нашлась бы через месяц на первом же совпавшем слове.
     zone_codes = {i.code for i in list_items(zone=zone_hint)}
-    covered = _covered(stems(note))
+    spoken, denied = _said(note)
+    covered = _covered(spoken, denied)
     if not covered:
         return FastPath(None, NO_CUE)
 
-    spoken = _column_words(note)
     vocabulary = _vocabulary_now()
     picked: dict[str, str] = {}
     for cue in covered:

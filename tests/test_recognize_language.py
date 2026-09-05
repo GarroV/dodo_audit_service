@@ -34,11 +34,15 @@ from pathlib import Path
 
 import pytest
 
+from src.recognize import process_hint as process_hint_module
 from src.recognize.cues import CUES_FILE, class_thresholds, column_words, load_cues, stems
 from src.recognize.errors import RecognizeConfigError
 from src.recognize.fastpath import NO_COLUMN, NO_CUE, fast_path
 from src.recognize.language import (
+    BACKWARD,
+    BOTH,
     COLUMN_WORDS,
+    FORWARD,
     RULES,
     THRESHOLDS,
     load_rules,
@@ -145,7 +149,8 @@ def test_третий_язык_добавляется_словарём_а_не_�
                     "about": "выдуманный язык оснастки",
                     "stopwords": ["qux"],
                     "suffixes": ["zzz"],
-                    "negations": ["nix"],
+                    "negations": {"nix": "forward"},
+                    "connectives": ["ovo"],
                     "column_words": {"prljavo": ["blato"]},
                     "sections": {
                         "thresholds": "## Pragovi",
@@ -163,7 +168,7 @@ def test_третий_язык_добавляется_словарём_а_не_�
     assert set(правила) == {"xx"}
     assert "qux" in stopwords(правила)
     assert "zzz" in suffixes(правила)
-    assert "nix" in negations(правила)
+    assert negations(правила)["nix"] == "forward"
     assert builtin_column_words(правила)["prljavo"] == ("blato",)
     assert section_headings(THRESHOLDS, правила) == ("## Pragovi",)
     assert section_headings(COLUMN_WORDS, правила) == ("## Reci",)
@@ -425,3 +430,72 @@ def test_английская_строка_карты_без_основ_не_л�
 
     assert итог.item is None, f"строка из служебных слов показала пункт {итог.item}"
     assert итог.reason == NO_CUE
+
+
+def test_у_каждой_частицы_отрицания_объявлено_направление() -> None:
+    """Направление — часть правила языка, а не догадка кода (T195).
+
+    По-русски «не» и «без» относятся к тому, что стоит после них, а «нет» — к
+    обеим сторонам. Правило, снимающее слово с обеих сторон от любой частицы,
+    отбрасывает саму «печь» во фразе «печь не сломана»: строка карты перестаёт
+    находиться, и аудитор видит подменённую причину отказа.
+    """
+    for код in ЯЗЫКИ_ПРОДУКТА:
+        for частица, направление in RULES[код].negations.items():
+            assert направление in (FORWARD, BACKWARD, BOTH), (
+                f"у языка {код} частица «{частица}» смотрит в «{направление}»"
+            )
+
+
+def test_одна_частица_в_разных_языках_не_может_смотреть_по_разному(tmp_path: Path) -> None:
+    """Правила языков складываются — значит, общая частица обязана быть общей.
+
+    Иначе разбор зависел бы не только от текста, но и от порядка языков в файле:
+    один и тот же комментарий давал бы разный ответ после добавления третьего
+    языка, и понять причину по поведению было бы нечем.
+    """
+    язык = {
+        "about": "оснастка теста: языка такого в продукте нет",
+        "stopwords": ["qux"],
+        "suffixes": ["zzz"],
+        "connectives": ["ovo"],
+        "column_words": {"prljavo": ["blato"]},
+        "sections": {THRESHOLDS: "## Pragovi", COLUMN_WORDS: "## Reci"},
+    }
+    файл = tmp_path / "language_rules.json"
+    файл.write_text(
+        json.dumps(
+            {
+                "xx": {**язык, "negations": {"nix": "forward"}},
+                "yy": {**язык, "negations": {"nix": "both"}},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    правила = load_rules(файл)
+
+    with pytest.raises(RecognizeConfigError) as отказ:
+        negations(правила)
+
+    assert "nix" in str(отказ.value), str(отказ.value)
+
+
+def test_связка_указания_процесса_объявлена_для_обоих_языков(domain_env: Path) -> None:
+    """Связка — параметр языка, а не русская константа (T196, #161).
+
+    Пока связка была задана русским выражением, аудитор, ведущий проверку
+    по-английски, не мог указать процесс вовсе. Молчал признак бесшумно: он и
+    так имеет право не срабатывать, и «указаний не было» выглядело так же, как
+    «указать было нечем».
+    """
+    for код in ЯЗЫКИ_ПРОДУКТА:
+        assert RULES[код].connectives, f"у языка {код} не объявлено ни одной связки"
+
+    выражение = process_hint_module.CONNECTIVE
+    for код in ЯЗЫКИ_ПРОДУКТА:
+        for связка in RULES[код].connectives:
+            assert выражение.search(f"что-то, {связка} процесс"), (
+                f"связка «{связка}» языка {код} не попала в выражение признака"
+            )
