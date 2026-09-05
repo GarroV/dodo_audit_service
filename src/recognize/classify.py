@@ -125,21 +125,30 @@ def classify(
     lang: str = DEFAULT_LANG,
     settings: RecognizeSettings | None = None,
     model: str | None = None,
+    chat_id: int | None,
 ) -> Suggestion:
     """Предложить записи по комментарию аудитора. Решение остаётся за ним.
 
     `lang` — язык формулировок и текста пунктов (язык отчёта проверки).
     `settings` и `model` нужны замеру точности (T035), который гоняет один и тот
     же вход по нескольким моделям; бот их не передаёт.
+
+    `chat_id` обязателен и умолчания не имеет (T226): весь запрос — перечень
+    кандидатов, перечисление классов, названия зон, пороги из карты слов —
+    собирается по изданию ТОЙ проверки (T169), а не по каталогу, который лежит
+    в `AUDIT_DATA_DIR` сейчас. Пустой чат (`config.NO_CHAT`) — законное
+    «проверки нет»: так зовут замеры по выгрузкам `examples/`.
     """
     cfg = settings or load_recognize_settings()
-    picked = shortlist(note, zone_hint)
-    picks = picks_for(picked.codes)
-    zones = list_zones()
+    picked = shortlist(note, zone_hint, chat_id=chat_id)
+    picks = picks_for(picked.codes, chat_id=chat_id)
+    zones = list_zones(chat_id=chat_id)
     use_photo = photo is not None and needs_photo(note)
     answer = ask_model(
-        instructions=instructions(class_thresholds()),
-        question=question_text(note, picks, zones, zone_hint, lang, with_photo=use_photo),
+        instructions=instructions(class_thresholds(chat_id=chat_id)),
+        question=question_text(
+            note, picks, zones, zone_hint, lang, with_photo=use_photo, chat_id=chat_id
+        ),
         schema=response_schema(picks, [z.code for z in zones]),
         photo=photo if use_photo else None,
         settings=cfg,

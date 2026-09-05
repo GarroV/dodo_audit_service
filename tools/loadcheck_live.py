@@ -36,7 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.recognize.classify import classify  # noqa: E402
-from src.recognize.config import load_recognize_settings  # noqa: E402
+from src.recognize.config import NO_CHAT, load_recognize_settings  # noqa: E402
 from src.recognize.errors import ModelUnavailable  # noqa: E402
 
 #: Цена вызова, замеренная 28.08.2026 на этом же продукте. Служит только для
@@ -64,7 +64,7 @@ def _кадры(limit: int) -> list[Path]:
 def _один(номер: int, кадр: Path, заметка: str) -> dict[str, object]:
     начало = time.perf_counter()
     try:
-        ответ = classify(заметка, photo=кадр.read_bytes(), lang="ru")
+        ответ = classify(заметка, photo=кадр.read_bytes(), lang="ru", chat_id=NO_CHAT)
         прошло = time.perf_counter() - начало
         return {
             "n": номер,

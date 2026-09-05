@@ -53,6 +53,14 @@
 карты в шапке первого раздела и живёт ровно до той же правки (D066). На код
 возврата этот раздел не влияет: коды 0/1/2 остаются про первый раздел.
 
+**Издание методики здесь `NO_CHAT` везде, и это ответ, а не пропуск.** Замер
+идёт по выгрузкам `examples/`, а живой проверки за ними нет: издания, по
+которому её вели, взять неоткуда, и справочники с картой слов читаются
+действующие (T225, T226). Сама константа общая на продукт и живёт в
+`src.recognize.config` — своя копия рядом с каждым замером разошлась бы с ней
+молча, а разница между «проверки нет» и «забыли передать» и есть то, ради чего
+она заведена.
+
 Ни одного обращения к сети: `fast_path` детерминированный, замер бесплатный.
 
 Запуск:  python tools/fastpath_measure.py [--root PATH]
@@ -82,13 +90,10 @@ sys.path.insert(0, str(ROOT))
 # `pyproject.toml`) этим не задет — он описывает пакет `src`, а `tools/` это
 # инструменты ПОВЕРХ продукта, не его ярус.
 from src.bot.zones import zone_from_words  # noqa: E402
-
-#: Замер идёт по выгрузкам `examples/`, а не по живой проверке: издания, по
-#: которому её вели, здесь нет, и справочники читаются действующие (T225).
-NO_CHAT = None
 from src.domain import get_item  # noqa: E402
 from src.domain.errors import ConfigError  # noqa: E402
 from src.recognize import language  # noqa: E402
+from src.recognize.config import NO_CHAT  # noqa: E402
 from src.recognize.cues import Cue, cues_path, load_cues, stems  # noqa: E402
 from src.recognize.fastpath import fast_path  # noqa: E402
 
@@ -226,7 +231,7 @@ def measure(records: Sequence[Record], hints: Sequence[Hint] | None = None) -> t
     chosen = hints if hints is not None else hints_bot(records)
     outcomes: list[Outcome] = []
     for record, hint in zip(records, chosen, strict=True):
-        result = fast_path(record.note, hint.zone)
+        result = fast_path(record.note, hint.zone, chat_id=NO_CHAT)
         fired = result.item.code if result.item else None
         outcomes.append(Outcome(record=record, hint=hint, fired=fired, reason=result.reason))
     return tuple(outcomes)
@@ -246,7 +251,7 @@ def modes(records: Sequence[Record]) -> tuple[Mode, ...]:
 
 def fingerprint() -> str:
     """Отпечаток карты слов: число замера без версии карты нечем проверить (D066)."""
-    path = cues_path()
+    path = cues_path(chat_id=NO_CHAT)
     if not path.is_file():
         return "карта не найдена"
     return f"md5 {hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()}"
@@ -430,7 +435,7 @@ def find_affirmative_base(cue: Cue) -> AffirmativeBase | None:
     probes = (cue.phrase, *(f"{cue.phrase}, {word}" for word in _column_probe_words()))
     for zone in _zones_for_cue(cue):
         for note in probes:
-            result = fast_path(note, zone)
+            result = fast_path(note, zone, chat_id=NO_CHAT)
             if result.item is not None:
                 return AffirmativeBase(cue=cue, note=note, zone=zone, code=result.item.code)
     return None
@@ -495,7 +500,7 @@ def negation_outcomes(bases: Sequence[AffirmativeBase]) -> tuple[NegationOutcome
     outcomes: list[NegationOutcome] = []
     for base in bases:
         for kind, note in _negation_variants(base):
-            missed = fast_path(note, base.zone).item is not None
+            missed = fast_path(note, base.zone, chat_id=NO_CHAT).item is not None
             outcomes.append(NegationOutcome(base=base, kind=kind, note=note, missed=missed))
     return tuple(outcomes)
 
@@ -530,7 +535,7 @@ def insurance_lost(bases: Sequence[AffirmativeBase]) -> tuple[AffirmativeBase, .
     lost: list[AffirmativeBase] = []
     for base in bases:
         for note in _insurance_notes(base.note):
-            result = fast_path(note, base.zone)
+            result = fast_path(note, base.zone, chat_id=NO_CHAT)
             if result.item is None or result.item.code != base.code:
                 lost.append(base)
                 break
@@ -611,7 +616,7 @@ def _cues_or_empty() -> tuple[Cue, ...]:
     кортеж, не поднимая исключения.
     """
     try:
-        return load_cues()
+        return load_cues(chat_id=NO_CHAT)
     except ConfigError:
         return ()
 

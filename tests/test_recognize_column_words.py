@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 
+from src.recognize.config import NO_CHAT
 from src.recognize.cues import column_words, load_cues
 from src.recognize.fastpath import NO_COLUMN, fast_path
 
@@ -54,10 +55,10 @@ def test_слова_колонки_берутся_из_карты(
     словаре их нет намеренно: выдумывать за управляющую компанию, какими словами
     говорят аудиторы, нельзя.
     """
-    assert fast_path("Печь в затирках", "hot_kitchen").reason == NO_COLUMN
+    assert fast_path("Печь в затирках", "hot_kitchen", chat_id=NO_CHAT).reason == NO_COLUMN
     _карта_с_разделом(data_copy, monkeypatch, РАЗДЕЛ)
 
-    итог = fast_path("Печь в затирках", "hot_kitchen")
+    итог = fast_path("Печь в затирках", "hot_kitchen", chat_id=NO_CHAT)
 
     assert итог.item is not None, итог.reason
     assert итог.item.code == "CLN05", "слово карты выбрало колонку «Грязь»"
@@ -73,8 +74,8 @@ def test_слова_карты_дополняют_встроенный_слов�
     """
     _карта_с_разделом(data_copy, monkeypatch, РАЗДЕЛ)
 
-    грязь = fast_path("Печь в нагаре", "hot_kitchen")
-    поломка = fast_path("печь сломана", "hot_kitchen")
+    грязь = fast_path("Печь в нагаре", "hot_kitchen", chat_id=NO_CHAT)
+    поломка = fast_path("печь сломана", "hot_kitchen", chat_id=NO_CHAT)
 
     assert грязь.item is not None and грязь.item.code == "CLN05"
     assert поломка.item is not None and поломка.item.code == "TEH05"
@@ -86,10 +87,10 @@ def test_без_раздела_остаётся_встроенный_миним�
     В синтетической карте раздела нет, и это законное состояние: встроенные
     слова продолжают различать колонки, а незнакомое слово даёт обычный отказ.
     """
-    assert not column_words(), "у синтетической карты раздела слов быть не должно"
+    assert not column_words(chat_id=NO_CHAT), "у синтетической карты раздела слов быть не должно"
 
-    assert fast_path("Печь в нагаре", "hot_kitchen").item is not None
-    assert fast_path("Печь в затирках", "hot_kitchen").reason == NO_COLUMN
+    assert fast_path("Печь в нагаре", "hot_kitchen", chat_id=NO_CHAT).item is not None
+    assert fast_path("Печь в затирках", "hot_kitchen", chat_id=NO_CHAT).reason == NO_COLUMN
 
 
 def test_слово_в_двух_колонках_оставляет_отказ(
@@ -108,7 +109,7 @@ def test_слово_в_двух_колонках_оставляет_отказ(
         "| Грязь | подтекает |\n| Поломка | подтекает |\n",
     )
 
-    assert fast_path("Печь подтекает", "hot_kitchen").reason == NO_COLUMN
+    assert fast_path("Печь подтекает", "hot_kitchen", chat_id=NO_CHAT).reason == NO_COLUMN
 
 
 def test_раздел_слов_не_становится_строкой_карты(
@@ -119,10 +120,10 @@ def test_раздел_слов_не_становится_строкой_карт
     Раздел пропускается целиком тем же приёмом, что и пороги классов: иначе
     строка «Грязь | затирки…» однажды окажется подсказкой с кодом внутри.
     """
-    было = len(load_cues())
+    было = len(load_cues(chat_id=NO_CHAT))
     _карта_с_разделом(data_copy, monkeypatch, РАЗДЕЛ)
 
-    assert len(load_cues()) == было
+    assert len(load_cues(chat_id=NO_CHAT)) == было
 
 
 def test_шапка_таблицы_словом_колонки_не_считается(
@@ -131,7 +132,7 @@ def test_шапка_таблицы_словом_колонки_не_считае
     """Читаются строки после разделителя, как в любой таблице этого документа."""
     _карта_с_разделом(data_copy, monkeypatch, РАЗДЕЛ)
 
-    прочитано = column_words()
+    прочитано = column_words(chat_id=NO_CHAT)
 
     assert set(прочитано) == {"грязь", "поломка"}, "в словарь попала шапка таблицы"
     assert "затирк" in прочитано["грязь"], "слова карты приводятся к тем же основам"

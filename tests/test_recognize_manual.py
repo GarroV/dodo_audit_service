@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.domain import allowed_levels, list_items
+from src.recognize.config import NO_CHAT
 from src.recognize.manual import manual_candidates
 from src.recognize.shortlist import MANUAL_ONLY
 
@@ -20,13 +21,13 @@ from src.recognize.shortlist import MANUAL_ONLY
 def test_перечень_зоны_это_база_и_она_полная(domain_env: Path) -> None:
     зональные = {i.code for i in list_items(zone="hot_kitchen") if i.kind == "violation"}
 
-    итог = manual_candidates("hot_kitchen")
+    итог = manual_candidates("hot_kitchen", chat_id=NO_CHAT)
 
     assert {c.code for c in итог} == зональные
 
 
 def test_ручные_пункты_аудитора_доступны(domain_env: Path) -> None:
-    итог = manual_candidates("dining")
+    итог = manual_candidates("dining", chat_id=NO_CHAT)
 
     assert set(MANUAL_ONLY) <= {c.code for c in итог}
 
@@ -34,7 +35,7 @@ def test_ручные_пункты_аудитора_доступны(domain_env:
 def test_служебные_пункты_не_предлагаются(domain_env: Path) -> None:
     служебные = {i.code for i in list_items() if i.kind in ("aggregate", "info")}
 
-    итог = manual_candidates("fridge")
+    итог = manual_candidates("fridge", chat_id=NO_CHAT)
 
     assert not (служебные & {c.code for c in итог})
 
@@ -42,13 +43,13 @@ def test_служебные_пункты_не_предлагаются(domain_en
 def test_без_зоны_отдаются_все_нарушения(domain_env: Path) -> None:
     все = {i.code for i in list_items() if i.kind == "violation"}
 
-    итог = manual_candidates(None)
+    итог = manual_candidates(None, chat_id=NO_CHAT)
 
     assert {c.code for c in итог} == все
 
 
 def test_каждый_пункт_несёт_допустимые_классы_и_текст(domain_env: Path) -> None:
-    итог = manual_candidates("hot_kitchen")
+    итог = manual_candidates("hot_kitchen", chat_id=NO_CHAT)
 
     cln05 = next(c for c in итог if c.code == "CLN05")
     assert cln05.levels == tuple(allowed_levels("CLN05"))
@@ -60,14 +61,14 @@ def test_порядок_как_в_чек_листе_а_не_по_словам(do
     # `shortlist("", ...)` внутри не находит подсказок, порядок — базовый
     зональные_коды = [i.code for i in list_items(zone="hot_kitchen") if i.kind == "violation"]
 
-    итог = manual_candidates("hot_kitchen")
+    итог = manual_candidates("hot_kitchen", chat_id=NO_CHAT)
 
     assert [c.code for c in итог] == зональные_коды
 
 
 def test_язык_по_умолчанию_русский(domain_env: Path) -> None:
-    ru = manual_candidates("hot_kitchen")
-    en = manual_candidates("hot_kitchen", lang="en")
+    ru = manual_candidates("hot_kitchen", chat_id=NO_CHAT)
+    en = manual_candidates("hot_kitchen", lang="en", chat_id=NO_CHAT)
 
     cln05_ru = next(c for c in ru if c.code == "CLN05").title
     cln05_en = next(c for c in en if c.code == "CLN05").title

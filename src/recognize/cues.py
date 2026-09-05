@@ -4,6 +4,12 @@
 методикой и читается при каждом обращении: методику подкладывают томом снаружи,
 и кеш означал бы работу по старой карте до перезапуска.
 
+**Карта — часть издания, а не общий файл рядом** (D063/D064, отпечаток с
+04.09.2026), поэтому каждая функция здесь спрашивает `chat_id` и умолчания ему
+не даёт (T226): читать карту из каталога, который лежит в `AUDIT_DATA_DIR`
+сейчас, значит разбирать комментарий по правилам, которых в издании идущей
+проверки нет.
+
 Карта здесь только **добавляет** кандидатов и переставляет их вперёд. Резать ей
 перечень запрещено: разведка на боевом кадре показала, что при отсутствии
 правильного кода среди кандидатов модель не отказывается, а уверенно предлагает
@@ -18,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.domain import check_environment
+from src.domain.edition import pin
 
 from . import language
 
@@ -141,12 +148,36 @@ def words_and_gaps(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
 logger = logging.getLogger(__name__)
 
 
-def cues_path() -> Path:
-    """Где лежит карта кадров. Каталог методики задаётся `AUDIT_DATA_DIR`."""
-    return check_environment().data_dir / CUES_FILE
+def cues_path(*, chat_id: int | None) -> Path:
+    """Где лежит карта кадров. Каталог методики задаётся `AUDIT_DATA_DIR`.
+
+    `chat_id` обязателен и умолчания не имеет (T226). Карта входит в отпечаток
+    издания с 04.09.2026 (D063/D064) — и не для порядка: по ней быстрый путь
+    показывает готовый пункт, а такая запись становится находкой в отчёте
+    партнёру. Прочитанная из каталога, который лежит в `AUDIT_DATA_DIR` СЕЙЧАС,
+    она означала бы разбор по правилам, которых в издании проверки нет.
+
+    Пустой чат (`config.NO_CHAT`) — не умолчание, а отдельный законный ответ
+    «проверки нет»: так карту читают замеры по выгрузкам `examples/` и команды
+    методики. Разница между «проверки нет» и «забыли передать» и есть причина,
+    по которой умолчания здесь нет.
+    """
+    settings = check_environment()
+    return (settings if chat_id is None else pin(chat_id, settings)).data_dir / CUES_FILE
 
 
-def _read(path: Path | None) -> str:
+def _map_file(path: Path | None, chat_id: int | None) -> Path:
+    """Файл карты: явно названный или тот, что лежит в издании этой проверки.
+
+    Явный путь сильнее — и это не поблажка: им карту читают там, где издание
+    названо самим файлом, а не проверкой (команды методики MCP ходят по
+    хранилищу версий, тесты — по своим копиям). Когда пути нет, издание может
+    назвать только чат, и назвать его обязаны.
+    """
+    return path if path is not None else cues_path(chat_id=chat_id)
+
+
+def _read(path: Path | None, chat_id: int | None) -> str:
     """Текст карты кадров. Карты нет — пустой текст, а не отказ (T157, D068).
 
     Карта числится необязательным файлом методики (`OPTIONAL_DATA_FILES`), и
@@ -159,7 +190,7 @@ def _read(path: Path | None) -> str:
     Перечень пунктов при этом не режется — карта его только дополняет и
     переставляет, поэтому опасение про усечённый перечень сюда не относится.
     """
-    target = path if path is not None else cues_path()
+    target = _map_file(path, chat_id)
     if not target.is_file():
         logger.warning(
             "карта кадров %s не найдена (%s): быстрый путь не сработает, разбор идёт моделью",
@@ -170,8 +201,10 @@ def _read(path: Path | None) -> str:
     return target.read_text(encoding="utf-8")
 
 
-def load_cues(path: Path | None = None) -> tuple[Cue, ...]:
+def load_cues(path: Path | None = None, *, chat_id: int | None) -> tuple[Cue, ...]:
     """Разобрать карту кадров в строки «фраза → коды».
+
+    `chat_id` обязателен — почему, написано у `cues_path`.
 
     Берутся только строки таблиц: первая ячейка — что видно, коды — из
     остальных. Разделы, подсказками не являющиеся, пропускаются целиком
@@ -185,7 +218,7 @@ def load_cues(path: Path | None = None) -> tuple[Cue, ...]:
     cues: list[Cue] = []
     skipping = False
     headers: tuple[str, ...] = ()
-    for line in _read(path).splitlines():
+    for line in _read(path, chat_id).splitlines():
         if line.startswith("## "):
             skipping = line.strip().startswith(_NOT_CUES)
             headers = ()
@@ -255,7 +288,7 @@ def match_cues(note: str, cues: tuple[Cue, ...]) -> tuple[str, ...]:
     return tuple(codes)
 
 
-def class_thresholds(path: Path | None = None) -> str:
+def class_thresholds(path: Path | None = None, *, chat_id: int | None) -> str:
     """Раздел карты с порогами классов — тот кусок, что уходит в промпт.
 
     Целиком карта в промпт не идёт: она вдвое длиннее самого перечня пунктов,
@@ -263,7 +296,7 @@ def class_thresholds(path: Path | None = None) -> str:
     """
     lines: list[str] = []
     collecting = False
-    for line in _read(path).splitlines():
+    for line in _read(path, chat_id).splitlines():
         if line.startswith("## "):
             if collecting:
                 break
@@ -274,7 +307,7 @@ def class_thresholds(path: Path | None = None) -> str:
     return "\n".join(lines).strip()
 
 
-def column_words(path: Path | None = None) -> dict[str, frozenset[str]]:
+def column_words(path: Path | None = None, *, chat_id: int | None) -> dict[str, frozenset[str]]:
     """Слова, которыми аудитор называет колонку строки карты (T143).
 
     Карта различает грязь и поломку одного объекта колонками («Печь | CLN05 |
@@ -294,7 +327,7 @@ def column_words(path: Path | None = None) -> dict[str, frozenset[str]]:
     picked: dict[str, set[str]] = {}
     collecting = False
     after_separator = False
-    for line in _read(path).splitlines():
+    for line in _read(path, chat_id).splitlines():
         if line.startswith("## "):
             if collecting:
                 break

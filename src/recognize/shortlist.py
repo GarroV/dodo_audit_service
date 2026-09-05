@@ -45,16 +45,28 @@ def _offered(kind: str, code: str, *, with_manual: bool) -> bool:
     return with_manual or code not in MANUAL_ONLY
 
 
-def shortlist(note: str, zone_hint: str | None = None, *, with_manual: bool = False) -> Shortlist:
+def shortlist(
+    note: str,
+    zone_hint: str | None = None,
+    *,
+    with_manual: bool = False,
+    chat_id: int | None,
+) -> Shortlist:
     """Собрать перечень кандидатов. Неизвестная зона — отказ от `domain`.
 
     `with_manual` включает пункты ручного решения аудитора: он нужен ручному
     выбору кнопками, где решает человек, и выключен для запроса к модели.
+
+    `chat_id` обязателен и умолчания не имеет (T226): и пункты, и карта слов
+    берутся из издания ТОЙ проверки (T169). Перечень, собранный по действующей
+    методике, — худший из случаев разведки: снятый переизданием пункт из него
+    исчезает, и модель уверенно предлагает соседний. Пустой чат
+    (`config.NO_CHAT`) — законное «проверки нет», а не забытый параметр.
     """
-    hits = match_cues(note, load_cues())
-    everything = list_items()
+    hits = match_cues(note, load_cues(chat_id=chat_id))
+    everything = list_items(chat_id=chat_id)
     offered = {i.code for i in everything if _offered(i.kind, i.code, with_manual=with_manual)}
-    base_items = everything if zone_hint is None else list_items(zone=zone_hint)
+    base_items = everything if zone_hint is None else list_items(zone=zone_hint, chat_id=chat_id)
     base = [i.code for i in base_items if i.code in offered]
     front = tuple(code for code in hits if code in offered)
     codes = list(front) + [code for code in base if code not in front]

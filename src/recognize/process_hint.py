@@ -84,7 +84,7 @@ class ProcessHint:
     connective: str
 
 
-def process_hint(note: str, *, lang: str = DEFAULT_LANG) -> ProcessHint | None:
+def process_hint(note: str, *, lang: str = DEFAULT_LANG, chat_id: int | None) -> ProcessHint | None:
     """Распознать указание процесса методики в комментарии, если оно есть.
 
     Признак двухчастный, и обе части обязательны:
@@ -94,7 +94,7 @@ def process_hint(note: str, *, lang: str = DEFAULT_LANG) -> ProcessHint | None:
        сравнение идёт по основам слов (`stems`), лишнее слово в хвосте признак
        снимает («это порядок на полке» — не признак).
 
-    Имена процессов читаются из методики при каждом вызове (`list_items()` →
+    Имена процессов читаются из методики при каждом вызове (`list_items` →
     `item.process(lang)`), а не зашиты в код: переименованный управляющей
     компанией процесс обязан начать узнаваться сам, без пересборки — тот же
     принцип, что у карты кадров в `cues.py`.
@@ -109,11 +109,19 @@ def process_hint(note: str, *, lang: str = DEFAULT_LANG) -> ProcessHint | None:
 
     Отказ методики (`src.domain` при сломанной конфигурации) не перехватывается
     и уходит наружу как есть — своих исключений функция не заводит.
+
+    `chat_id` обязателен и умолчания не имеет (T226): имена процессов — такой
+    же справочник, как пункты и зоны, и читаются они из издания ТОЙ проверки
+    (T169). Признак пока никем в продукте не зовётся — сбор предложений для
+    управляющей компании остаётся задачей T165, — но параметр заведён сразу:
+    умолчание здесь и есть тот молчаливый откат на действующую методику,
+    который T226 снимает во всём блоке, и заводить его, чтобы снять потом,
+    значило бы заложить дефект осознанно.
     """
     if not note.strip():
         return None
 
-    vocabulary = _process_vocabulary(lang)
+    vocabulary = _process_vocabulary(lang, chat_id)
     if not vocabulary:
         return None
 
@@ -131,7 +139,7 @@ def process_hint(note: str, *, lang: str = DEFAULT_LANG) -> ProcessHint | None:
     return None
 
 
-def _process_vocabulary(lang: str) -> dict[str, frozenset[str]]:
+def _process_vocabulary(lang: str, chat_id: int | None) -> dict[str, frozenset[str]]:
     """Имена процессов методики → их основы слов. Читается заново на каждый вызов.
 
     Имена отсортированы намеренно: два процесса с одинаковым набором основ
@@ -140,7 +148,7 @@ def _process_vocabulary(lang: str) -> dict[str, frozenset[str]]:
     методики, но невоспроизводимое поведение на ней хуже воспроизводимого:
     первое не разбирается вовсе.
     """
-    names = sorted({item.process(lang) for item in list_items()})
+    names = sorted({item.process(lang) for item in list_items(chat_id=chat_id)})
     return {name: frozenset(stems(name)) for name in names if name and stems(name)}
 
 

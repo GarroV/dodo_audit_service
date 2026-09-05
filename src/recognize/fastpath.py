@@ -190,7 +190,7 @@ BUILTIN_COLUMN_VOCABULARY: dict[str, frozenset[str]] = {
 }
 
 
-def _vocabulary_now() -> dict[str, frozenset[str]]:
+def _vocabulary_now(chat_id: int | None) -> dict[str, frozenset[str]]:
     """Словарь колонок: встроенный минимум плюс слова из карты (T143).
 
     Сложение, а не замена: раздел, забытый в новой версии карты, не должен
@@ -199,7 +199,7 @@ def _vocabulary_now() -> dict[str, frozenset[str]]:
     вызове по той же причине, что и подсказки: методику подкладывают снаружи.
     """
     merged = dict(BUILTIN_COLUMN_VOCABULARY)
-    for header, words in map_column_words().items():
+    for header, words in map_column_words(chat_id=chat_id).items():
         merged[header] = merged.get(header, frozenset()) | words
     return merged
 
@@ -225,7 +225,7 @@ class FastPath:
     reason: str
 
 
-def _covered(spoken: frozenset[str], denied: frozenset[str]) -> list[Cue]:
+def _covered(spoken: frozenset[str], denied: frozenset[str], chat_id: int | None) -> list[Cue]:
     """Строки карты, произнесённые целиком и с тем же отрицанием, что в них самих.
 
     Двух проверок ровно две, и обе обязательны: утвердительные слова строки
@@ -234,7 +234,7 @@ def _covered(spoken: frozenset[str], denied: frozenset[str]) -> list[Cue]:
     отрицал, либо потерю всех строк карты про отсутствие.
     """
     covered: list[Cue] = []
-    for cue in load_cues():
+    for cue in load_cues(chat_id=chat_id):
         phrase_spoken, phrase_denied = _said(cue.phrase)
         if not (phrase_spoken or phrase_denied):
             continue
@@ -258,17 +258,19 @@ def _resolve(
     return matched[0] if len(matched) == 1 else ()
 
 
-def _offered(codes: tuple[str, ...]) -> bool:
+def _offered(codes: tuple[str, ...], chat_id: int | None) -> bool:
     """Все ли коды строки вообще предлагаются разбором.
 
     Смешанная строка (служебный пункт рядом с нарушением) — не повод показать
     нарушение и промолчать про остальное: это ошибка карты, и она должна быть
     видна отказом, а не тихим отбрасыванием половины строки.
     """
-    return all(get_item(c).kind == "violation" and c not in MANUAL_ONLY for c in codes)
+    return all(
+        get_item(c, chat_id=chat_id).kind == "violation" and c not in MANUAL_ONLY for c in codes
+    )
 
 
-def _separable_by_zone(codes: tuple[str, ...]) -> bool:
+def _separable_by_zone(codes: tuple[str, ...], chat_id: int | None) -> bool:
     """Перечисляет ли строка один объект по местам — или предлагает выбор (T143).
 
     Зона вправе развести коды строки только тогда, когда их перечни зон **не
@@ -286,7 +288,7 @@ def _separable_by_zone(codes: tuple[str, ...]) -> bool:
     """
     zone_sets: list[set[str]] = []
     for code in codes:
-        zones = get_item(code).zones
+        zones = get_item(code, chat_id=chat_id).zones
         if not zones or zones == ["*"]:
             return False
         zone_sets.append(set(zones))
@@ -297,7 +299,9 @@ def _separable_by_zone(codes: tuple[str, ...]) -> bool:
     )
 
 
-def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> FastPath:
+def fast_path(
+    note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG, chat_id: int | None
+) -> FastPath:
     """Однозначен ли комментарий настолько, чтобы показать пункт без модели.
 
     Возвращает либо пункт (`item`), либо причину отказа (`reason`). Отказ —
@@ -310,19 +314,27 @@ def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> 
     `WRONG_ZONE`. Замер объясняет, почему именно так: на боевых записях
     отбрасывание строк по зоне даёт одно лишнее срабатывание из семнадцати, и
     оно неверное.
+
+    **`chat_id` обязателен и умолчания не имеет (T226).** Пункты, классы, зоны
+    и сама карта слов берутся из издания ТОЙ проверки (T169): карта входит в
+    отпечаток издания (D063/D064), а показанный ею пункт становится записью в
+    отчёте партнёру, у которой отдельного подтверждения текста больше нет
+    (D064). Карта из действующего каталога означала бы запись по правилам,
+    которых в издании проверки нет. Пустой чат (`config.NO_CHAT`) — законное
+    «проверки нет»: так зовёт замер по выгрузкам `examples/`.
     """
     if zone_hint is None:
         return FastPath(None, NO_ZONE)
     # Зона проверяется до слов: иначе отказ методики на неизвестную зону
     # зависел бы от того, задел ли комментарий строку карты, и опечатка в коде
     # зоны нашлась бы через месяц на первом же совпавшем слове.
-    zone_codes = {i.code for i in list_items(zone=zone_hint)}
+    zone_codes = {i.code for i in list_items(zone=zone_hint, chat_id=chat_id)}
     spoken, denied = _said(note)
-    covered = _covered(spoken, denied)
+    covered = _covered(spoken, denied, chat_id)
     if not covered:
         return FastPath(None, NO_CUE)
 
-    vocabulary = _vocabulary_now()
+    vocabulary = _vocabulary_now(chat_id)
     picked: dict[str, str] = {}
     for cue in covered:
         codes = _resolve(cue, spoken, vocabulary)
@@ -330,9 +342,9 @@ def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> 
             return FastPath(None, NO_COLUMN)
         # Вид пункта — раньше зоны: сводная строка процесса применима во всех
         # зонах сразу, и зональный отказ подменил бы правило 8 неверной причиной.
-        if not _offered(codes):
+        if not _offered(codes, chat_id):
             return FastPath(None, NOT_OFFERED)
-        if len(codes) > 1 and not _separable_by_zone(codes):
+        if len(codes) > 1 and not _separable_by_zone(codes, chat_id):
             return FastPath(None, SEVERAL_ITEMS)
         applicable = tuple(code for code in codes if code in zone_codes)
         if not applicable:
@@ -344,7 +356,7 @@ def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> 
         return FastPath(None, SEVERAL_ITEMS)
 
     code, phrase = next(iter(picked.items()))
-    levels = allowed_levels(code)
+    levels = allowed_levels(code, chat_id=chat_id)
     if len(levels) != 1:
         return FastPath(None, SEVERAL_LEVELS)
     return FastPath(
@@ -352,7 +364,7 @@ def fast_path(note: str, zone_hint: str | None, *, lang: str = DEFAULT_LANG) -> 
             code=code,
             level=levels[0],
             zone=zone_hint,
-            title=get_item(code).question(lang),
+            title=get_item(code, chat_id=chat_id).question(lang),
             cue=phrase,
         ),
         "",

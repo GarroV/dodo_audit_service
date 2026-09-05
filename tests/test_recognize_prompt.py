@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from src.recognize.config import NO_CHAT
 from src.recognize.models import NONE_CODE, UNKNOWN_ZONE
 from src.recognize.prompt import RECORDING_RULES, instructions, question_text, rules_text
 
@@ -90,14 +91,14 @@ def test_instructions_содержит_правила_и_пороги_класс
 
 
 def test_question_text_без_кадра_говорит_что_кадра_нет() -> None:
-    text = question_text("грязно", [], [], None, "ru", with_photo=False)
+    text = question_text("грязно", [], [], None, "ru", with_photo=False, chat_id=NO_CHAT)
 
     assert "Кадра нет" in text
     assert "грязно" in text
 
 
 def test_question_text_с_кадром_предупреждает_не_добавлять_из_него_масштаб() -> None:
-    text = question_text("грязно", [], [], None, "ru", with_photo=True)
+    text = question_text("грязно", [], [], None, "ru", with_photo=True, chat_id=NO_CHAT)
 
     assert "приложен кадр" in text
     assert "не добавляй из кадра масштаб" in text
@@ -106,7 +107,7 @@ def test_question_text_с_кадром_предупреждает_не_доба�
 def test_question_text_пустой_комментарий_помечен_явно() -> None:
     # T064: разбор кадра без комментария — модель должна увидеть, что слов
     # аудитора нет вовсе, а не пустую строку без объяснения
-    text = question_text("", [], [], "hot_kitchen", "ru", with_photo=True)
+    text = question_text("", [], [], "hot_kitchen", "ru", with_photo=True, chat_id=NO_CHAT)
 
     assert "(пусто)" in text
 
@@ -115,7 +116,7 @@ def test_question_text_кадр_без_комментария_просит_ко�
     # T064/D043: разбор по кнопке «Разобрать» — тон другой, чем при разборе
     # слов аудитора, и требование к формулировке другое: коротко, пунктами,
     # без воды, чтобы аудитор успел подтвердить в моменте
-    text = question_text("", [], [], "hot_kitchen", "ru", with_photo=True)
+    text = question_text("", [], [], "hot_kitchen", "ru", with_photo=True, chat_id=NO_CHAT)
 
     assert "нажал «Разобрать»" in text
     assert "коротко" in text
@@ -125,22 +126,30 @@ def test_question_text_кадр_без_комментария_просит_ко�
 def test_question_text_кадр_с_комментарием_не_путается_с_кадром_без_него() -> None:
     # Ветки не должны пересекаться текстом: «нашёл сам» — только когда
     # комментария действительно нет
-    без_комментария = question_text("", [], [], "hot_kitchen", "ru", with_photo=True)
-    с_комментарием = question_text("печь грязная", [], [], "hot_kitchen", "ru", with_photo=True)
+    без_комментария = question_text(
+        "", [], [], "hot_kitchen", "ru", with_photo=True, chat_id=NO_CHAT
+    )
+    с_комментарием = question_text(
+        "печь грязная", [], [], "hot_kitchen", "ru", with_photo=True, chat_id=NO_CHAT
+    )
 
     assert "нажал «Разобрать»" not in с_комментарием
     assert "приложен кадр" not in без_комментария
 
 
 def test_question_text_подсказка_зоны_и_её_отсутствие() -> None:
-    с_подсказкой = question_text("грязно", [], [], "hot_kitchen", "ru", with_photo=False)
-    без_подсказки = question_text("грязно", [], [], None, "ru", with_photo=False)
+    с_подсказкой = question_text(
+        "грязно", [], [], "hot_kitchen", "ru", with_photo=False, chat_id=NO_CHAT
+    )
+    без_подсказки = question_text("грязно", [], [], None, "ru", with_photo=False, chat_id=NO_CHAT)
 
     assert "hot_kitchen" in с_подсказкой
     assert UNKNOWN_ZONE in без_подсказки
 
 
 def test_question_text_вариант_none_всегда_в_перечне(domain_env: Path) -> None:
-    text = question_text("грязно", ["CLN05:D1"], [], "hot_kitchen", "ru", with_photo=False)
+    text = question_text(
+        "грязно", ["CLN05:D1"], [], "hot_kitchen", "ru", with_photo=False, chat_id=NO_CHAT
+    )
 
     assert f"{NONE_CODE} — ни один пункт перечня не подходит" in text

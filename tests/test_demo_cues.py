@@ -42,6 +42,7 @@ from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.keyboards import KIND_PREFIX, LANG_PREFIX, NEW_INSPECTION_CALLBACK
 from src.domain import get_state
+from src.recognize.config import NO_CHAT
 from src.recognize.cues import load_cues
 from src.recognize.errors import ModelUnavailable
 from src.recognize.fastpath import fast_path
@@ -111,7 +112,7 @@ def test_карта_кадров_демо_лежит_в_git() -> None:
 
 def test_карта_демо_разбирается_и_ведёт_только_в_демо_коды() -> None:
     """Разбирается тем же кодом, что и боевая, и не знает чужих пунктов."""
-    cues = load_cues(DEMO_CUES)
+    cues = load_cues(DEMO_CUES, chat_id=NO_CHAT)
     assert cues, f"из {DEMO_CUES} не разобрано ни одной строки — формат таблицы не тот"
     codes = {code for cue in cues for code in cue.codes}
     assert codes <= _demo_codes(), (
@@ -126,7 +127,7 @@ def test_каждый_пункт_демо_назван_картой() -> None:
     Иначе показ упирается в модель на любом комментарии, кроме заготовленного,
     и демо снова зависит от чужого ключа.
     """
-    covered = {code for cue in load_cues(DEMO_CUES) for code in cue.codes}
+    covered = {code for cue in load_cues(DEMO_CUES, chat_id=NO_CHAT) for code in cue.codes}
     missing = sorted(_demo_codes() - covered)
     assert not missing, f"карта демо не называет пункты {missing}"
 
@@ -136,7 +137,7 @@ def test_каждый_пункт_демо_назван_картой() -> None:
 
 def test_быстрый_путь_срабатывает_на_демо_комментарии(demo_env: Path) -> None:
     """Главное требование задачи: на демо-наборе сверка доводит до пункта сама."""
-    found = fast_path(DEMO_NOTE, DEMO_PICK[2], lang="en")
+    found = fast_path(DEMO_NOTE, DEMO_PICK[2], lang="en", chat_id=NO_CHAT)
     assert found.item is not None, (
         f"быстрый путь на демо-наборе не сработал ({found.reason}) — "
         f"показ уйдёт в модель на первом же комментарии"

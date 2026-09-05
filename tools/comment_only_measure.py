@@ -96,6 +96,7 @@ sys.path.insert(0, str(ROOT))
 from src.domain.errors import DomainError  # noqa: E402
 from src.recognize import classify as classify_module  # noqa: E402
 from src.recognize.classify import classify  # noqa: E402
+from src.recognize.config import NO_CHAT  # noqa: E402
 from src.recognize.errors import RecognizeError  # noqa: E402
 from src.recognize.schema import picks_for  # noqa: E402
 from src.recognize.shortlist import shortlist  # noqa: E402
@@ -188,7 +189,7 @@ def _old_needs_photo(note: str, cue_hits: tuple[str, ...]) -> bool:
         return True
     if len(cue_hits) != 1:
         return True
-    return len(picks_for(cue_hits)) != 2
+    return len(picks_for(cue_hits, chat_id=NO_CHAT)) != 2
 
 
 @dataclass(frozen=True)
@@ -212,7 +213,7 @@ class LegOutcome:
 def _call_leg(note: str, photo: bytes | None, zone_hint: str | None) -> LegOutcome:
     """Один вызов `classify`. Отказ модели не роняет прогон — это исход, а не сбой."""
     try:
-        suggestion = classify(note, photo=photo, zone_hint=zone_hint)
+        suggestion = classify(note, photo=photo, zone_hint=zone_hint, chat_id=NO_CHAT)
     except RecognizeError as exc:
         return LegOutcome(
             top_code=None,
@@ -310,7 +311,7 @@ def run_case(record: Record, hint: Hint) -> CaseOutcome:
     ЗДЕСЬ, а не берётся из `classify()`: после D081 у продукта его взять
     неоткуда, и без этого пересчёта старое правило нечем было бы кормить.
     """
-    cue_hits = shortlist(record.note, hint.zone).cue_hits
+    cue_hits = shortlist(record.note, hint.zone, chat_id=NO_CHAT).cue_hits
     old_value = _old_needs_photo(record.note, cue_hits)
     outcome_a = _leg_a(record, hint.zone, old_value)
     outcome_b = _leg_b(record, hint.zone)

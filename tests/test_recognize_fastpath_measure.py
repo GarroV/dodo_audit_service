@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 from conftest import ROOT, requires_data, requires_examples
 
+from src.recognize.config import NO_CHAT
 from src.recognize.cues import CUES_FILE, load_cues
 from src.recognize.fastpath import NO_COLUMN, NO_ZONE, WRONG_ZONE
 from tools import fastpath_measure as fpm
@@ -254,7 +255,7 @@ def test_раздел_печатается_с_обеими_таблицами(do
     склеенные строковые константы — сравнивать с ним побайтово значило бы
     зависеть от того, как именно `ruff format` перенёс строку сегодня.
     """
-    text = fpm.render_negation_section(load_cues())
+    text = fpm.render_negation_section(load_cues(chat_id=NO_CHAT))
 
     assert "Замер защиты от отрицания (T195)" in text
     assert "Строк с утвердительным срабатыванием" in text
@@ -317,7 +318,7 @@ def test_повтор_основы_замер_больше_не_считает_�
         "строка с повтором основы не попала в саму копию карты — сценарий теста не тот"
     )
 
-    (cue,) = [c for c in load_cues() if c.phrase == "Мебель и мебель участка"]
+    (cue,) = [c for c in load_cues(chat_id=NO_CHAT) if c.phrase == "Мебель и мебель участка"]
 
     base = fpm.find_affirmative_base(cue)
     assert base is not None, "утвердительная база не нашлась — сценарий теста не тот"
@@ -413,7 +414,7 @@ def test_живой_замер_отрицания_на_боевой_карте(l
     одного срабатывания. Именно этим отличались отброшенные варианты правила —
     один из них терял 30 строк карты из 32, и терял молча.
     """
-    bases = fpm.affirmative_bases(load_cues())
+    bases = fpm.affirmative_bases(load_cues(chat_id=NO_CHAT))
     lost = fpm.insurance_lost(bases)
 
     assert bases, "на боевой карте не нашлось ни одной утвердительно срабатывающей строки"

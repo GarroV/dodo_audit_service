@@ -23,6 +23,7 @@ import pytest
 
 from src.domain import allowed_levels, get_item, list_items
 from src.domain.errors import ValidationError
+from src.recognize.config import NO_CHAT
 from src.recognize.cues import load_cues
 from src.recognize.fastpath import (
     NO_COLUMN,
@@ -45,7 +46,7 @@ def test_строка_карты_помнит_колонки_грязь_и_по�
     склеены в один список, строка неотличима от строки «PRD09, PRD11», где
     выбирать действительно нечем.
     """
-    печь = [c for c in load_cues() if c.phrase == "Печь"]
+    печь = [c for c in load_cues(chat_id=NO_CHAT) if c.phrase == "Печь"]
 
     assert len(печь) == 1, "в карте кадров должна быть строка объекта «Печь»"
     assert печь[0].by_column == (("Грязь", ("CLN05",)), ("Поломка", ("TEH05",)))
@@ -53,14 +54,16 @@ def test_строка_карты_помнит_колонки_грязь_и_по�
 
 
 def test_прочерк_в_колонке_не_становится_колонкой(domain_env: Path) -> None:
-    раковина = [c for c in load_cues() if c.phrase.startswith("Раковина и смеситель")]
+    раковина = [
+        c for c in load_cues(chat_id=NO_CHAT) if c.phrase.startswith("Раковина и смеситель")
+    ]
 
     assert len(раковина) == 1
     assert раковина[0].by_column == (("Грязь", ("CLN02",)),), "у «поломки» стоит прочерк"
 
 
 def test_строка_с_одной_колонкой_кандидатов(domain_env: Path) -> None:
-    тара = [c for c in load_cues() if c.phrase.startswith("Тара без ярлыка")]
+    тара = [c for c in load_cues(chat_id=NO_CHAT) if c.phrase.startswith("Тара без ярлыка")]
 
     assert len(тара) == 1
     assert тара[0].by_column == (("Пункты", ("PRD09", "PRD11")),)
@@ -71,7 +74,9 @@ def test_строка_с_одной_колонкой_кандидатов(domain
 
 def test_названный_объект_и_грязь_дают_один_пункт(domain_env: Path) -> None:
     """Боевая запись Белград-1: «Печь: … плотный серо-белый нагар …»."""
-    итог = fast_path("Печь: под конвейерной лентой плотный серо-белый нагар", "hot_kitchen")
+    итог = fast_path(
+        "Печь: под конвейерной лентой плотный серо-белый нагар", "hot_kitchen", chat_id=NO_CHAT
+    )
 
     assert итог.item is not None, итог.reason
     assert итог.item.code == "CLN05"
@@ -81,7 +86,7 @@ def test_названный_объект_и_грязь_дают_один_пун�
 
 
 def test_названный_объект_и_поломка_дают_другой_пункт(domain_env: Path) -> None:
-    итог = fast_path("печь сломана, дверца треснула", "hot_kitchen")
+    итог = fast_path("печь сломана, дверца треснула", "hot_kitchen", chat_id=NO_CHAT)
 
     assert итог.item is not None, итог.reason
     assert итог.item.code == "TEH05", "поломка того же объекта — другой пункт методики"
@@ -94,7 +99,9 @@ def test_текст_пункта_берётся_из_методики_а_не_с
     нарушить нечем: на кнопке стоит вопрос чек-листа, а текст записи остаётся
     словами самого аудитора.
     """
-    итог = fast_path("Мебель участка в зале не протёрта: мелкие крошки на диванах", "dining")
+    итог = fast_path(
+        "Мебель участка в зале не протёрта: мелкие крошки на диванах", "dining", chat_id=NO_CHAT
+    )
 
     assert итог.item is not None, итог.reason
     assert итог.item.code == "CLN06"
@@ -105,7 +112,7 @@ def test_текст_пункта_берётся_из_методики_а_не_с
 
 
 def test_без_зоны_быстрый_путь_не_срабатывает(domain_env: Path) -> None:
-    итог = fast_path("Печь: под лентой нагар", None)
+    итог = fast_path("Печь: под лентой нагар", None, chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == NO_ZONE, "зону называет человек — правило 6"
@@ -118,21 +125,23 @@ def test_характер_проблемы_не_назван_не_однозна
     поломку, а замер (`INF09`). Верного кода в строке карты нет вовсе — ровно тот
     случай, ради которого критерий строгий.
     """
-    итог = fast_path("Панель печи: температура 277 °C, время выпекания 00:40", "hot_kitchen")
+    итог = fast_path(
+        "Панель печи: температура 277 °C, время выпекания 00:40", "hot_kitchen", chat_id=NO_CHAT
+    )
 
     assert итог.item is None
     assert итог.reason == NO_COLUMN
 
 
 def test_грязь_и_поломка_вместе_не_однозначно(domain_env: Path) -> None:
-    итог = fast_path("печь в нагаре, и дверца треснула", "hot_kitchen")
+    итог = fast_path("печь в нагаре, и дверца треснула", "hot_kitchen", chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == NO_COLUMN, "две записи, а не одна — правило 11"
 
 
 def test_две_строки_карты_дают_разные_пункты(domain_env: Path) -> None:
-    итог = fast_path("Печь в нагаре, мебель участка в крошках", "hot_kitchen")
+    итог = fast_path("Печь в нагаре, мебель участка в крошках", "hot_kitchen", chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == SEVERAL_ITEMS
@@ -143,7 +152,7 @@ def test_одна_строка_с_несколькими_кандидатами_
 
     Карта сама предлагает выбор из двух пунктов — быстрому пути выбирать нечем.
     """
-    итог = fast_path("Тара без ярлыка, открытая упаковка", "fridge")
+    итог = fast_path("Тара без ярлыка, открытая упаковка", "fridge", chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == SEVERAL_ITEMS
@@ -155,15 +164,17 @@ def test_общее_слово_не_поднимает_строку_карты(d
     Строка карты — «Пол участка». Для сужения перечня такого касания
     достаточно, для решения за аудитора — нет.
     """
-    итог = fast_path("Пол в курьерской зоне: скопление пыли и мусора в углу", "staff")
+    итог = fast_path(
+        "Пол в курьерской зоне: скопление пыли и мусора в углу", "staff", chat_id=NO_CHAT
+    )
 
     assert итог.item is None
     assert итог.reason == NO_CUE
 
 
 def test_пустой_комментарий_не_срабатывает(domain_env: Path) -> None:
-    assert fast_path("", "hot_kitchen").reason == NO_CUE
-    assert fast_path("   ", "hot_kitchen").reason == NO_CUE
+    assert fast_path("", "hot_kitchen", chat_id=NO_CHAT).reason == NO_CUE
+    assert fast_path("   ", "hot_kitchen", chat_id=NO_CHAT).reason == NO_CUE
 
 
 def test_класс_с_выбором_остаётся_за_аудитором(domain_env: Path) -> None:
@@ -174,7 +185,7 @@ def test_класс_с_выбором_остаётся_за_аудитором(d
     """
     assert len(allowed_levels("PRD09")) > 1, "тест бессмыслен, если у пункта один класс"
 
-    итог = fast_path("Ярлык на таре нечитаемый, дата стёрлась", "dry_storage")
+    итог = fast_path("Ярлык на таре нечитаемый, дата стёрлась", "dry_storage", chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == SEVERAL_LEVELS
@@ -184,7 +195,7 @@ def test_пункт_не_применим_к_названной_зоне(domain_
     """Печь в зале не проверяют. Расхождение слов и места — работа для модели."""
     assert "CLN05" not in {i.code for i in list_items(zone="dining")}
 
-    итог = fast_path("печь в нагаре", "dining")
+    итог = fast_path("печь в нагаре", "dining", chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == WRONG_ZONE
@@ -208,7 +219,7 @@ def test_служебный_пункт_быстрым_путём_не_предл
     )
     monkeypatch.setenv("AUDIT_DATA_DIR", str(data_copy))
 
-    итог = fast_path("служебная строка карты", "hot_kitchen")
+    итог = fast_path("служебная строка карты", "hot_kitchen", chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == NOT_OFFERED
@@ -231,9 +242,11 @@ def test_отрицание_рядом_снимает_слово_колонки(
     секунд и вызова модели, а срабатывание — записи в отчёте партнёру, которую
     аудитор подтвердил нажатием, не читая.
     """
-    assert fast_path("печь без нагара, всё чисто", "hot_kitchen").reason == NO_COLUMN
-    assert fast_path("Печь: нагара нет", "hot_kitchen").reason == NO_COLUMN
-    assert fast_path("печь не сломана", "hot_kitchen").reason == NO_COLUMN
+    assert (
+        fast_path("печь без нагара, всё чисто", "hot_kitchen", chat_id=NO_CHAT).reason == NO_COLUMN
+    )
+    assert fast_path("Печь: нагара нет", "hot_kitchen", chat_id=NO_CHAT).reason == NO_COLUMN
+    assert fast_path("печь не сломана", "hot_kitchen", chat_id=NO_CHAT).reason == NO_COLUMN
 
 
 def test_отрицание_не_мешает_настоящему_срабатыванию(domain_env: Path) -> None:
@@ -242,7 +255,9 @@ def test_отрицание_не_мешает_настоящему_срабат�
     Колонку выбирают «крошки», а «не» стоит при «протёрта» — слове, которого в
     словарях нет намеренно, потому что оно переворачивается отрицанием.
     """
-    итог = fast_path("Мебель участка в зале не протёрта: мелкие крошки на диванах", "dining")
+    итог = fast_path(
+        "Мебель участка в зале не протёрта: мелкие крошки на диванах", "dining", chat_id=NO_CHAT
+    )
 
     assert итог.item is not None, итог.reason
     assert итог.item.code == "CLN06"
@@ -256,6 +271,6 @@ def test_неизвестная_зона_отвергается_всегда(dom
     однозначно» — и опечатка в коде зоны нашлась бы через месяц.
     """
     with pytest.raises(ValidationError):
-        fast_path("всё хорошо", "кухня")
+        fast_path("всё хорошо", "кухня", chat_id=NO_CHAT)
     with pytest.raises(ValidationError):
-        fast_path("печь в нагаре", "кухня")
+        fast_path("печь в нагаре", "кухня", chat_id=NO_CHAT)

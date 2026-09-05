@@ -24,6 +24,7 @@ import pytest
 
 from src.recognize.classify import classify, needs_photo
 from src.recognize.client import ModelAnswer
+from src.recognize.config import NO_CHAT
 from src.recognize.models import UNKNOWN_ZONE
 from src.recognize.shortlist import shortlist
 
@@ -93,7 +94,7 @@ def test_запись_разбирается_в_кандидата(domain_env: P
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("печь в нагаре", zone_hint="hot_kitchen")
+    s = classify("печь в нагаре", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert len(s.candidates) == 1
@@ -132,7 +133,7 @@ def test_несколько_нарушений_в_одном_комментар�
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("пол грязный и мусорка переполнена", zone_hint="hot_kitchen")
+    s = classify("пол грязный и мусорка переполнена", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert [c.code for c in s.candidates] == ["CLN05", "CLN06"]
@@ -146,7 +147,7 @@ def test_код_NONE_не_становится_кандидатом(
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("всё чисто", zone_hint="hot_kitchen")
+    s = classify("всё чисто", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert: пустой список — валидный ответ, а не ошибка разбора
     assert s.candidates == ()
@@ -174,7 +175,7 @@ def test_зона_UNKNOWN_подставляется_подсказкой(
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("печь грязная", zone_hint="hot_kitchen")
+    s = classify("печь грязная", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert: подсказка компенсирует, а не сама модель угадывает
     assert s.candidates[0].zone == "hot_kitchen"
@@ -201,7 +202,7 @@ def test_зона_UNKNOWN_без_подсказки_поднимает_needs_hum
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("печь грязная")
+    s = classify("печь грязная", chat_id=NO_CHAT)
 
     # Assert
     assert s.candidates[0].zone == UNKNOWN_ZONE
@@ -229,7 +230,7 @@ def test_вопрос_модели_поднимает_needs_human_даже_с_к
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("разводы на полу", zone_hint="hot_kitchen")
+    s = classify("разводы на полу", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert s.needs_human is True
@@ -257,7 +258,7 @@ def test_низкая_уверенность_поднимает_needs_human(
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("печь грязная", zone_hint="hot_kitchen")
+    s = classify("печь грязная", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert s.needs_human is True
@@ -284,7 +285,7 @@ def test_уверенность_вне_границ_обрезается(
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("печь грязная", zone_hint="hot_kitchen")
+    s = classify("печь грязная", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert s.candidates[0].confidence == 1.0
@@ -308,7 +309,7 @@ def test_кандидаты_обрезаются_до_max_candidates(
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("печь грязная", zone_hint="hot_kitchen")
+    s = classify("печь грязная", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert len(s.candidates) == 5
@@ -322,7 +323,7 @@ def test_пустой_список_записей_это_валидный_отв
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("ничего особенного", zone_hint="hot_kitchen")
+    s = classify("ничего особенного", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert s.candidates == ()
@@ -338,7 +339,7 @@ def test_испорченная_запись_в_списке_молча_проп
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("печь грязная", zone_hint="hot_kitchen")
+    s = classify("печь грязная", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert s.candidates == ()
@@ -356,7 +357,7 @@ def test_кадр_без_комментария_уходит_в_модель(
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("", photo=b"jpeg-bytes", zone_hint="hot_kitchen")
+    s = classify("", photo=b"jpeg-bytes", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert s.used_photo is True
@@ -372,7 +373,7 @@ def test_без_кадра_и_без_комментария_модель_всё_
     _patch(monkeypatch, recorder)
 
     # Act
-    s = classify("", photo=None, zone_hint="hot_kitchen")
+    s = classify("", photo=None, zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert s.used_photo is False
@@ -401,10 +402,14 @@ def test_комментарий_с_кадром_разбирается_по_ко
         }
     )
     _patch(monkeypatch, recorder)
-    assert shortlist("короб с мукой не закрыт", "hot_kitchen").cue_hits == ("PRD12",)
+    assert shortlist("короб с мукой не закрыт", "hot_kitchen", chat_id=NO_CHAT).cue_hits == (
+        "PRD12",
+    )
 
     # Act
-    s = classify("короб с мукой не закрыт", photo=b"jpeg-bytes", zone_hint="hot_kitchen")
+    s = classify(
+        "короб с мукой не закрыт", photo=b"jpeg-bytes", zone_hint="hot_kitchen", chat_id=NO_CHAT
+    )
 
     # Assert
     assert s.used_photo is False
@@ -423,10 +428,10 @@ def test_неоднозначный_комментарий_с_кадром_то�
     # Arrange
     recorder = _Recorder({"records": [], "question": ""})
     _patch(monkeypatch, recorder)
-    assert len(shortlist("грязно", "hot_kitchen").cue_hits) != 1
+    assert len(shortlist("грязно", "hot_kitchen", chat_id=NO_CHAT).cue_hits) != 1
 
     # Act
-    s = classify("грязно", photo=b"jpeg-bytes", zone_hint="hot_kitchen")
+    s = classify("грязно", photo=b"jpeg-bytes", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     # Assert
     assert s.used_photo is False

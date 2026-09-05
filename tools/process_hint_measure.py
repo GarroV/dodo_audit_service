@@ -50,7 +50,7 @@ from src.domain import list_items  # noqa: E402
 from src.domain.config import check_environment  # noqa: E402
 from src.domain.errors import DomainError  # noqa: E402
 from src.domain.state import read_words  # noqa: E402
-from src.recognize.config import DEFAULT_LANG  # noqa: E402
+from src.recognize.config import DEFAULT_LANG, NO_CHAT  # noqa: E402
 from src.recognize.cues import stems  # noqa: E402
 from src.recognize.process_hint import CONNECTIVE, process_hint  # noqa: E402
 
@@ -185,7 +185,7 @@ def measure(corpus: Corpus) -> Result:
             named += 1
         if _has_connective(text):
             linked += 1
-        hint = process_hint(text, lang=corpus.lang)
+        hint = process_hint(text, lang=corpus.lang, chat_id=NO_CHAT)
         if hint is not None:
             fired.append((hint.process, hint.said[:_SNIPPET]))
     return Result(corpus=corpus, named=named, linked=linked, fired=tuple(fired))

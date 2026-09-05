@@ -34,6 +34,7 @@ import pytest
 from src.domain import list_items
 from src.recognize.classify import classify
 from src.recognize.client import ModelAnswer
+from src.recognize.config import NO_CHAT
 from src.recognize.cues import CUES_FILE, class_thresholds, load_cues
 from src.recognize.fastpath import NO_CUE, fast_path
 from src.recognize.manual import manual_candidates
@@ -71,11 +72,11 @@ class _Recorder:
 
 
 def test_нет_карты_нет_подсказок_и_нет_отказа(без_карты: Path) -> None:
-    assert load_cues() == ()
+    assert load_cues(chat_id=NO_CHAT) == ()
 
 
 def test_нет_карты_пороги_классов_пустые_а_не_отказ(без_карты: Path) -> None:
-    assert class_thresholds() == ""
+    assert class_thresholds(chat_id=NO_CHAT) == ""
 
 
 def test_отсутствие_карты_названо_в_журнале(
@@ -87,7 +88,7 @@ def test_отсутствие_карты_названо_в_журнале(
     продукт работает без ускорителя, это журнал.
     """
     with caplog.at_level(logging.WARNING, logger="src.recognize.cues"):
-        load_cues()
+        load_cues(chat_id=NO_CHAT)
 
     assert caplog.records, "отсутствие карты кадров нигде не отмечено"
     сказано = "\n".join(r.getMessage() for r in caplog.records)
@@ -103,7 +104,7 @@ def test_быстрый_путь_без_карты_молчит_а_не_роня
     Причина именно `NO_CUE`, а не отдельная «карты нет»: для замера и для бота
     это один и тот же случай — ни одна строка карты не произнесена целиком.
     """
-    итог = fast_path("под конвейерной лентой печи нагар", "hot_kitchen")
+    итог = fast_path("под конвейерной лентой печи нагар", "hot_kitchen", chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == NO_CUE
@@ -121,7 +122,7 @@ def test_без_карты_в_запрос_идёт_полный_зональн�
     зональные = {i.code for i in list_items(zone="hot_kitchen") if i.kind == "violation"}
     зональные -= set(MANUAL_ONLY)
 
-    итог = shortlist("под конвейерной лентой печи нагар", zone_hint="hot_kitchen")
+    итог = shortlist("под конвейерной лентой печи нагар", zone_hint="hot_kitchen", chat_id=NO_CHAT)
 
     assert итог.cue_hits == (), "подсказкам взяться неоткуда — карты нет"
     assert зональные <= set(итог.codes)
@@ -143,7 +144,7 @@ def test_ручной_перечень_кнопками_без_карты_соб
     """
     зональные = {i.code for i in list_items(zone="hot_kitchen") if i.kind == "violation"}
 
-    итог = manual_candidates("hot_kitchen")
+    итог = manual_candidates("hot_kitchen", chat_id=NO_CHAT)
 
     assert {c.code for c in итог} == зональные
 
@@ -155,7 +156,7 @@ def test_разбор_моделью_без_карты_доходит_до_мо�
     recorder = _Recorder()
     monkeypatch.setattr("src.recognize.classify.ask_model", recorder)
 
-    итог = classify("под конвейерной лентой печи нагар", None, "hot_kitchen")
+    итог = classify("под конвейерной лентой печи нагар", None, "hot_kitchen", chat_id=NO_CHAT)
 
     assert recorder.calls, "модель не позвана — разбор оборвался там, где обязан был продолжиться"
     assert итог.candidates == ()

@@ -17,12 +17,13 @@ from pathlib import Path
 
 import pytest
 
+from src.recognize.config import NO_CHAT
 from src.recognize.fastpath import fast_path
 from src.recognize.process_hint import ProcessHint, process_hint
 
 
 def test_описание_и_процесс_через_связку_это_распознаются(domain_env: Path) -> None:
-    итог = process_hint("Грязь на полке в горячем цехе, это порядок")
+    итог = process_hint("Грязь на полке в горячем цехе, это порядок", chat_id=NO_CHAT)
 
     assert итог == ProcessHint(
         process="Порядок",
@@ -32,7 +33,7 @@ def test_описание_и_процесс_через_связку_это_ра�
 
 
 def test_имя_процесса_из_двух_слов_распознаётся_целиком(domain_env: Path) -> None:
-    итог = process_hint("Аптечка неполная, это охрана труда")
+    итог = process_hint("Аптечка неполная, это охрана труда", chat_id=NO_CHAT)
 
     assert итог is not None
     assert итог.process == "Охрана труда"
@@ -40,14 +41,14 @@ def test_имя_процесса_из_двух_слов_распознаётся
 
 
 def test_имя_процесса_из_двух_слов_режимы_хранения(domain_env: Path) -> None:
-    итог = process_hint("Шкаф не держит температуру, это режимы хранения")
+    итог = process_hint("Шкаф не держит температуру, это режимы хранения", chat_id=NO_CHAT)
 
     assert итог is not None
     assert итог.process == "Режимы хранения"
 
 
 def test_регистр_не_важен_капслок_как_у_владельца(domain_env: Path) -> None:
-    итог = process_hint("ГРЯЗЬ НА ПОЛКЕ В ГОРЯЧЕМ ЦЕХЕ, ЭТО ПОРЯДОК")
+    итог = process_hint("ГРЯЗЬ НА ПОЛКЕ В ГОРЯЧЕМ ЦЕХЕ, ЭТО ПОРЯДОК", chat_id=NO_CHAT)
 
     assert итог is not None
     assert итог.process == "Порядок"
@@ -57,7 +58,7 @@ def test_регистр_не_важен_капслок_как_у_владель�
 
 @pytest.mark.parametrize("связка", ["=", "→"])
 def test_связки_равно_и_стрелка_работают_так_же(domain_env: Path, связка: str) -> None:
-    итог = process_hint(f"Грязь на полке в горячем цехе {связка} порядок")
+    итог = process_hint(f"Грязь на полке в горячем цехе {связка} порядок", chat_id=NO_CHAT)
 
     assert итог is not None
     assert итог.process == "Порядок"
@@ -75,38 +76,38 @@ def test_тире_связкой_не_считается(domain_env: Path, ти�
     Тире стоит в обычных комментариях сплошь и рядом («нагар — жирные потёки»),
     и связкой оно не считается намеренно.
     """
-    итог = process_hint(f"Грязь на полке в горячем цехе {тире} порядок")
+    итог = process_hint(f"Грязь на полке в горячем цехе {тире} порядок", chat_id=NO_CHAT)
 
     assert итог is None
 
 
 def test_упоминание_процесса_без_связки_не_признак(domain_env: Path) -> None:
-    итог = process_hint("Плохой порядок на складе, нужно убрать")
+    итог = process_hint("Плохой порядок на складе, нужно убрать", chat_id=NO_CHAT)
 
     assert итог is None
 
 
 def test_лишнее_слово_в_хвосте_снимает_признак(domain_env: Path) -> None:
-    итог = process_hint("Грязь на полке, это порядок на полке")
+    итог = process_hint("Грязь на полке, это порядок на полке", chat_id=NO_CHAT)
 
     assert итог is None
 
 
 def test_хвост_не_совпавший_ни_с_одним_процессом(domain_env: Path) -> None:
-    итог = process_hint("Грязь на полке, это ерунда")
+    итог = process_hint("Грязь на полке, это ерунда", chat_id=NO_CHAT)
 
     assert итог is None
 
 
 def test_одна_связка_и_процесс_без_описания_это_none(domain_env: Path) -> None:
-    итог = process_hint("это порядок")
+    итог = process_hint("это порядок", chat_id=NO_CHAT)
 
     assert итог is None
 
 
 @pytest.mark.parametrize("note", ["", "   ", "\n\t "])
 def test_пустая_строка_и_строка_из_пробелов(domain_env: Path, note: str) -> None:
-    итог = process_hint(note)
+    итог = process_hint(note, chat_id=NO_CHAT)
 
     assert итог is None
 
@@ -126,8 +127,8 @@ def test_имена_процессов_читаются_из_методики_а
     checklist.write_text(переименованный, encoding="utf-8")
     monkeypatch.setenv("AUDIT_DATA_DIR", str(data_copy))
 
-    старое_имя = process_hint("Грязь на полке в горячем цехе, это порядок")
-    новое_имя = process_hint("Грязь на полке в горячем цехе, это опрятность")
+    старое_имя = process_hint("Грязь на полке в горячем цехе, это порядок", chat_id=NO_CHAT)
+    новое_имя = process_hint("Грязь на полке в горячем цехе, это опрятность", chat_id=NO_CHAT)
 
     assert старое_имя is None, "старое имя процесса не должно узнаваться после переименования"
     assert новое_имя is not None
@@ -145,8 +146,8 @@ def test_функция_ничего_не_перехватывает_обычн�
     """
     note = "Печь: под конвейерной лентой плотный серо-белый нагар, это порядок"
 
-    признак = process_hint(note)
-    итог = fast_path(note, "hot_kitchen")
+    признак = process_hint(note, chat_id=NO_CHAT)
+    итог = fast_path(note, "hot_kitchen", chat_id=NO_CHAT)
 
     assert признак is not None, "признак на этой фразе должен сработать"
     assert итог.item is not None, итог.reason
@@ -163,7 +164,9 @@ def test_английская_связка_распознаётся_так_же_
     по-английски, не мог указать процесс вовсе — признак для него молчал всегда
     и молчал бесшумно, как отсутствие указаний.
     """
-    итог = process_hint("Crumbs on the shelf by the mixer, this is tidiness", lang="en")
+    итог = process_hint(
+        "Crumbs on the shelf by the mixer, this is tidiness", lang="en", chat_id=NO_CHAT
+    )
 
     assert итог is not None, "английская связка не распознана"
     assert итог.process == "Tidiness"
@@ -173,7 +176,9 @@ def test_английская_связка_распознаётся_так_же_
 
 def test_английское_имя_процесса_из_двух_слов(domain_env: Path) -> None:
     """Хвост сверяется по основам целиком — имя из двух слов не должно распадаться."""
-    итог = process_hint("The first aid kit is incomplete, this is labour safety", lang="en")
+    итог = process_hint(
+        "The first aid kit is incomplete, this is labour safety", lang="en", chat_id=NO_CHAT
+    )
 
     assert итог is not None
     assert итог.process == "Labour safety"
@@ -186,13 +191,16 @@ def test_английская_связка_без_имени_процесса_в
     молчать: иначе связка, добавленная ради второго языка, превратила бы
     инструмент сбора предложений для управляющей компании в шум.
     """
-    assert process_hint("The oven is covered in soot", lang="en") is None
-    assert process_hint("This is not what we agreed", lang="en") is None
+    assert process_hint("The oven is covered in soot", lang="en", chat_id=NO_CHAT) is None
+    assert process_hint("This is not what we agreed", lang="en", chat_id=NO_CHAT) is None
 
 
 def test_лишнее_слово_в_английском_хвосте_снимает_признак(domain_env: Path) -> None:
     """Правило хвоста одно на все языки: имя процесса и ничего больше."""
-    assert process_hint("Crumbs on the shelf, this is about tidiness", lang="en") is None
+    assert (
+        process_hint("Crumbs on the shelf, this is about tidiness", lang="en", chat_id=NO_CHAT)
+        is None
+    )
 
 
 def test_русская_связка_продолжает_работать_после_добавления_английской(
@@ -204,7 +212,7 @@ def test_русская_связка_продолжает_работать_по�
     как только аудитор попросил английский отчёт, — молча и без единого отказа.
     Ровно та же причина, по которой складываются правила разбора слов (T192).
     """
-    итог = process_hint("Грязь на полке в горячем цехе, это порядок")
+    итог = process_hint("Грязь на полке в горячем цехе, это порядок", chat_id=NO_CHAT)
 
     assert итог is not None
     assert итог.connective == "это"
@@ -223,5 +231,5 @@ def test_связка_ищется_целым_словом_а_не_куском_
     ни один тест на неё не наступал. Порча при сдаче T196 это показала: снятие
     границ слова не красило ни одного теста.
     """
-    assert process_hint("Поэтому порядок") is None
-    assert process_hint("Premises tidiness", lang="en") is None
+    assert process_hint("Поэтому порядок", chat_id=NO_CHAT) is None
+    assert process_hint("Premises tidiness", lang="en", chat_id=NO_CHAT) is None

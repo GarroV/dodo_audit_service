@@ -34,6 +34,7 @@ from pathlib import Path
 import pytest
 
 from src.domain import get_item, list_items
+from src.recognize.config import NO_CHAT
 from src.recognize.fastpath import (
     NOT_OFFERED,
     SEVERAL_ITEMS,
@@ -74,8 +75,8 @@ def test_зона_выбирает_пункт_внутри_строки_карт
     _карта_со_строками(domain_env_dc := data_copy, monkeypatch, "Половое покрытие | CLN01, CLN12")
     assert domain_env_dc.is_dir()
 
-    кухня = fast_path("Половое покрытие в грязи", "hot_kitchen")
-    зал = fast_path("Половое покрытие в грязи", "dining")
+    кухня = fast_path("Половое покрытие в грязи", "hot_kitchen", chat_id=NO_CHAT)
+    зал = fast_path("Половое покрытие в грязи", "dining", chat_id=NO_CHAT)
 
     assert кухня.item is not None, кухня.reason
     assert кухня.item.code == "CLN01"
@@ -93,7 +94,7 @@ def test_ни_один_код_строки_не_подходит_зоне_ост
     """
     _карта_со_строками(data_copy, monkeypatch, "Половое покрытие | CLN01, CLN12")
 
-    итог = fast_path("Половое покрытие в грязи", "facade")
+    итог = fast_path("Половое покрытие в грязи", "facade", chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == WRONG_ZONE
@@ -112,7 +113,7 @@ def test_вторая_строка_вне_зоны_не_отбрасываетс
     """
     assert "CLN13" not in {i.code for i in list_items(zone="hot_kitchen")}
 
-    итог = fast_path("Печь в нагаре, урна в зале переполнена", "hot_kitchen")
+    итог = fast_path("Печь в нагаре, урна в зале переполнена", "hot_kitchen", chat_id=NO_CHAT)
 
     assert итог.item is None, "быстрый путь ответил по одной строке из двух"
     assert итог.reason == WRONG_ZONE
@@ -137,7 +138,7 @@ def test_коды_с_пересекающимися_зонами_зоной_не
     assert "CLN06" in {i.code for i in list_items(zone="dining")}
     _карта_со_строками(data_copy, monkeypatch, "Перегородка участка | CLN03, CLN06")
 
-    итог = fast_path("Перегородка участка в грязи", "dining")
+    итог = fast_path("Перегородка участка в грязи", "dining", chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == SEVERAL_ITEMS
@@ -171,7 +172,7 @@ def test_служебный_пункт_отсекается_до_зоны(
     assert get_item("INF12").kind != "violation"
     assert "INF12" not in {i.code for i in list_items(zone="dining")}
 
-    итог = fast_path("служебная строка карты", "dining")
+    итог = fast_path("служебная строка карты", "dining", chat_id=NO_CHAT)
 
     assert итог.item is None
     assert итог.reason == NOT_OFFERED, "зональный отказ подменил правило 8"
