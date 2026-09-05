@@ -39,6 +39,14 @@ from .units import normalize_unit_name
 #: строковый литерал и закреплено тестом на конкретное значение "default".
 DEFAULT_TENANT = "default"
 
+# `where retracted_at is null` в `on conflict` — не украшение, а обязательная
+# часть указания на индекс: с миграции `0010` отпечаток уникален только среди
+# ЖИВЫХ проверок (T210), и без предиката PostgreSQL не находит подходящего
+# индекса вовсе — слив падает «there is no unique or exclusion constraint
+# matching the ON CONFLICT specification». Смысл же тот, ради которого
+# уникальность стала частичной: слитая заново после снятия проверка ложится
+# новой строкой, а повторный слив живой — по-прежнему не создаёт дубля.
+#
 # Проверка кладётся как `draft` и запечатывается последним действием ТОЙ ЖЕ
 # транзакции (T111). Это не церемония: политика `findings_not_added_to_finalized`
 # запрещает дописывать находки в запечатанную проверку — без черновой фазы слив
@@ -57,7 +65,7 @@ insert into inspections (
     %(auditor)s, %(city)s, %(partner)s, %(contact)s, %(pct)s, %(grade)s,
     %(deductions)s, %(counts)s, %(by_zone)s, %(source_fingerprint)s, 'draft'
 )
-on conflict (source_fingerprint) do nothing
+on conflict (source_fingerprint) where retracted_at is null do nothing
 returning id
 """
 

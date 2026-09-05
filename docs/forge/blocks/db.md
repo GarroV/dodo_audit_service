@@ -407,6 +407,7 @@ list_units(*, tenant: str = "default") -> list[Unit]
 | `src/db/migrations/0007_model_suggestion.sql` | предложение модели рядом с записью: пункт, класс, зона, уверенность (T164, D077) |
 | `src/db/migrations/0008_auditor_words.sql` | сырые слова аудитора рядом с записью: показание о моменте, из которого выросла запись (T185, T183) |
 | `src/db/migrations/0009_inspection_info.sql` | информационная часть проверки: таблица `inspection_info` (строка на поле, код пункта, ответ дословно, записанный порядок), кадр поля в `photos.info_id`, права и политики новой таблицы (T200) |
+| `src/db/migrations/0010_retracted_inspections.sql` | снятие проверки из истории: пометка `retracted_at`/`retraction_reason` с обязательной причиной, частичная уникальность отпечатка (только среди живых), `photos.purged_at`, роль `dodo_audit_admin` и политики, по которым снятая проверка видна только ей (T210, T233) |
 | `src/db/config.py` | `DATABASE_URL` → `Settings`, `S3_*` → `StorageSettings` |
 | `src/db/errors.py` | `DbError`, `ConfigError`, `PushError`, `StorageError` |
 | `src/db/models.py` | `InspectionRow`, `FindingRow`, `InfoRow`, `InspectionDetail` |
