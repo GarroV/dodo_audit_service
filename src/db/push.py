@@ -24,7 +24,7 @@ from psycopg.types.json import Json
 from src.domain import get_state
 from src.domain import score as domain_score
 from src.domain.errors import ChecklistVersionMismatch, DomainError
-from src.domain.models import Inspection, Score
+from src.domain.models import Finding, Inspection, Score
 
 from .config import check_environment
 from .directory import resolve_unit_id
@@ -82,10 +82,11 @@ _INSERT_TENANT_SQL = "insert into tenants (code) values (%s) on conflict (code) 
 
 _INSERT_FINDING_SQL = """
 insert into findings (
-    inspection_id, n, code, level, zone, zone_unusual, source,
+    inspection_id, n, code, level, zone, zone_unusual, source, words,
     suggested_code, suggested_level, suggested_zone, suggested_confidence
 ) values (
     %(inspection_id)s, %(n)s, %(code)s, %(level)s, %(zone)s, %(zone_unusual)s, %(source)s,
+    %(words)s,
     %(suggested_code)s, %(suggested_level)s, %(suggested_zone)s, %(suggested_confidence)s
 )
 returning id
@@ -132,6 +133,31 @@ def _by_zone_payload(score: Score) -> dict[str, object]:
 
 def _tenant_code(inspection: Inspection) -> str:
     return inspection.tenant or DEFAULT_TENANT
+
+
+def _words(finding: Finding) -> str | None:
+    """Сырые слова аудитора к записи — дословно, либо `NULL` (T185).
+
+    Дословно, потому что это показание о моменте: расшифровка голоса приходит
+    несколькими строками, и подправленная по дороге — обрезанная, склеенная —
+    она перестаёт быть тем, что человек произнёс. По ней управляющая компания
+    правит карту слов (D077), то есть сверяет с ней наш промах: подправленное
+    показание сверять не с чем.
+
+    Пусто — `NULL`, и пробельная строка тоже: молчание не речь, а пробелы в
+    колонке выглядели бы записанной фразой, у которой не прочитать ни слова.
+    Разных видов пустоты здесь не заводится: «слова не записаны» не бывает двух
+    видов, а «слов не было вовсе» от «запись сделана до T183» отличает
+    `findings.source` — так же, как это делает домен.
+
+    Читается прямым обращением к полю, а не `getattr`, в отличие от `source` и
+    предложения модели: те заводились со стороны базы РАНЬШЕ, чем домен начал
+    отдавать значение, а слова домен отдаёт с T183. `getattr` со значением по
+    умолчанию здесь означал бы только одно — что переименованное в домене поле
+    молча превратится в «слов не было».
+    """
+    сказанное = finding.words
+    return сказанное if сказанное.strip() else None
 
 
 def _suggested_text(finding: object, field: str) -> str | None:
@@ -269,6 +295,7 @@ def _push(conn: psycopg.Connection[Any], inspection: Inspection, result: Score) 
                     "zone": finding.zone,
                     "zone_unusual": finding.zone_unusual,
                     "source": getattr(finding, "source", None),
+                    "words": _words(finding),
                     **_suggestion(finding),
                 },
             )
