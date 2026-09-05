@@ -57,6 +57,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from ..domain.config import DATA_FILES, REQUIRED_DATA_FILES
+from ..domain.engine import ENGINE_ATTEMPTS, pause_before_retry
 from ..domain.version import VERSION_FILE, compose, fingerprint, published
 from ..recognize.cues import CUES_FILE as RECOGNIZE_CUES_FILE
 from .errors import ChecklistError, EngineNoVerdictError
@@ -127,17 +128,20 @@ RUNTIME_FATAL = "Fatal Python error"
 #: дело НЕ дошло: кандидат не тронут, повторить запуск безопасно.
 RUNTIME_BEFORE_SCRIPT = "Python runtime state: core initialized"
 
-#: Сколько раз пробуем запустить движок, если старт не состоялся. Настоящая
-#: причина T187: на занятой машине системный вызов на старте интерпретатора
-#: прерывается сигналом, `getpath` получает `InterruptedError: [Errno 4]
-#: Interrupted system call`, и процесс умирает, не выполнив ни строки. Поймано
-#: полным прогоном при load average 609 на 10 ядрах — восемь падений из девяти
-#: были этим.
-#:
-#: Повтор безопасен ровно потому, что старт не состоялся: ни `manage.py`, ни
-#: `audit.py` не начинали работать, кандидат остался как был. Умерший ПОЗЖЕ
-#: интерпретатор не повторяется — он мог успеть переписать половину.
-ENGINE_ATTEMPTS = 3
+# Сколько раз пробуем запустить движок и сколько ждём между попытками —
+# `ENGINE_ATTEMPTS` и `pause_before_retry` из `src/domain/engine.py`. Своей
+# копии этих чисел здесь нет намеренно (T190): разойдясь, три места вызова
+# движка повели бы себя по-разному в одинаковой беде.
+#
+# Настоящая причина T187: на занятой машине системный вызов на старте
+# интерпретатора прерывается сигналом, `getpath` получает `InterruptedError:
+# [Errno 4] Interrupted system call`, и процесс умирает, не выполнив ни строки.
+# Поймано полным прогоном при load average 609 на 10 ядрах — восемь падений из
+# девяти были этим.
+#
+# Повтор безопасен ровно потому, что старт не состоялся: ни `manage.py`, ни
+# `audit.py` не начинали работать, кандидат остался как был. Умерший ПОЗЖЕ
+# интерпретатор не повторяется — он мог успеть переписать половину.
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 MANAGE_SCRIPT = _REPO_ROOT / "engine" / "manage.py"
@@ -278,6 +282,7 @@ def _run(
                 каталог=data_dir,
             )
             if повторим:
+                pause_before_retry(попытка)
                 continue
             раз = "" if попытка == 1 else f" {попытка} раза подряд"
             raise EngineNoVerdictError(_нет_ответа(script, f"умер до ответа{раз}"))

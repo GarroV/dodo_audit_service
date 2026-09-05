@@ -88,6 +88,17 @@ class Движок:
         )
 
 
+@pytest.fixture(autouse=True)
+def _не_ждать_между_попытками(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Пауза между попытками (T190) проверяется в `tests/test_engine_start_policy.py`.
+
+    Здесь она только удлиняла бы прогон: этот файл проверяет ЧИСЛО попыток и
+    слова отказа, а не расписание. Замерено: без этой фикстуры набор дорожает на
+    26 секунд, и платит их каждый прогон каждого разработчика.
+    """
+    monkeypatch.setattr("src.domain.engine.pause_before_retry", lambda _: None)
+
+
 @pytest.fixture
 def настройки(domain_env: Path) -> Settings:
     return check_environment()
