@@ -121,9 +121,21 @@ def stems(text: str) -> set[str]:
     }
 
 
-def tokens(text: str) -> list[str]:
-    """Слова текста подряд, в нижнем регистре. Порядок нужен там, где важно соседство."""
-    return _WORD.findall(text.lower().replace("ё", "е"))
+def words_and_gaps(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Слова текста подряд и то, чем разделены соседние слова.
+
+    Промежутков ровно на один меньше, чем слов: `gaps[i]` — это то, что стоит
+    между `words[i]` и `words[i + 1]`. Нужны они там, где важно не только
+    соседство, но и чем соседи разделены: отрицание за знаком препинания
+    относится к другой части фразы, а не к следующему слову («жалоб нет, в зале
+    урна переполнена»). Одного порядка слов для этого мало — знаки препинания
+    в него не попадают вовсе.
+    """
+    prepared = text.lower().replace("ё", "е")
+    spans = [match.span() for match in _WORD.finditer(prepared)]
+    words = tuple(prepared[start:end] for start, end in spans)
+    gaps = tuple(prepared[spans[i][1] : spans[i + 1][0]] for i in range(len(spans) - 1))
+    return words, gaps
 
 
 logger = logging.getLogger(__name__)

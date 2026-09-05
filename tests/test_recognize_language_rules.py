@@ -30,7 +30,7 @@ from src.recognize.language import COLUMN_WORDS, THRESHOLDS, load_rules, section
     "about": "оснастка теста: слова придуманы, языка такого в продукте нет",
     "stopwords": ["and"],
     "suffixes": ["ing"],
-    "negations": ["not"],
+    "negations": {"not": "forward"},
     "column_words": {"dirt": ["stain"]},
     "sections": {
         THRESHOLDS: "## Thresholds",
@@ -198,3 +198,37 @@ def test_неизвестное_имя_раздела_падает_а_не_во�
         section_headings("такого раздела нет")
 
     assert "такого раздела нет" in str(отказ.value), str(отказ.value)
+
+
+def test_направление_частицы_вне_списка_это_отказ(tmp_path: Path) -> None:
+    """Опечатка в направлении («forwrd») — это частица, не действующая никуда.
+
+    Молчаливый откат означал бы дыру ровно там, где стоит защита от записи
+    отрицания (T195): комментарий с этой частицей снова давал бы срабатывание,
+    и заметно это стало бы не при старте, а в отчёте партнёру.
+    """
+    язык = copy.deepcopy(ВАЛИДНЫЙ_ЯЗЫК)
+    язык["negations"] = {"not": "forwrd"}
+    файл = _записать(tmp_path, язык)
+
+    with pytest.raises(RecognizeConfigError) as отказ:
+        load_rules(файл)
+
+    assert "forwrd" in str(отказ.value), str(отказ.value)
+
+
+def test_частицы_списком_без_направления_это_отказ(tmp_path: Path) -> None:
+    """Старая форма поля (список частиц) не должна разбираться наполовину.
+
+    До T195 частицы объявлялись списком, и направления у них не было. Файл,
+    оставшийся в старой форме, обязан дать отказ на старте, а не список ключей,
+    у которого направление возьмётся ниоткуда.
+    """
+    язык = copy.deepcopy(ВАЛИДНЫЙ_ЯЗЫК)
+    язык["negations"] = ["not"]
+    файл = _записать(tmp_path, язык)
+
+    with pytest.raises(RecognizeConfigError) as отказ:
+        load_rules(файл)
+
+    assert "частиц отрицания" in str(отказ.value), str(отказ.value)

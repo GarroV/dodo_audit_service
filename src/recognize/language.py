@@ -57,6 +57,18 @@ _SECTIONS = (THRESHOLDS, COLUMN_WORDS)
 #: разбирается наполовину: слова режутся, а колонка не выбирается никогда.
 _FIELDS = ("about", "stopwords", "suffixes", "negations", "column_words", "sections")
 
+#: Куда частица отрицания смотрит — часть правил языка, а не кода (T195).
+#: По-русски «не», «без», «ни» относятся к тому, что стоит ПОСЛЕ них, а «нет» —
+#: к обеим сторонам сразу: говорят и «нет нагара», и «нагара нет». По-английски
+#: вперёд смотрят все частицы. Направление здесь не украшение: правило, снимающее
+#: слово с обеих сторон от любой частицы, отбрасывает саму «печь» во фразе «печь
+#: не сломана» — строка карты перестаёт находиться, и аудитор получает не ту
+#: причину отказа, которая на самом деле сработала.
+FORWARD = "forward"
+BACKWARD = "backward"
+BOTH = "both"
+_DIRECTIONS = (FORWARD, BACKWARD, BOTH)
+
 
 @dataclass(frozen=True)
 class LanguageRules:
@@ -66,8 +78,8 @@ class LanguageRules:
     stopwords: frozenset[str]
     #: Окончания, которые отсекаются при сведении слова к основе.
     suffixes: tuple[str, ...]
-    #: Частицы, переворачивающие смысл соседнего слова («без нагара»).
-    negations: frozenset[str]
+    #: Частица, переворачивающая смысл («без нагара»), → куда она смотрит.
+    negations: Mapping[str, str]
     #: Заголовок колонки карты → слова, которыми аудитор эту колонку называет.
     column_words: Mapping[str, tuple[str, ...]]
     #: Разделы карты кадров: `THRESHOLDS` и `COLUMN_WORDS` → начало заголовка.
@@ -93,6 +105,27 @@ def _words(raw: object, where: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(words))
 
 
+def _negations(raw: object, code: str) -> Mapping[str, str]:
+    """Частицы отрицания языка: частица → направление.
+
+    Направление объявляется у каждой частицы поимённо и проверяется по списку:
+    опечатка в нём («forwrd») означала бы частицу, которая не действует никуда,
+    и молчаливую дыру ровно там, где стоит защита от записи отрицания.
+    """
+    if not isinstance(raw, dict) or not raw:
+        raise _fail(f"у языка «{code}» пустой список частиц отрицания")
+    out: dict[str, str] = {}
+    for word, direction in raw.items():
+        (particle,) = _words([word], f"{code}/negations")
+        if direction not in _DIRECTIONS:
+            raise _fail(
+                f"у языка «{code}» частица «{particle}» смотрит в «{direction}»: "
+                f"ожидалось одно из {list(_DIRECTIONS)}"
+            )
+        out[particle] = str(direction)
+    return out
+
+
 def _one(raw: Mapping[str, object], code: str) -> LanguageRules:
     for field in _FIELDS:
         if field not in raw:
@@ -113,7 +146,7 @@ def _one(raw: Mapping[str, object], code: str) -> LanguageRules:
     return LanguageRules(
         stopwords=frozenset(_words(raw["stopwords"], f"{code}/stopwords")),
         suffixes=_words(raw["suffixes"], f"{code}/suffixes"),
-        negations=frozenset(_words(raw["negations"], f"{code}/negations")),
+        negations=_negations(raw["negations"], code),
         column_words={
             _words([header], f"{code}/column_words")[0]: _words(words, f"{code}/{header}")
             for header, words in columns.items()
@@ -155,9 +188,23 @@ def suffixes(rules: Mapping[str, LanguageRules] = RULES) -> tuple[str, ...]:
     return tuple(sorted(merged, key=lambda s: -len(s)))
 
 
-def negations(rules: Mapping[str, LanguageRules] = RULES) -> frozenset[str]:
-    """Частицы отрицания всех языков разом."""
-    return frozenset(word for r in rules.values() for word in r.negations)
+def negations(rules: Mapping[str, LanguageRules] = RULES) -> Mapping[str, str]:
+    """Частицы отрицания всех языков разом: частица → направление.
+
+    Одна и та же частица в двух языках обязана смотреть в одну сторону, иначе
+    складывать правила нельзя: разбор перестал бы зависеть только от текста и
+    начал зависеть от порядка языков в файле. Расхождение — отказ, а не
+    молчаливый выбор последнего объявления.
+    """
+    merged: dict[str, str] = {}
+    for language in rules.values():
+        for word, direction in language.negations.items():
+            if merged.setdefault(word, direction) != direction:
+                raise _fail(
+                    f"частица «{word}» объявлена в разных языках с разным направлением "
+                    f"(«{merged[word]}» и «{direction}»)"
+                )
+    return merged
 
 
 def column_words(rules: Mapping[str, LanguageRules] = RULES) -> dict[str, tuple[str, ...]]:
