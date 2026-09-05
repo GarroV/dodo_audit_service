@@ -115,6 +115,10 @@ def build_correct_router(*, pending: PendingStore) -> Router:
             source=domain.SOURCE_COMMENT,
             pending=pending,
             correcting=n,
+            # Ответ аудитора становится истоком поправленной записи (T205):
+            # кадр к ней он досылает ответом на свои же слова, и слова эти —
+            # последние сказанные о записи, а не те, с которых она началась.
+            origin=message.message_id,
         )
 
     return router

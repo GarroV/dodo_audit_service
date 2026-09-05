@@ -60,7 +60,7 @@ from dataclasses import replace
 from math import ceil
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from src import domain
 from src.domain.errors import DomainError
@@ -98,6 +98,7 @@ from ..material import Comment, Material, MaterialStore, PhotoGroup
 from ..pending import Offer, PendingStore, Proposal
 from ..photos import fetch_bytes
 from ..shown import remember as remember_shown
+from ..shown import remember_origin
 from ..texts import t
 from ..zones import zone_from_words
 
@@ -169,7 +170,30 @@ async def hear_voice(message: Message, file_id: str, lang: str) -> str | None:
     return heard
 
 
-async def _show_candidates(message: Message, proposal: Proposal, lang: str) -> None:
+async def _hand(
+    message: Message,
+    chat_id: int,
+    pending: PendingStore,
+    proposal: Proposal,
+    text: str,
+    markup: InlineKeyboardMarkup,
+) -> None:
+    """Показать предложение кнопками и запомнить, под каким сообщением оно живёт.
+
+    Один помощник на все показы одного разговора — кандидаты, вопрос о зоне,
+    страница ручного перечня, выбор класса. Пропусти его хоть один показ, и
+    нажатие под этим сообщением искало бы предложение в карте, которой в нём
+    нет: в одиночном потоке оно нашлось бы по последнему показанному, а в пачке
+    (T206) получило бы отказ — то есть правило разошлось бы ровно там, где оно
+    и нужно.
+    """
+    sent = await message.answer(text, reply_markup=markup)
+    pending.propose(chat_id, proposal, at=getattr(sent, "message_id", None))
+
+
+async def _show_candidates(
+    message: Message, chat_id: int, proposal: Proposal, pending: PendingStore, lang: str
+) -> None:
     """Показать предложения модели, пометив уже занятые пары «пункт + зона» (T137).
 
     Занятый пункт приходит сюда штатно: сверка со списком нарушений упёрлась в
@@ -182,22 +206,39 @@ async def _show_candidates(message: Message, proposal: Proposal, lang: str) -> N
     # Под правкой (T204) спрашивается другое: не «что записать», а «чем
     # поправить запись №N». Число кадров там ни при чём — кадры остались у
     # записи, и «Кадров: 0» читалось бы как потеря материала.
-    text = (
-        t("record.candidates_correcting", lang, n=proposal.correcting, lines=lines)
-        if proposal.correcting is not None
-        else t("record.candidates", lang, count=len(proposal.file_ids), lines=lines)
-    )
+    #
+    # У кадра из пачки (T206) вопрос тот же, но с номером кадра: сообщений в
+    # отбивке столько же, сколько кадров, и без номера аудитор не соотнесёт
+    # список с тем, что снимал.
+    if proposal.correcting is not None:
+        text = t("record.candidates_correcting", lang, n=proposal.correcting, lines=lines)
+    elif proposal.batch is not None:
+        no, total = proposal.batch
+        text = t("record.candidates_batch", lang, no=no, total=total, lines=lines)
+    else:
+        text = t("record.candidates", lang, count=len(proposal.file_ids), lines=lines)
     if proposal.question:
         text = t("record.question", lang, question=proposal.question) + "\n\n" + text
-    await message.answer(
+    await _hand(
+        message,
+        chat_id,
+        pending,
+        proposal,
         text,
-        reply_markup=candidates_keyboard(
+        candidates_keyboard(
             len(proposal.candidates), lang, correcting=proposal.correcting is not None
         ),
     )
 
 
-async def _show_manual_page(message: Message, proposal: Proposal, page: int, lang: str) -> None:
+async def _show_manual_page(
+    message: Message,
+    chat_id: int,
+    proposal: Proposal,
+    pending: PendingStore,
+    page: int,
+    lang: str,
+) -> None:
     """Страница ручного перечня: 70+ пунктов зоны кнопками разом не показать.
 
     Занятые пары «пункт + зона» помечаются здесь же (T173), но не на кнопке:
@@ -235,13 +276,34 @@ async def _show_manual_page(message: Message, proposal: Proposal, page: int, lan
         if proposal.correcting is not None
         else t("record.manual_page", lang, page=page + 1, pages=pages)
     )
-    await message.answer(header + taken, reply_markup=manual_keyboard(titles, page, pages, lang))
+    await _hand(
+        message,
+        chat_id,
+        pending,
+        proposal,
+        header + taken,
+        manual_keyboard(titles, page, pages, lang),
+    )
 
 
-async def _ask_zone(message: Message, prefix: str, lang: str) -> None:
+async def _ask_zone(
+    message: Message,
+    chat_id: int,
+    proposal: Proposal,
+    pending: PendingStore,
+    prefix: str,
+    lang: str,
+) -> None:
     """Зону взять неоткуда — назвать её кнопкой (D047: обычно она из слов)."""
     zones = [(zone.code, zone.title(lang)) for zone in domain.list_zones()]
-    await message.answer(t("record.ask_zone", lang), reply_markup=zones_keyboard(prefix, zones))
+    await _hand(
+        message,
+        chat_id,
+        pending,
+        proposal,
+        t("record.ask_zone", lang),
+        zones_keyboard(prefix, zones),
+    )
 
 
 async def _open_manual(
@@ -250,8 +312,7 @@ async def _open_manual(
     """Ручной выбор пункта: без сети и без ранжирования (T034 со стороны бота)."""
     zone = proposal.zone_hint or sidecar.read(chat_id).zone
     if not zone:
-        pending.propose(chat_id, proposal)
-        await _ask_zone(message, ZONE_FOR_MANUAL_PREFIX, lang)
+        await _ask_zone(message, chat_id, proposal, pending, ZONE_FOR_MANUAL_PREFIX, lang)
         return
     _, report_lang = chat_langs(chat_id)
     try:
@@ -264,8 +325,7 @@ async def _open_manual(
         await message.answer(t("record.unavailable", lang))
         return
     ready = replace(proposal, manual=items, zone_hint=zone)
-    pending.propose(chat_id, ready)
-    await _show_manual_page(message, ready, 0, lang)
+    await _show_manual_page(message, chat_id, ready, pending, 0, lang)
 
 
 def _model_suggestion(proposal: Proposal) -> domain.Suggestion | None:
@@ -356,10 +416,14 @@ async def _try_fast(
         # Правка ответом (T204) идёт этой же дорогой: сверка ищет пункт по
         # словам аудитора одинаково, заводит он запись или поправляет.
         correcting=base.correcting,
+        origin=base.origin,
     )
-    if not saved:
+    if saved is None:
         return False
-    pending.propose(chat_id, replace(base, fast=item))
+    # Предложение вешается на само сообщение с записью: под ним и стоит кнопка
+    # «Разобрать моделью», а адресоваться она обязана этой записи, а не
+    # последнему, что бот показал в чате.
+    pending.propose(chat_id, replace(base, fast=item), at=getattr(saved, "message_id", None))
     return True
 
 
@@ -373,6 +437,8 @@ async def analyze(
     pending: PendingStore,
     fast: bool = True,
     correcting: int | None = None,
+    origin: int | None = None,
+    batch: tuple[int, int] | None = None,
 ) -> None:
     """Сверить со списком нарушений, а если не сошлось — спросить разбор.
 
@@ -389,6 +455,15 @@ async def analyze(
     самый и намеренно: аудитор поправляет запись теми же словами, какими её
     заводил, и вторая дорога для тех же слов разошлась бы с первой — сверка
     отвечала бы на правку не так, как на первичный материал.
+
+    `origin` — сообщение аудитора, из которого этот материал собрался (T205).
+    Ответом на него аудитор досылает кадр, и кадр обязан попасть в получившуюся
+    запись. Пусто — материал пришёл не от слов человека (разбор кадра кнопкой),
+    и досылать кадр не к чему.
+
+    `batch` — какой это кадр пачки и сколько их всего (T206). Не пусто —
+    предложение по нему живёт наравне с предложениями по соседним кадрам, а
+    отбивка называет номер кадра.
     """
     lang, report_lang = chat_langs(chat_id)
     # Слова текущего комментария — первыми, память — только если о зоне в них
@@ -403,6 +478,9 @@ async def analyze(
         zone_hint=zone_hint,
         zone_spoken=spoken is not None,
         correcting=correcting,
+        slot=pending.next_slot(),
+        batch=batch,
+        origin=origin,
     )
 
     if fast and note and await _try_fast(message, chat_id, base, pending, lang):
@@ -415,7 +493,11 @@ async def analyze(
         else None
     )
 
-    await message.answer(t("record.thinking", lang))
+    if batch is None:
+        # У пачки (T206) «Разбираю…» на каждый кадр — это N одинаковых строк
+        # между отбивками, то есть шум ровно там, где аудитор читает список.
+        # Сколько кадров разбирается, сказано один раз, до цикла.
+        await message.answer(t("record.thinking", lang))
     try:
         suggestion = await asyncio.to_thread(
             classify, note, photo, zone_hint or None, lang=report_lang
@@ -442,8 +524,63 @@ async def analyze(
         return
 
     proposal = replace(base, candidates=suggestion.candidates, question=suggestion.question)
-    pending.propose(chat_id, proposal)
-    await _show_candidates(message, proposal, lang)
+    await _show_candidates(message, chat_id, proposal, pending, lang)
+
+
+async def _analyze_frames(
+    message: Message,
+    chat_id: int,
+    file_ids: tuple[str, ...],
+    pending: PendingStore,
+    lang: str,
+) -> None:
+    """Разобрать кадры, по которым аудитор нажал «Разобрать?» (D046, T206).
+
+    Один кадр — один разбор, как было. **Пачка кадров разбирается по кадру**, и
+    отбивка приходит списком отдельными сообщениями, по сообщению на кадр
+    (решение D081). Ответ на любое из них правит именно ту запись, к которой
+    оно относится, — механизм для этого уже есть (`routers/correct.py`), и
+    работает он потому, что каждая запись показана своим сообщением.
+
+    Пачка — это кадры БЕЗ комментария. Кадры с комментарием остаются одним
+    материалом и одной записью, как требует и спека (`docs/06-mvp-bot.md`,
+    шаг 3), и D081: сказал человек об этих кадрах одно — значит, нарушение одно,
+    сколько бы ракурсов он ни снял. Разводит эти два случая наличие слов, а не
+    число кадров, и разводится это здесь: сюда приходят ровно те кадры, о
+    которых аудитор не сказал ничего.
+
+    До задачи пачка давала ОДНУ запись на все кадры, и модель при этом видела
+    только первый кадр (`analyze` берёт `file_ids[0]`): второй и третий уезжали
+    в отчёт прикреплёнными к чужому пункту, никем не разобранные. Теперь каждый
+    разбирается сам, и это N вызовов модели вместо одного — цена названа в
+    `docs/06-mvp-bot.md`, шаг 3, и человек платит её осознанно: он видит, сколько
+    кадров разбирается, до того как разбор начнётся.
+    """
+    if len(file_ids) <= 1:
+        await analyze(
+            message,
+            chat_id,
+            note="",
+            file_ids=file_ids,
+            source=domain.SOURCE_PHOTO,
+            pending=pending,
+        )
+        return
+    total = len(file_ids)
+    await message.answer(t("record.batch", lang, count=total))
+    for no, file_id in enumerate(file_ids, start=1):
+        await analyze(
+            message,
+            chat_id,
+            note="",
+            # Кадр уходит в модель и в запись ровно один — свой. Оставь мы всю
+            # пачку, каждая запись забрала бы себе все кадры, и в отчёте один и
+            # тот же снимок стоял бы под всеми нарушениями сразу.
+            file_ids=(file_id,),
+            source=domain.SOURCE_PHOTO,
+            pending=pending,
+            batch=(no, total),
+        )
 
 
 async def _save(
@@ -462,13 +599,18 @@ async def _save(
     zone_guessed: bool = False,
     suggested: domain.Suggestion | None = None,
     correcting: int | None = None,
-) -> bool:
+    origin: int | None = None,
+) -> Message | None:
     """Зафиксировать запись и показать её (T055, T121), а с T204 — и поправить.
 
-    Возвращает, получилось ли. Отказ движка — не редкость и не ошибка бота: тот
-    же пункт в той же зоне аудитор снимает дважды за обход. Поэтому предложение
-    после отказа не выбрасывается, и человек выбирает другого кандидата, а не
-    пересылает кадр.
+    Возвращает сообщение, которым запись показана, — или ничего, если записать
+    не вышло. Отказ движка — не редкость и не ошибка бота: тот же пункт в той же
+    зоне аудитор снимает дважды за обход. Поэтому предложение после отказа не
+    выбрасывается, и человек выбирает другого кандидата, а не пересылает кадр.
+
+    Само сообщение нужно вызывающему, а не только признак удачи: под ним живут
+    и карта правки ответом (T204), и кнопка «Разобрать моделью», которую надо
+    привязать именно к этой записи (T206).
 
     `auto` не пуст, когда запись легла по словам сама, без подтверждения (T121,
     D064). Тогда и показ другой: не одна строка, а блок с вопросом пункта,
@@ -503,6 +645,9 @@ async def _save(
     «система поняла не так», и вторая запись о том же нарушении — ровно то,
     чего он этим ответом избегает: в отчёт партнёру уехали бы обе.
 
+    `origin` — сообщение аудитора, из которого запись выросла (T205). Ответом
+    на него он досылает кадр, и кадр попадает в эту же запись.
+
     Ни слова аудитора, ни предложение системы правка не переписывает, и это не
     упущение: `domain.edit_finding` их полей не знает вовсе. Сигнал о промахе
     (T183, T181) держится на разнице между тем, что система предложила сначала,
@@ -514,7 +659,7 @@ async def _save(
         # старыми предложениями, показанными ДО сдачи отчёта. Проверка стоит у
         # самой записи, а не только на входах, потому что вход у неё не один.
         await sealed.refuse(message, lang)
-        return False
+        return None
     # Движок вызывается подпроцессом, и это 27 мс на вызов. В цикле событий
     # такой вызов останавливает бота ЦЕЛИКОМ — он не обслуживает ни других
     # аудиторов, ни таймеры альбомов (замер T101: подтверждение записи стоило
@@ -557,7 +702,7 @@ async def _save(
             told.text,
             reply_markup=edit_keyboard(told.clash.n, lang) if told.clash is not None else None,
         )
-        return False
+        return None
     for file_id in file_ids:
         try:
             await asyncio.to_thread(domain.attach_photo, chat_id, finding.n, file_id)
@@ -616,7 +761,11 @@ async def _save(
     # месте, и любой другой был бы вторым списком мест, который однажды отстал
     # бы от первого на один показ.
     remember_shown(chat_id, sent, finding.n)
-    return True
+    # А ответом на СВОЁ сообщение аудитор досылает в эту запись кадр (T205). Обе
+    # карты ведутся рядом по той же причине: запись показана здесь, и разнеси их
+    # по разным местам — одна отстала бы от другой на один путь фиксации.
+    remember_origin(chat_id, origin, finding.n)
+    return sent
 
 
 def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Router:
@@ -653,14 +802,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
         # кадр, по которому разбор уже идёт.
         store.queue(chat_id).resolve_reply(offer.anchor_id, Comment(text=""))
         await _drop_question(message, chat_id, offer)
-        await analyze(
-            message,
-            chat_id,
-            note="",
-            file_ids=offer.file_ids,
-            source=domain.SOURCE_PHOTO,
-            pending=pending,
-        )
+        await _analyze_frames(message, chat_id, offer.file_ids, pending, lang)
 
     @router.callback_query(F.data == MODEL_CALLBACK)
     async def on_model(callback: CallbackQuery) -> None:
@@ -683,7 +825,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
         if here is None:
             return
         message, chat_id, lang = here
-        proposal = pending.proposal(chat_id)
+        proposal = pending.proposal(chat_id, at=message.message_id)
         if proposal is None or proposal.fast is None:
             await stale(message, lang)
             return
@@ -695,6 +837,12 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             source=proposal.source,
             pending=pending,
             fast=False,
+            # Исток записи переезжает вместе с материалом (T205): аудитор
+            # сказал те же слова, и кадр к тому, что из них получится, он
+            # дошлёт ответом на них же. Потеряй мы его здесь — досылка молча
+            # перестала бы работать ровно у тех записей, которые переразобраны
+            # моделью, то есть у самых спорных.
+            origin=proposal.origin,
         )
 
     @router.callback_query(F.data.startswith(PICK_PREFIX))
@@ -705,15 +853,21 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             return
         message, chat_id, lang = here
         raw = (callback.data or "").removeprefix(PICK_PREFIX)
-        proposal = pending.proposal(chat_id)
+        proposal = pending.proposal(chat_id, at=message.message_id)
         if proposal is None or not raw.isdigit() or int(raw) >= len(proposal.candidates):
             await stale(message, lang)
             return
         index = int(raw)
         candidate = proposal.candidates[index]
         if not candidate.zone or candidate.zone == UNKNOWN_ZONE:
-            pending.propose(chat_id, replace(proposal, picked=index))
-            await _ask_zone(message, ZONE_FOR_PICK_PREFIX, lang)
+            await _ask_zone(
+                message,
+                chat_id,
+                replace(proposal, picked=index),
+                pending,
+                ZONE_FOR_PICK_PREFIX,
+                lang,
+            )
             return
         if await _save(
             message,
@@ -744,8 +898,9 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             # не меняется, сколько бы кадров он ни прислал между показом
             # кандидатов и кнопкой.
             correcting=proposal.correcting,
+            origin=proposal.origin,
         ):
-            pending.take_proposal(chat_id)
+            pending.take_proposal(chat_id, at=message.message_id)
 
     @router.callback_query(F.data.startswith(ZONE_FOR_PICK_PREFIX))
     async def on_zone_for_pick(callback: CallbackQuery) -> None:
@@ -755,7 +910,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             return
         message, chat_id, lang = here
         zone = (callback.data or "").removeprefix(ZONE_FOR_PICK_PREFIX)
-        proposal = pending.proposal(chat_id)
+        proposal = pending.proposal(chat_id, at=message.message_id)
         if proposal is None or proposal.picked is None:
             await stale(message, lang)
             return
@@ -776,8 +931,9 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             # спрятать её отказ и превратить промах в попадание.
             suggested=_model_suggestion(proposal),
             correcting=proposal.correcting,
+            origin=proposal.origin,
         ):
-            pending.take_proposal(chat_id)
+            pending.take_proposal(chat_id, at=message.message_id)
 
     @router.callback_query(F.data.startswith(ZONE_FOR_MANUAL_PREFIX))
     async def on_zone_for_manual(callback: CallbackQuery) -> None:
@@ -787,7 +943,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             return
         message, chat_id, lang = here
         zone = (callback.data or "").removeprefix(ZONE_FOR_MANUAL_PREFIX)
-        proposal = pending.proposal(chat_id)
+        proposal = pending.proposal(chat_id, at=message.message_id)
         if proposal is None:
             await stale(message, lang)
             return
@@ -809,7 +965,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
         if here is None:
             return
         message, chat_id, lang = here
-        proposal = pending.proposal(chat_id)
+        proposal = pending.proposal(chat_id, at=message.message_id)
         if proposal is None:
             await stale(message, lang)
             return
@@ -823,11 +979,11 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             return
         message, chat_id, lang = here
         raw = (callback.data or "").removeprefix(MANUAL_PAGE_PREFIX)
-        proposal = pending.proposal(chat_id)
+        proposal = pending.proposal(chat_id, at=message.message_id)
         if proposal is None or not raw.isdigit():
             await stale(message, lang)
             return
-        await _show_manual_page(message, proposal, int(raw), lang)
+        await _show_manual_page(message, chat_id, proposal, pending, int(raw), lang)
 
     async def _save_manual(
         message: Message, chat_id: int, proposal: Proposal, index: int, level: str, lang: str
@@ -866,8 +1022,9 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             # больше, и все они выглядели бы попаданием модели (D077).
             suggested=None,
             correcting=proposal.correcting,
+            origin=proposal.origin,
         ):
-            pending.take_proposal(chat_id)
+            pending.take_proposal(chat_id, at=message.message_id)
 
     @router.callback_query(F.data.startswith(MANUAL_PICK_PREFIX))
     async def on_manual_pick(callback: CallbackQuery) -> None:
@@ -877,7 +1034,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             return
         message, chat_id, lang = here
         raw = (callback.data or "").removeprefix(MANUAL_PICK_PREFIX)
-        proposal = pending.proposal(chat_id)
+        proposal = pending.proposal(chat_id, at=message.message_id)
         if proposal is None or not raw.isdigit() or int(raw) >= len(proposal.manual):
             await stale(message, lang)
             return
@@ -885,9 +1042,13 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
         if len(item.levels) == 1:
             await _save_manual(message, chat_id, proposal, int(raw), item.levels[0], lang)
             return
-        await message.answer(
+        await _hand(
+            message,
+            chat_id,
+            pending,
+            proposal,
             t("record.ask_level", lang, code=item.code),
-            reply_markup=levels_keyboard(f"{MANUAL_LEVEL_PREFIX}{raw}:", item.levels),
+            levels_keyboard(f"{MANUAL_LEVEL_PREFIX}{raw}:", item.levels),
         )
 
     @router.callback_query(F.data.startswith(MANUAL_LEVEL_PREFIX))
@@ -898,7 +1059,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             return
         message, chat_id, lang = here
         raw, _, level = (callback.data or "").removeprefix(MANUAL_LEVEL_PREFIX).partition(":")
-        proposal = pending.proposal(chat_id)
+        proposal = pending.proposal(chat_id, at=message.message_id)
         if proposal is None or not raw.isdigit() or int(raw) >= len(proposal.manual):
             await stale(message, lang)
             return
@@ -911,10 +1072,74 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
         if here is None:
             return
         message, chat_id, lang = here
-        pending.take_proposal(chat_id)
+        pending.take_proposal(chat_id, at=message.message_id)
         await message.answer(t("record.skipped", lang))
 
     return router
+
+
+#: Что делать с кадром, присланным ответом на своё же сообщение (T205).
+FrameHandler = Callable[[Message, int, int, str, str], Awaitable[None]]
+
+
+def make_frame_handler() -> FrameHandler:
+    """Кадр ответом на СВОИ слова — в ту самую запись (задача T205, решение D081).
+
+    Аудитор наговорил голосовое, бот собрал по нему запись, а кадр к ней
+    прислал следом — ответом на своё же голосовое. Кадр обязан попасть в ту же
+    запись, а не завести новую очередь ожидания с вопросом «Разобрать?»: одно
+    нарушение, о котором человек сказал один раз, в отчёте партнёру должно
+    остаться одной строкой.
+
+    Разбора здесь нет и быть не должно. Пункт уже найден по словам аудитора,
+    кадр их не уточняет и не оспаривает — он их ПОДТВЕРЖДАЕТ, а фотофиксация
+    обязательна всегда (D078). Отправить кадр в модель значило бы заплатить за
+    вопрос, на который человек уже ответил.
+
+    Чем этот путь отличается от правки ответом (`routers/correct.py`): там
+    аудитор отвечает на сообщение БОТА и приносит слова — система ищет пункт
+    заново. Здесь он отвечает на СВОЁ сообщение и приносит кадр — пункт не
+    трогается вовсе. Две карты в заметках именно поэтому разные (`sidecar`).
+    """
+
+    async def attach(message: Message, chat_id: int, n: int, file_id: str, lang: str) -> None:
+        inspection = read_inspection(chat_id)
+        if inspection is None:
+            await message.answer(t("material.no_inspection", lang))
+            return
+        if sealed.is_sealed(chat_id):
+            # Сданная проверка не правится ничем (T201, D080), и кадр в её
+            # запись — тоже правка: он уезжает в отчёт партнёру.
+            await sealed.refuse(message, lang)
+            return
+        if inspection.finding(n) is None:
+            # Запись сняли, а сообщение о ней осталось в переписке навсегда.
+            # Завести по такому ответу новую запись нельзя: кадр без слов
+            # человека — это не находка, а вопрос «Разобрать?», на который
+            # аудитор в этот момент не отвечал.
+            await message.answer(t("edit.gone", lang, n=n))
+            return
+        # Кадр запоминается ДО прикрепления и независимо от его исхода: список
+        # присланного нужен целиком (T068), и не прикрепившийся кадр обязан
+        # найтись при завершении, а не исчезнуть.
+        sidecar.remember_frames(
+            chat_id, [sidecar.SeenFrame(message_id=message.message_id, file_id=file_id)]
+        )
+        try:
+            await asyncio.to_thread(domain.attach_photo, chat_id, n, file_id)
+        except DomainError:
+            logger.exception("кадр %s не прикрепился к записи #%s ответом", file_id, n)
+            await message.answer(t("record.frame_failed", lang, n=n))
+            return
+        after = read_inspection(chat_id)
+        finding = None if after is None else after.finding(n)
+        # Число кадров читается ИЗ ПРОВЕРКИ, а не считается прибавлением: если
+        # движок кадр не принял, а исключения не бросил, показанное число было
+        # бы выдумкой ровно там, где аудитор проверяет фотофиксацию.
+        count = 0 if finding is None else len(finding.photos)
+        await message.answer(t("record.frame_attached", lang, n=n, count=count))
+
+    return attach
 
 
 def make_material_handler(
@@ -925,6 +1150,12 @@ def make_material_handler(
     Первым делом снимается вопрос «Разобрать?», если он висел на этих кадрах:
     комментарий сильнее догадки по картинке (D046), и предлагать разбор кадра,
     по которому уже идёт разбор по словам, нельзя.
+
+    Сообщение, которым материал собрался, запоминается как исток записи (T205):
+    именно ответом на него — на своё же голосовое, на свою же подпись — аудитор
+    досылает к записи кадр. Берётся оно здесь, а не глубже: дальше по дороге
+    `message` бывает уже сообщением БОТА (нажатие кнопки), и «сообщение
+    аудитора» превратилось бы в неправду молча.
     """
 
     async def handle(message: Message, material: Material, lang: str) -> None:
@@ -947,6 +1178,7 @@ def make_material_handler(
             file_ids=material.photo_file_ids,
             source=domain.SOURCE_COMMENT,
             pending=pending,
+            origin=message.message_id,
         )
 
     return handle

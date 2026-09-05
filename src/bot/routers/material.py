@@ -47,6 +47,10 @@ MaterialHandler = Callable[[Message, Material, str], Awaitable[None]]
 #: «Разобрать?» (`routers/record.py`, задача T067).
 WaitingHandler = Callable[[Message, PhotoGroup, str], Awaitable[None]]
 
+#: Что делать с кадром, присланным ОТВЕТОМ на своё же сообщение: положить его в
+#: ту запись, о которой были те слова (`routers/record.py`, задача T205).
+FrameHandler = Callable[[Message, int, int, str, str], Awaitable[None]]
+
 
 async def confirm_taken(message: Message, group: PhotoGroup, lang: str) -> None:
     """Запасной обработчик ожидания: сказать, что кадры приняты, без кнопки.
@@ -71,6 +75,7 @@ def build_material_router(
     albums: AlbumBuffer,
     on_material: MaterialHandler,
     on_waiting: WaitingHandler = confirm_taken,
+    on_frame: FrameHandler | None = None,
     album_window: float = ALBUM_WINDOW_SECONDS,
 ) -> Router:
     """Роутер приёма материала.
@@ -78,6 +83,11 @@ def build_material_router(
     `on_material` обязателен и умолчания не имеет: связать комментарий с кадром
     и ничего с ним не сделать — это молчание в ответ на присланное, а придумать
     разумное умолчание за вызывающего этот модуль не может.
+
+    `on_frame` умолчание имеет, и умолчание это — «не подхватывать»: тесты
+    связывания живут без проверки и без движка, а кадр в запись кладёт именно
+    движок. Без обработчика кадр ответом на свои слова идёт обычной дорогой, с
+    вопросом «Разобрать?», то есть ровно как до задачи T205.
 
     `album_window` вынесен параметром ради тестов: настоящие полторы секунды на
     каждый случай превратили бы прогон альбомов в минуты ожидания.
@@ -140,11 +150,36 @@ def build_material_router(
         if pending is not None:
             await register(message, pending)
 
+    async def claimed_by_reply(message: Message, chat_id: int, file_id: str) -> bool:
+        """Кадр — ответ на свои же слова? Тогда он уходит в ту запись (T205, D081).
+
+        Ответ на СВОЁ сообщение и ответ на сообщение БОТА — разные случаи, и
+        карта у них своя у каждого (`src/bot/sidecar.py`). Здесь первый: слова
+        аудитора уже стали записью, и кадр к ней он досылает следом. Ответ на
+        что-нибудь другое сюда не попадает и работает как раньше — вопросом
+        «Разобрать?».
+
+        Открытый альбом такой кадр закрывает, как и любое другое событие: сам он
+        в альбом не встаёт, а оставить прошлый альбом ждать своего окна значило
+        бы разобрать его позже кадра, пришедшего после него.
+        """
+        replied = message.reply_to_message
+        if on_frame is None or replied is None:
+            return False
+        n = sidecar.origin_of(chat_id, replied.message_id)
+        if n is None:
+            return False
+        await close_open_album(message, chat_id)
+        await on_frame(message, chat_id, n, file_id, chat_ui_lang(chat_id))
+        return True
+
     @router.message(F.photo)
     async def on_photo(message: Message) -> None:
         chat_id = message.chat.id
         file_id = largest_photo_id(message)
         if file_id is None:
+            return
+        if await claimed_by_reply(message, chat_id, file_id):
             return
         group_key = message.media_group_id or f"single-{message.message_id}"
 

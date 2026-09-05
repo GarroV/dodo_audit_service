@@ -45,7 +45,7 @@ from .routers import (
     build_start_router,
 )
 from .routers.material import MaterialHandler
-from .routers.record import make_material_handler, make_waiting_handler
+from .routers.record import make_frame_handler, make_material_handler, make_waiting_handler
 from .routers.records import RECORDS_COMMAND
 from .texts import DEFAULT_UI_LANG, default_ui_lang, t
 
@@ -170,6 +170,10 @@ def build_dispatcher(
             albums=AlbumBuffer(),
             on_material=on_material or make_material_handler(pending),
             on_waiting=make_waiting_handler(pending),
+            # Кадр ответом на свои же слова уходит в ту запись, о которой они
+            # были (T205): без этого он завёл бы вторую очередь ожидания и
+            # второе нарушение о том же самом.
+            on_frame=make_frame_handler(),
             album_window=album_window,
         )
     )
