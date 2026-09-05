@@ -488,18 +488,32 @@ def network_summary(
     }
 
 
-def get_inspection(*, tenant: str, id: str) -> dict[str, object]:
-    """Одна проверка арендатора целиком: шапка, разбивка оценки и находки.
+def get_inspection(*, tenant: str, id: str, lang: str | None = None) -> dict[str, object]:
+    """Одна проверка целиком: шапка, разбивка оценки, находки, информационная часть.
 
     Аргумент назван `id`, а не `inspection_id`: так же называется поле в
     выдаче `list_inspections`, откуда агент его и копирует. Внутри функции
     встроенный `id()` не используется — переопределённое имя ему не нужно.
 
+    **Информационная часть отдаётся с T207**, и без неё карточка врала
+    умолчанием: срок плана действий называет аудитор, письмо его печатает, а
+    читающий ту же проверку карточкой не видел ни срока, ни следа того, что
+    часть проверки не показана. Поля связаны кодами, подписаны формулировкой
+    методики ТОЙ версии, которой помечена проверка, и на языке `lang` —
+    разбор в `src/mcp/info_part.py`.
+
+    `lang` — язык ПОДПИСЕЙ полей, а не ответа целиком: сам ответ аудитора
+    уезжает дословно, и находки тоже остаются на языке речи аудитора. Не
+    названный язык — тот, на котором выпущен отчёт.
+
     `None` от слоя чтения — это «ничего не найдено» (в том числе — «проверка
     есть, но чужая», T110), а не отказ. Набор ключей ответа одинаков в обоих
     исходах: агенту не нужно угадывать, есть ли поле.
     """
+    from .info_part import check_lang, read
+
     ident = _require_inspection_id(id)
+    asked_lang = check_lang(lang)
     detail = _detail(ident, tenant=tenant)
     if detail is None:
         return {
@@ -512,17 +526,24 @@ def get_inspection(*, tenant: str, id: str) -> dict[str, object]:
             "counts": None,
             "by_zone": None,
             "findings": [],
+            "info": [],
+            "info_lang": None,
         }
+    from .letters import sources
+
+    section = read(detail, lang=asked_lang, papers=sources())
     return {
         "tenant": tenant,
         "id": ident,
         "found": True,
-        "status": f"inspection found; {len(detail.findings)} findings recorded",
+        "status": f"inspection found; {len(detail.findings)} findings recorded; {section.note}",
         "inspection": _inspection(detail.inspection),
         "deductions": detail.deductions,
         "counts": detail.counts,
         "by_zone": detail.by_zone,
         "findings": [_finding(row) for row in detail.findings],
+        "info": section.fields,
+        "info_lang": section.lang,
     }
 
 
