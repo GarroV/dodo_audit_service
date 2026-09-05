@@ -258,7 +258,12 @@ async def _show_manual_page(
     page = max(0, min(page, pages - 1))
     start = page * MANUAL_PAGE_SIZE
     shown = proposal.manual[start : start + MANUAL_PAGE_SIZE]
-    titles = [(start + shift, item.code, item.title) for shift, item in enumerate(shown)]
+    # Служебный префикс класса с кнопки снимается (T217): те же классы продукт
+    # читает колонкой методики и предлагает кнопками следующим шагом.
+    titles = [
+        (start + shift, item.code, view.without_level_prefix(item.title, item.levels))
+        for shift, item in enumerate(shown)
+    ]
     # Зона перечня — та, по которой он собран: пара, а не код. Тот же пункт в
     # другой зоне законен, и пометить его значило бы отговаривать от верного.
     taken = view.manual_taken_line(
