@@ -17,11 +17,23 @@ REMOTE_DIR="${DEPLOY_DIR:-C:\\projects\\dodo_audit_service}"
 fail=0
 say() { printf '%-38s %s\n' "$1" "$2"; }
 
-status=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; docker compose ps --format '{{.Status}}'\"" 2>/dev/null | tr -d '\r')
-case "$status" in
-    *healthy*) say "контейнер бота" "OK ($status)" ;;
-    *)         say "контейнер бота" "ПРОВАЛ ($status)"; fail=1 ;;
-esac
+# Healthcheck после пересоздания контейнера сначала показывает "health: starting"
+# — вердикт по первому же ответу назвал бы здоровый бот провалом. Ждём исхода,
+# а не мгновенного снимка; HEALTH_WAIT секунд, дальше это уже настоящий провал.
+HEALTH_WAIT="${HEALTH_WAIT:-90}"
+waited=0
+while :; do
+    status=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; docker compose ps --format '{{.Status}}'\"" 2>/dev/null | tr -d '\r')
+    case "$status" in
+        *healthy*) say "контейнер бота" "OK ($status)"; break ;;
+        *starting*)
+            if [ "$waited" -ge "$HEALTH_WAIT" ]; then
+                say "контейнер бота" "ПРОВАЛ (за ${HEALTH_WAIT}с не стал здоровым: $status)"; fail=1; break
+            fi
+            sleep 5; waited=$((waited + 5)) ;;
+        *) say "контейнер бота" "ПРОВАЛ ($status)"; fail=1; break ;;
+    esac
+done
 
 version=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; git log -1 --format='%h'\"" 2>/dev/null | tr -d '\r')
 local_head=$(git log -1 --format='%h' 2>/dev/null)
