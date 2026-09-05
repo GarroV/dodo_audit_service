@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Смоук раскатанного бота на целевой площадке. Запускать после каждой раскатки
+# и когда что-то отвалилось: он отвечает на вопрос «работает ли ЭТО СЕЙЧАС»,
+# на который зелёные тесты не отвечают.
+#
+#   DEPLOY_HOST=<ssh-алиас> scripts/smoke.sh
+#
+# Имя хоста не зашито намеренно: репозиторий публичный.
+set -uo pipefail
+
+HOST="${DEPLOY_HOST:-}"
+if [ -z "$HOST" ]; then
+    echo "смоук: задай DEPLOY_HOST=<ssh-алиас площадки>" >&2
+    exit 2
+fi
+REMOTE_DIR="${DEPLOY_DIR:-C:\\projects\\dodo_audit_service}"
+fail=0
+say() { printf '%-38s %s\n' "$1" "$2"; }
+
+status=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; docker compose ps --format '{{.Status}}'\"" 2>/dev/null | tr -d '\r')
+case "$status" in
+    *healthy*) say "контейнер бота" "OK ($status)" ;;
+    *)         say "контейнер бота" "ПРОВАЛ ($status)"; fail=1 ;;
+esac
+
+version=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; git log -1 --format='%h'\"" 2>/dev/null | tr -d '\r')
+local_head=$(git log -1 --format='%h' 2>/dev/null)
+if [ "$version" = "$local_head" ]; then
+    say "версия на площадке" "OK ($version, совпадает с локальной)"
+else
+    say "версия на площадке" "РАСХОЖДЕНИЕ (площадка $version, локально $local_head)"
+fi
+
+errors=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; docker compose logs --tail=60 bot 2>&1 | Select-String -Pattern 'Conflict|Traceback|CRITICAL' | Select-Object -First 3\"" 2>/dev/null | tr -d '\r')
+if [ -z "$errors" ]; then say "логи бота" "OK (конфликтов и падений нет)"; else say "логи бота" "ПРОВАЛ: $errors"; fail=1; fi
+
+if [ -f .env ]; then
+    set -a; . ./.env; set +a
+    if curl -s --max-time 10 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN:-}/getMe" | grep -q '"ok":true'; then
+        say "Telegram API снаружи" "OK"
+    else
+        say "Telegram API снаружи" "ПРОВАЛ"; fail=1
+    fi
+else
+    say "Telegram API снаружи" "пропущено (.env нет)"
+fi
+
+[ "$fail" -eq 0 ] && echo "СМОУК ЗЕЛЁНЫЙ" || echo "СМОУК КРАСНЫЙ"
+exit "$fail"
