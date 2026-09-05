@@ -41,7 +41,7 @@ from pathlib import Path
 
 import pytest
 
-from src.domain import check_environment
+from src.domain import add_finding, check_environment, get_state, start_inspection
 from src.domain.config import Settings
 from src.domain.engine import ENGINE_ATTEMPTS, run_audit
 from src.domain.errors import EngineError
@@ -203,3 +203,97 @@ def test_умерший_интерпретатор_опознаётся_в_вы�
 
     assert "Fatal Python error" not in str(отказ.value)
     assert "не дал ответа" in str(отказ.value)
+
+
+# --- повтор и запись аудитора: настоящий движок, настоящее состояние ----------
+#
+# Вопрос, ради которого этот раздел существует, задан прямо: не превратит ли
+# повтор запись находки в дубль? Аудитор увидел бы два одинаковых нарушения в
+# отчёте партнёру, и это худший исход из возможных — хуже, чем отказ. Здесь он
+# проверяется не рассуждением о коде, а настоящим `engine/audit.py` над
+# настоящим файлом проверки: считаются записи, оказавшиеся в состоянии.
+
+НАСТОЯЩИЙ_ДВИЖОК = Path(__file__).resolve().parents[1] / "engine" / "audit.py"
+
+
+def _обёртка(tmp_path: Path, когда_умереть: str, маркеры: str) -> tuple[Path, Path]:
+    """Движок, который на команде `add` один раз умирает, а потом работает.
+
+    Кладётся как `engine/audit.py` внутрь подставного корня: так его подхватят
+    ВСЕ обращения блока (`load_settings` собирает путь от корня), а не только
+    те, куда удалось передать свои настройки.
+
+    `когда_умереть` — «до» (ни одной строки движка не выполнено) или «после»
+    (движок отработал полностью, и только потом умер интерпретатор).
+
+    Каждый заход с командой `add` отмечается в журнале: без счёта запусков
+    проверка не различала бы повтор и его отсутствие. Движок отвергает вторую
+    запись по той же паре «пункт + зона» сам, поэтому повторённый `add` оставил
+    бы в проверке ту же одну запись — по одному их числу дубль не виден.
+    """
+    корень = tmp_path / "подставной"
+    (корень / "engine").mkdir(parents=True)
+    журнал = tmp_path / "заходы.txt"
+    путь = корень / "engine" / "audit.py"
+    смерть = "".join(f"    print({м!r}, file=sys.stderr)\n" for м in маркеры.strip().splitlines())
+    работа = f"    subprocess.run([sys.executable, {str(НАСТОЯЩИЙ_ДВИЖОК)!r}, *sys.argv[1:]])\n"
+    тело = смерть if когда_умереть == "до" else работа + смерть
+    путь.write_text(
+        "import subprocess, sys, os\n"
+        "from pathlib import Path\n"
+        f"журнал = Path({str(журнал)!r})\n"
+        'if "add" in sys.argv:\n'
+        '    журнал.write_text(журнал.read_text() + "x" if журнал.exists() else "x")\n'
+        "    if len(журнал.read_text()) == 1:\n"
+        + "".join("    " + строка + "\n" for строка in тело.strip("\n").splitlines())
+        + "        sys.exit(1)\n"
+        f"os.execv(sys.executable, [sys.executable, {str(НАСТОЯЩИЙ_ДВИЖОК)!r}, *sys.argv[1:]])\n",
+        encoding="utf-8",
+    )
+    return корень, журнал
+
+
+def _заходов(журнал: Path) -> int:
+    return len(журнал.read_text(encoding="utf-8")) if журнал.exists() else 0
+
+
+def _проверка_с_записью(корень: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("src.domain.config._REPO_ROOT", корень)
+    start_inspection(CHAT, unit="Белград-1", kind="planned", report_lang="ru")
+
+
+def test_повтор_несостоявшегося_старта_не_делает_из_записи_дубль(
+    domain_env: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Старт не состоялся — движок не работал, записи не появилось. Повтор
+    доводит фиксацию до конца, и запись обязана быть РОВНО одна."""
+    корень, журнал = _обёртка(tmp_path, "до", СТАРТ_НЕ_СОСТОЯЛСЯ)
+    _проверка_с_записью(корень, monkeypatch)
+
+    add_finding(CHAT, code="CLN05", level="D1", zone="hot_kitchen", text="нагар на решётке")
+
+    записи = get_state(CHAT).findings
+    assert _заходов(журнал) == 2, "повтора не было — проверять нечего"
+    assert len(записи) == 1, f"повтор удвоил запись аудитора: {[з.code for з in записи]}"
+    assert записи[0].code == "CLN05"
+
+
+def test_смерть_после_работы_движка_не_повторяется_и_запись_остаётся_одна(
+    domain_env: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Опасная сторона: движок отработал и записал, и только потом умер.
+    Повторить такой запуск — значит добавить вторую такую же запись. Здесь
+    проверяется, что повтора не происходит: отказ уходит наверх, а в проверке
+    остаётся одна запись, та, которую движок успел сделать."""
+    корень, журнал = _обёртка(tmp_path, "после", УМЕР_ПОЗЖЕ)
+    _проверка_с_записью(корень, monkeypatch)
+
+    with pytest.raises(EngineError):
+        add_finding(CHAT, code="CLN05", level="D1", zone="hot_kitchen", text="нагар на решётке")
+
+    записи = get_state(CHAT).findings
+    assert _заходов(журнал) == 1, (
+        "движок позван второй раз после того, как отработал: повторённый `add` "
+        "и есть дубль в отчёте партнёру"
+    )
+    assert len(записи) == 1, f"в проверке не одна запись: {[з.code for з in записи]}"
