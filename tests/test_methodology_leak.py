@@ -140,6 +140,18 @@ def _вне_проверки(относительный: Path) -> bool:
     return any(имя.startswith(x) for x in ВНЕ_ПРОВЕРКИ)
 
 
+#: Как читается файл перед поиском. Цитату, разорванную переносом строки,
+#: простое вхождение НЕ находит — на этом детектор пропустил дословную строку
+#: методики в докстроке модуля, разбитую по ширине строки (нашёл её человек,
+#: а не эта проверка). Поэтому перед сравнением снимаются знаки комментариев
+#: и схлопываются пробелы: цитата остаётся цитатой, как её ни переноси.
+_РАЗМЕТКА = re.compile(r"^[ \t]*[#*>-]+[ \t]?", re.M)
+
+
+def _плоско(текст: str) -> str:
+    return re.sub(r"\s+", " ", _РАЗМЕТКА.sub(" ", текст))
+
+
 def _файлы_под_git(корень: Path) -> Iterator[Path]:
     вывод = subprocess.run(
         ["git", "ls-files"],  # noqa: S607 — git из PATH
@@ -170,7 +182,7 @@ def test_методика_не_цитируется_в_коде_и_тестах(
         if _вне_проверки(путь.relative_to(корень)):
             continue
         try:
-            текст = путь.read_text(encoding="utf-8")
+            текст = _плоско(путь.read_text(encoding="utf-8"))
         except (UnicodeDecodeError, OSError):
             continue
         for игла in иглы:
@@ -201,7 +213,7 @@ def test_демо_набор_не_повторяет_боевую_методик
         if not путь.is_file():
             continue
         try:
-            текст = путь.read_text(encoding="utf-8")
+            текст = _плоско(путь.read_text(encoding="utf-8"))
         except (UnicodeDecodeError, OSError):
             continue
         for игла in иглы:
@@ -250,7 +262,7 @@ def test_формулировки_находок_партнёров_не_цит�
         if _вне_проверки(путь.relative_to(корень)):
             continue
         try:
-            текст = путь.read_text(encoding="utf-8")
+            текст = _плоско(путь.read_text(encoding="utf-8"))
         except (UnicodeDecodeError, OSError):
             continue
         for игла in иглы:
