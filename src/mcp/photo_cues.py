@@ -103,6 +103,17 @@ def _known_codes(data_dir: Path) -> set[str]:
         return {(row.get("id") or "").strip().upper() for row in csv.DictReader(f)} - {""}
 
 
+def cell_codes(cell: str) -> tuple[str, ...]:
+    """Коды пунктов ОДНОЙ ячейки таблицы, в порядке появления.
+
+    Публично, потому что этим же разбором сборка предложений (T165) собирает
+    вызов правки: ячеек в вызове ровно столько, сколько колонок в разделе, и
+    свой разбор ячейки означал бы предложение, которое `edit_photo_cue`
+    отклонит как строку не той ширины.
+    """
+    return tuple(dict.fromkeys(_CODE.findall(cell.upper())))
+
+
 def _check_phrase(phrase: str) -> str:
     value = (phrase or "").strip()
     if not value:
@@ -214,6 +225,19 @@ def _verify(data_dir: Path, *, expected: dict[str, tuple[str, ...] | None]) -> N
 
 
 # --- чтение -------------------------------------------------------------------
+
+
+def rows_of(store: Store, *, version: str | None = None) -> tuple[str, tuple[_Row, ...]]:
+    """Строки карты слов версии — и имя самой версии, чьи это строки.
+
+    Отдельно от `read` намеренно: `read` собирает ОТВЕТ агенту (вложенные
+    словари, ключи протокола), а сборке предложений (T165) нужны сами строки с
+    типами. Разобрать ответ обратно значило бы читать свой же вывод — и
+    молча разъехаться с ним при первой правке формы ответа.
+    """
+    каталог = _version_dir(store, _ensure(store) if version is None else version)
+    строки, _ = _scan(_text(каталог))
+    return каталог.name, tuple(строки)
 
 
 def read(store: Store, *, version: str | None = None) -> dict[str, object]:

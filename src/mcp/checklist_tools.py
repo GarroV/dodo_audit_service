@@ -31,6 +31,8 @@ from typing import Any
 
 from . import checklist as store_api
 from . import photo_cues as cues_api
+from . import suggestions as proposals_api
+from . import tools as reads
 from .checklist import Outcome, Store
 from .errors import ChecklistError
 
@@ -445,6 +447,55 @@ def photo_cues(*, tenant: str, store: Store, version: str | None = None) -> dict
     """
     del tenant  # право на методику проверено на входе, по коду арендатора
     return cues_api.read(store, version=version)
+
+
+def photo_cue_suggestions(
+    *,
+    tenant: str,
+    store: Store,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_confidence: float | None = None,
+    limit: int | None = None,
+    version: str | None = None,
+) -> dict[str, Any]:
+    """Где модель систематически промахивается и что предложить дописать в карту слов.
+
+    Собирается из уже записанного: рядом с каждой находкой лежит то, что
+    модель предлагала до неё (T164, T181), и разница между двумя тройками —
+    это и есть промах. Боевой список слов при этом НЕ пополняется: правит его
+    управляющая компания, и решение D077 запрещает автоматическое пополнение
+    именно потому, что по этому списку быстрый путь записывает пункт без
+    подтверждения аудитора (D064).
+
+    Карта слов читается из версии методики — той, что действует, либо
+    названной, — потому что предложение обязано ссылаться на строку, которая в
+    этой версии есть: строка из другой версии правится не той фразой.
+    """
+    since, until = reads.parse_window(date_from, date_to)
+    имя_версии, разобранные = cues_api.rows_of(store, version=version)
+    строки = tuple(
+        proposals_api.CueRow(
+            section=row.section,
+            phrase=row.cells[0],
+            columns=tuple(cues_api.cell_codes(ячейка) for ячейка in row.cells[1:]),
+        )
+        for row in разобранные
+    )
+    найденное = reads.read_findings_over_period(tenant=tenant, date_from=since, date_to=until)
+    return {
+        "period": {"from": date_from, "to": date_to},
+        **proposals_api.build(
+            найденное.rows,
+            cues=строки,
+            version=имя_версии,
+            inspections=найденное.inspections,
+            units=найденное.units,
+            min_confidence=min_confidence,
+            limit=proposals_api.DEFAULT_MISSES if limit is None else limit,
+            truncated=найденное.truncated,
+        ),
+    }
 
 
 def add_photo_cue(
