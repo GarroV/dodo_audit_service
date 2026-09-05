@@ -34,6 +34,7 @@ from .lang import chat_ui_lang
 from .material import MaterialStore
 from .pending import PendingStore
 from .routers import (
+    build_correct_router,
     build_edit_router,
     build_fallback_router,
     build_finish_router,
@@ -159,6 +160,10 @@ def build_dispatcher(
     # вопрос уехал бы в разбор как комментарий к кадру.
     dispatcher.include_router(build_info_router())
     dispatcher.include_router(build_record_router(store=store, pending=pending))
+    # Правка ответом на сообщение бота (T204) — ДО приёма материала: иначе ответ
+    # уедет комментарием к ждущему кадру, и вместо правки записи появится
+    # вторая. Ответ не про запись этот роутер пропускает дальше нетронутым.
+    dispatcher.include_router(build_correct_router(pending=pending))
     dispatcher.include_router(
         build_material_router(
             store=store,

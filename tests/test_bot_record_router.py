@@ -99,6 +99,31 @@ async def test_analyze_button_sends_the_frame_with_an_empty_comment(
     assert photo is not None, "разбор голого кадра без самого кадра не имеет смысла"
 
 
+async def test_кадр_с_комментарием_уходит_в_модель_без_картинки(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Есть комментарий — разбирается комментарий, кадр в модель не идёт (D081).
+
+    Проверяется двумя фактами сразу, и второй важнее первого: картинки нет в
+    вызове разбора И кадр даже не скачивался у телеграма. Скачивание без
+    отправки было бы тихой платой временем за байты, которые никому не нужны.
+    """
+    started()
+    asked = stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    # Зону слова не называют: назвали бы — сверка со списком записала бы сразу
+    # (T121), и до модели разбор бы не дошёл.
+    await feed(dp, bot, photo_message("frame-1", caption="печь в нагаре", message_id=501))
+
+    assert len(asked) == 1
+    note, photo, _zone, _lang = asked[0]
+    assert note == "печь в нагаре"
+    assert photo is None, "кадр с комментарием всё ещё оплачивается как разбор с картинкой"
+    assert [type(c).__name__ for c in session.calls].count("GetFile") == 0
+
+
 async def test_comment_after_the_frame_cancels_the_question(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:

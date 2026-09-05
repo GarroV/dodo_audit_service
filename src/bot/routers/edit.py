@@ -29,7 +29,7 @@ from aiogram.types import CallbackQuery, Message
 from src import domain
 from src.domain.errors import DomainError
 
-from .. import refusal, sidecar, view
+from .. import refusal, sealed, sidecar, view
 from ..inspection import read_inspection
 from ..keyboards import (
     EDIT_DROP,
@@ -44,6 +44,7 @@ from ..keyboards import (
     zones_keyboard,
 )
 from ..lang import chat_ui_lang
+from ..shown import remember as remember_shown
 from ..states import EditFlow
 from ..texts import t
 
@@ -64,10 +65,14 @@ async def show_changed(message: Message, chat_id: int, n: int, lang: str) -> Non
     # Оценка здесь не считается: процент по ходу обхода не показывается (T162,
     # D072), а `score` — подпроцесс на 26 мс (замер T101). Пересчёт от этого не
     # пропадает: он живёт в движке и виден в итоге при завершении.
-    await message.answer(
+    sent = await message.answer(
         view.changed_line(finding, lang),
         reply_markup=edit_keyboard(n, lang),
     )
+    # Правка кнопкой — тоже показ записи, и отвечать аудитор будет на последнее
+    # сообщение о ней, а не искать первое (T204). Не запомнить его значило бы
+    # сделать правку ответом доступной ровно до первого нажатия кнопки.
+    remember_shown(chat_id, sent, n)
 
 
 def _finding(chat_id: int, n: int) -> domain.Finding | None:
@@ -87,6 +92,12 @@ def build_edit_router() -> Router:
         return message, chat_id, chat_ui_lang(chat_id)
 
     async def apply(message: Message, chat_id: int, n: int, lang: str, **fields: str) -> None:
+        if sealed.is_sealed(chat_id):
+            # Правка записанного — тоже правка отчёта, а он уже у получателя
+            # (T201, D080). Кнопки под записями остаются в переписке навсегда,
+            # поэтому запрет стоит здесь, а не только на входе в проверку.
+            await sealed.refuse(message, lang)
+            return
         try:
             await asyncio.to_thread(domain.edit_finding, chat_id, n, **fields)
         except DomainError as exc:
@@ -127,6 +138,9 @@ def build_edit_router() -> Router:
         await drop(message, chat_id, max(f.n for f in inspection.findings), lang)
 
     async def drop(message: Message, chat_id: int, n: int, lang: str) -> None:
+        if sealed.is_sealed(chat_id):
+            await sealed.refuse(message, lang)
+            return
         try:
             await asyncio.to_thread(domain.drop_finding, chat_id, n)
         except DomainError:

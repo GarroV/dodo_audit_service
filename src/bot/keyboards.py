@@ -56,6 +56,10 @@ KIND_PREFIX = "start:kind:"
 LANG_PREFIX = "start:lang:"
 RESUME_CONTINUE_CALLBACK = "start:resume:continue"
 RESUME_NEW_CALLBACK = "start:resume:new"
+#: «Убрать сданную проверку из чата» (T201, D080). Своё нажатие, а не «Начать
+#: новую»: новая проверка затирает старую заодно, а здесь аудитор просит именно
+#: убрать — и вправе не начинать взамен ничего.
+SEALED_DROP_CALLBACK = "start:sealed:drop"
 
 
 def kind_title(code: str, lang: str) -> str:
@@ -118,6 +122,22 @@ def resume_keyboard(lang: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=t("btn.resume_continue", lang), callback_data=RESUME_CONTINUE_CALLBACK)
     builder.button(text=t("btn.resume_new", lang), callback_data=RESUME_NEW_CALLBACK)
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def sealed_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Двери сданной проверки: начать новую или убрать эту из чата (T201, D080).
+
+    Кнопки «Продолжить» здесь нет и быть не может — в этом вся задача. Обе
+    оставшиеся названы владельцем: «мы можем только удалить его, или завести
+    новый». Показывается эта клавиатура и на `/start`, и рядом с каждым отказом:
+    аудитор упирается в запрет посреди работы, кадром или нажатием, и оставлять
+    его в этот момент без выхода — то же самое, что промолчать.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("btn.resume_new", lang), callback_data=RESUME_NEW_CALLBACK)
+    builder.button(text=t("btn.sealed_drop", lang), callback_data=SEALED_DROP_CALLBACK)
     builder.adjust(1)
     return builder.as_markup()
 
@@ -229,7 +249,7 @@ def analyze_keyboard(anchor_id: int, lang: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def candidates_keyboard(count: int, lang: str) -> InlineKeyboardMarkup:
+def candidates_keyboard(count: int, lang: str, *, correcting: bool = False) -> InlineKeyboardMarkup:
     """Кандидаты действием плюс выход на ручной перечень и отказ.
 
     В `callback_data` едет место в показанном списке — его переводить не надо, и
@@ -243,18 +263,25 @@ def candidates_keyboard(count: int, lang: str) -> InlineKeyboardMarkup:
 
     Сама формулировка на кнопку не выносится: в тексте сообщения она занимает
     две строки, а в кнопку не влезает и обрезается до неузнаваемости.
+
+    `correcting` меняет глагол на кнопках (T204): под правкой нажатие ПРАВИТ
+    запись, а «Записать» обещало бы вторую строку в отчёте — ровно то, от чего
+    аудитор и уходит, отвечая на сообщение о записи.
     """
+    single, numbered, skip = (
+        ("btn.fix_single", "btn.fix_numbered", "btn.fix_skip")
+        if correcting
+        else ("btn.pick_single", "btn.pick_numbered", "btn.skip")
+    )
     builder = InlineKeyboardBuilder()
     for index in range(count):
         builder.button(
-            text=t("btn.pick_single", lang)
-            if count == 1
-            else t("btn.pick_numbered", lang, index=index + 1),
+            text=t(single, lang) if count == 1 else t(numbered, lang, index=index + 1),
             callback_data=f"{PICK_PREFIX}{index}",
         )
     builder.adjust(min(count, PICK_BUTTONS_PER_ROW) or 1)
     builder.row(InlineKeyboardButton(text=t("btn.manual", lang), callback_data=MANUAL_CALLBACK))
-    builder.row(InlineKeyboardButton(text=t("btn.skip", lang), callback_data=SKIP_CALLBACK))
+    builder.row(InlineKeyboardButton(text=t(skip, lang), callback_data=SKIP_CALLBACK))
     return builder.as_markup()
 
 

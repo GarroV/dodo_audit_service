@@ -193,8 +193,9 @@ TEXTS: dict[str, dict[str, str]] = {
             "Дата: {date}\n"
             "Проверяющий: {auditor}\n"
             "Записей: {findings}\n\n"
-            "Продолжить её — можно дописать и собрать отчёт заново. "
-            "Новая начнётся с чистого листа."
+            "Дописать в неё нельзя: отчёт уже у получателя и в истории точки, "
+            "а дописанное в него не попадёт. Начните новую проверку — или "
+            "уберите эту из чата, если она тут больше не нужна."
         ),
         "en": (
             "The inspection in this chat is already handed over: its report was built "
@@ -203,9 +204,50 @@ TEXTS: dict[str, dict[str, str]] = {
             "Date: {date}\n"
             "Auditor: {auditor}\n"
             "Records: {findings}\n\n"
-            "Continue it — you can add more and rebuild the report. "
-            "A new one starts from a clean slate."
+            "It can no longer be added to: the report is already with its recipient "
+            "and in the unit’s history, and anything added now would not reach it. "
+            "Start a new inspection — or remove this one from the chat if you no "
+            "longer need it here."
         ),
+    },
+    # Отказ на любую попытку изменить сданную проверку (T201, D080). Один текст
+    # на все входы: аудитор упирается в запрет то кадром, то кнопкой, и разные
+    # слова об одном и том же читались бы как разные запреты.
+    "sealed.blocked": {
+        "ru": (
+            "Эта проверка сдана — отчёт по ней собран, отправлен и уехал в историю точки. "
+            "Дописывать и править её нельзя: у получателя на руках другой документ, "
+            "и та же проверка встала бы в историю второй строкой.\n\n"
+            "Начните новую проверку — или уберите сданную из чата."
+        ),
+        "en": (
+            "This inspection is handed over — its report was built, sent and archived in "
+            "the unit’s history. It can be neither extended nor edited: the recipient "
+            "holds a different document, and the same inspection would land in the "
+            "history a second time.\n\n"
+            "Start a new inspection — or remove the handed-over one from the chat."
+        ),
+    },
+    # Проверка убрана из чата. Говорится ровно то, что произошло: убрана копия
+    # в чате, а не отчёт и не строка в истории — их бот удалять не умеет, и
+    # промолчать об этом значило бы дать понять, что удалено всё.
+    "sealed.dropped": {
+        "ru": (
+            "Убрал сданную проверку из чата. Отданный отчёт и её строка в истории точки "
+            "остаются — их бот не удаляет; если нужно убрать и оттуда, скажите "
+            "администратору.\n\n"
+            "Чат свободен: можно начинать новую проверку."
+        ),
+        "en": (
+            "The handed-over inspection is removed from this chat. The delivered report "
+            "and its row in the unit’s history stay — the bot does not delete those; if "
+            "they must go too, tell the administrator.\n\n"
+            "The chat is free: you can start a new inspection."
+        ),
+    },
+    "sealed.drop_gone": {
+        "ru": "Убирать нечего: проверки в этом чате уже нет. Можно начинать новую.",
+        "en": "Nothing to remove: this chat has no inspection any more. You can start a new one.",
     },
     "start.resumed": {
         "ru": "Продолжаем: {unit}, {date}. Записей: {findings}.",
@@ -294,6 +336,18 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "Что записать? Кадров: {count}.\n\n{lines}",
         "en": "What should I record? Photos: {count}.\n\n{lines}",
     },
+    # Тот же перечень, но собранный по ПРАВКЕ записи (T204). Спрашивать «что
+    # записать» здесь нельзя: аудитор ответил на запись, чтобы её поправить, а
+    # прочитал бы вопрос о новой — и, нажав кнопку, ждал бы второй строки в
+    # отчёте. Число кадров тут тоже ни при чём: кадры остались у записи.
+    "record.candidates_correcting": {
+        "ru": "Чем поправить запись #{n}?\n\n{lines}",
+        "en": "What should record #{n} become?\n\n{lines}",
+    },
+    "record.manual_page_correcting": {
+        "ru": "Пункты чек-листа для записи #{n}, страница {page} из {pages}:",
+        "en": "Checklist items for record #{n}, page {page} of {pages}:",
+    },
     # Запись, легшая по словам аудитора сразу, без подтверждения (T121, D064).
     # Владелец, дословно: «снимаем с текста подтверждение, потом добавим».
     #
@@ -336,6 +390,41 @@ TEXTS: dict[str, dict[str, str]] = {
     "record.confirmed_plain": {
         "ru": "{line}{guess}\n{title}",
         "en": "{line}{guess}\n{title}",
+    },
+    # Правка ответом на сообщение бота (T204, D081). Показ собран из тех же
+    # частей, что у записи по словам: строка записи, вопрос пункта, что уйдёт в
+    # отчёт. Отличается заголовком — иначе аудитор читает «записал» там, где
+    # запись не появилась, а изменилась, и ищет в переписке вторую.
+    # Ответ пустой (одни пробелы или расшифровка ни во что). Молчать нельзя:
+    # аудитор ждёт правки и не узнает, что её не случилось.
+    "correct.empty": {
+        "ru": "Не разобрал, что поправить в записи #{n}. Напишите словами, что там на самом деле.",
+        "en": (
+            "I could not tell what to change in record #{n}. Say in words what is actually there."
+        ),
+    },
+    "record.corrected": {
+        "ru": (
+            "✏️ Поправил запись #{n} по вашему ответу.\n\n"
+            "{line}{guess}\n"
+            "{title}\n\n"
+            "В отчёт: «{note}»{cue}\n\n"
+            "Снова не то — ответьте на это сообщение ещё раз."
+        ),
+        "en": (
+            "✏️ Record #{n} updated from your reply.\n\n"
+            "{line}{guess}\n"
+            "{title}\n\n"
+            "Into the report: “{note}”{cue}\n\n"
+            "Still wrong — reply to this message again."
+        ),
+    },
+    # Строка карты нарушений показывается только тогда, когда пункт нашла
+    # сверка: у ответа модели её нет вовсе, и пустая подпись выглядела бы
+    # потерянными данными.
+    "record.corrected_cue": {
+        "ru": "\nСтрока карты: «{cue}»",
+        "en": "\nMap line: “{cue}”",
     },
     "record.fixed": {
         "ru": (
@@ -815,6 +904,12 @@ TEXTS: dict[str, dict[str, str]] = {
     # у которого нет второго, не связывает ни с чем.
     "btn.pick_single": {"ru": "Записать", "en": "Record it"},
     "btn.pick_numbered": {"ru": "Записать №{index}", "en": "Record #{index}"},
+    # Те же кнопки под правкой (T204): глагол другой, потому что и действие
+    # другое — записи не прибавится. «Записать» здесь читалось бы как вторая
+    # запись о том же нарушении, ради избавления от которой аудитор и отвечал.
+    "btn.fix_single": {"ru": "Поправить на это", "en": "Change it to this"},
+    "btn.fix_numbered": {"ru": "Поправить на №{index}", "en": "Change to #{index}"},
+    "btn.fix_skip": {"ru": "Оставить как есть", "en": "Leave as is"},
     "btn.manual": {"ru": "Выбрать пункт", "en": "Pick an item"},
     "btn.skip": {"ru": "Не записывать", "en": "Skip"},
     "btn.model": {"ru": "Разобрать моделью", "en": "Analyze with the model"},
@@ -936,6 +1031,7 @@ TEXTS: dict[str, dict[str, str]] = {
     # единственные, которые язык стенда не мог перекрасить.
     "btn.new_inspection": {"ru": "Новая проверка", "en": "New inspection"},
     "btn.resume_continue": {"ru": "Продолжить", "en": "Continue"},
+    "btn.sealed_drop": {"ru": "Убрать из чата", "en": "Remove from chat"},
     "btn.resume_new": {"ru": "Начать новую", "en": "Start a new one"},
     "btn.back": {"ru": "Назад", "en": "Back"},
     "btn.zone": {"ru": "Зона", "en": "Zone"},

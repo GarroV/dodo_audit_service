@@ -6,6 +6,7 @@
 комментарий к кадру.
 """
 
+from .correct import build_correct_router
 from .edit import build_edit_router
 from .fallback import build_fallback_router
 from .finish import build_finish_router
@@ -16,6 +17,7 @@ from .records import build_records_router
 from .start import build_start_router
 
 __all__ = [
+    "build_correct_router",
     "build_edit_router",
     "build_fallback_router",
     "build_finish_router",

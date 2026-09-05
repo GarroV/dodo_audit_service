@@ -48,6 +48,11 @@ class RecordingSession(BaseSession):
     def __init__(self) -> None:
         super().__init__()
         self.calls: list[TelegramMethod[Any]] = []
+        #: Номера сообщений, которые «отправил» бот, — в порядке отправки.
+        #: Нужны там, где аудитор отвечает НА СООБЩЕНИЕ БОТА (T204): без них
+        #: тест не может сослаться на ту самую запись, а адресность правки и
+        #: есть весь смысл задачи.
+        self.sent_ids: list[int] = []
         self._ids = count(9000)
 
     async def close(self) -> None:
@@ -69,8 +74,10 @@ class RecordingSession(BaseSession):
             file_id = str(getattr(method, "file_id", "stub"))
             return File(file_id=file_id, file_unique_id=f"{file_id}-u", file_path="stub/photo.jpg")
         if name in {"SendMessage", "SendPhoto", "SendDocument", "EditMessageText"}:
+            message_id = next(self._ids)
+            self.sent_ids.append(message_id)
             return Message(
-                message_id=next(self._ids),
+                message_id=message_id,
                 date=datetime.now(tz=timezone.utc),
                 chat=Chat(id=getattr(method, "chat_id", CHAT_ID), type="private"),
                 text=getattr(method, "text", None),
@@ -129,7 +136,14 @@ class RecordingSession(BaseSession):
         """Отправленные файлы — по ним проверяется, что отчёт дошёл до аудитора."""
         return [c for c in self.calls if type(c).__name__ == "SendDocument"]
 
+    @property
+    def last_sent_id(self) -> int:
+        assert self.sent_ids, "бот не отправил ни одного сообщения"
+        return self.sent_ids[-1]
+
     def clear(self) -> None:
+        """Забыть отправленное. Номера сообщений НЕ забываются намеренно:
+        ответ аудитора приходит на сообщение, отправленное до очистки."""
         self.calls.clear()
 
 
@@ -191,6 +205,21 @@ def photo_message(
         photo=sizes,
         caption=caption,
         media_group_id=media_group_id,
+    )
+
+
+def bot_message(message_id: int, *, chat_id: int = CHAT_ID) -> Message:
+    """Сообщение БОТА — то, на которое отвечает аудитор (T204).
+
+    Телеграм в ответе присылает исходное сообщение целиком; боту из него нужен
+    только номер, по нему и находится запись. Текст здесь не подставляется
+    нарочно: полагаться на него — значит связывать сущности формулировкой.
+    """
+    return Message(
+        message_id=message_id,
+        date=datetime.now(tz=timezone.utc),
+        chat=Chat(id=chat_id, type="private"),
+        from_user=User(id=1, is_bot=True, first_name="bot"),
     )
 
 

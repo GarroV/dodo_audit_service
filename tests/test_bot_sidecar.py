@@ -20,7 +20,9 @@ from src.bot.sidecar import (
     SeenFrame,
     notes_path,
     read,
+    record_of,
     remember_frames,
+    remember_record,
     remember_zone,
     reset,
     unclaimed,
@@ -250,3 +252,95 @@ def test_пустая_пачка_кадров_не_заводит_файл(domai
     """Пустой вызов не создаёт заметок: файл появляется только когда есть что помнить."""
     remember_frames(CHAT, [])
     assert not notes_path(CHAT).exists()
+
+
+# --- карта «сообщение бота → запись» (T204) ---
+
+
+def test_запись_находится_по_сообщению_бота(domain_env: Path) -> None:
+    """То, ради чего карта заведена: аудитор отвечает на сообщение, а правится запись."""
+    remember_record(CHAT, 9001, 1)
+    remember_record(CHAT, 9007, 2)
+
+    assert record_of(CHAT, 9001) == 1
+    assert record_of(CHAT, 9007) == 2
+    assert record_of(CHAT, 12345) is None, "чужое сообщение не должно указывать на запись"
+
+
+def test_повтор_той_же_пары_не_переписывает_файл(domain_env: Path) -> None:
+    """Показ записи пересобирается при каждой правке — писать на диск каждый раз незачем."""
+    remember_record(CHAT, 9001, 1)
+    было = notes_path(CHAT).stat().st_mtime_ns
+
+    remember_record(CHAT, 9001, 1)
+
+    assert notes_path(CHAT).stat().st_mtime_ns == было
+
+
+def test_одна_запись_живёт_в_нескольких_сообщениях(domain_env: Path) -> None:
+    """Фиксация, потом каждая правка — это разные сообщения об одной записи.
+
+    Аудитор отвечает на то, которое видит перед собой, поэтому указывать на
+    запись обязано каждое.
+    """
+    remember_record(CHAT, 9001, 1)
+    remember_record(CHAT, 9042, 1)
+
+    assert record_of(CHAT, 9001) == 1
+    assert record_of(CHAT, 9042) == 1
+
+
+def test_карта_переживает_перезапуск(domain_env: Path) -> None:
+    """Сообщения в переписке переживают перезапуск бота — карта обязана вместе с ними."""
+    remember_record(CHAT, 9001, 3)
+
+    лежит = json.loads(notes_path(CHAT).read_text(encoding="utf-8"))
+
+    assert лежит["records"] == [{"message_id": 9001, "n": 3}]
+    assert record_of(CHAT, 9001) == 3
+
+
+def test_старые_заметки_без_карты_читаются(domain_env: Path) -> None:
+    """Проверки, начатые до T204, дочитывают своё: карты у них нет, и это не отказ."""
+    notes_path(CHAT).parent.mkdir(parents=True, exist_ok=True)
+    notes_path(CHAT).write_text(
+        json.dumps({"schema": 2, "zone": "hot_kitchen", "frames": []}), encoding="utf-8"
+    )
+
+    assert read(CHAT).records == ()
+    assert record_of(CHAT, 9001) is None
+
+
+@pytest.mark.parametrize(
+    "битая_карта",
+    [
+        [{"n": 1}],
+        [{"message_id": "не число", "n": 1}],
+        [{"message_id": 9001, "n": "не число"}],
+        ["строка вместо пары"],
+        [None],
+    ],
+)
+def test_испорченная_карта_это_отказ(domain_env: Path, битая_карта: object) -> None:
+    """Тем же правилом, что и список кадров: половина карты хуже отказа.
+
+    Молча начав с пустой, бот отнял бы правку ответом у всех записей проверки
+    разом — и узнал бы об этом аудитор в тот момент, когда правка понадобилась.
+    """
+    notes_path(CHAT).parent.mkdir(parents=True, exist_ok=True)
+    notes_path(CHAT).write_text(
+        json.dumps({"schema": 3, "zone": "", "frames": [], "records": битая_карта}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BotNotesError):
+        read(CHAT)
+
+
+def test_новая_проверка_карту_обнуляет(domain_env: Path) -> None:
+    """Сообщения прошлой проверки не должны указывать на записи новой."""
+    remember_record(CHAT, 9001, 1)
+
+    reset(CHAT)
+
+    assert record_of(CHAT, 9001) is None

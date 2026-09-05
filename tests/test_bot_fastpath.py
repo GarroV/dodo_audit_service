@@ -263,7 +263,13 @@ async def test_отказ_движка_не_оставляет_тупика_а_�
 async def test_кнопка_разобрать_моделью_отдаёт_модели_тот_же_материал(
     domain_env: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Сверка дала не тот пункт — модель разбирает те же слова и тот же кадр."""
+    """Сверка дала не тот пункт — модель разбирает ТЕ ЖЕ СЛОВА (D081, T202).
+
+    Кадра в этом запросе нет и быть не должно: материал пришёл с комментарием,
+    а комментарий разбирается сам по себе. До D081 кнопка отправляла и слова, и
+    картинку — на неё же и приходился основной расход, потому что нажимают её
+    после промаха сверки, то есть на самом трудном материале.
+    """
     started()
     asked = stub_classify(monkeypatch, suggestion(candidate("CLN12", "D1", "hot_kitchen")))
     bot, session = make_bot()
@@ -278,7 +284,7 @@ async def test_кнопка_разобрать_моделью_отдаёт_мо�
     assert len(asked) == 1, "кнопка «Разобрать моделью» модель не позвала"
     note, photo, zone, _lang = asked[0]
     assert note == TWO_VIOLATIONS
-    assert photo is not None, "кадр до модели не доехал"
+    assert photo is None, "кадр с комментарием снова уехал в модель"
     assert zone == "hot_kitchen"
     assert "CLN12" in session.last_text
     assert len(findings()) == 1, "разбор моделью сам ничего не фиксирует"
