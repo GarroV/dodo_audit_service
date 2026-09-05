@@ -83,17 +83,22 @@ async def test_первое_сообщение_проверки_называет
     assert t("material.photo_required", "ru") in session.last_text
 
 
-async def test_комментарий_без_кадра_читается_правилом_а_не_жалобой_продукта(
+async def test_комментарий_без_кадра_читается_ожиданием_а_не_жалобой_продукта(
     domain_env: object,
 ) -> None:
-    """Отказ несёт то же правило, что и приветствие, и записи после него нет."""
+    """Ожидание несёт то же правило, что и приветствие, и записи до кадра всё ещё нет.
+
+    С T229 (D090) комментарий без кадра больше не отказ — бот придерживает
+    слова и говорит, что ждёт фотографию. Правило фотофиксации (D078) при этом
+    в силе: записи без кадра как не было, так и нет.
+    """
     start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
     await feed(dp, bot, text_message("в зале грязный пол"))
 
-    assert session.last_text == with_photo_rule(t("material.no_photo", "ru"), "ru")
+    assert session.last_text == with_photo_rule(t("material.waiting_photo", "ru"), "ru")
     assert t("material.photo_required", "ru") in session.last_text
     state = get_state(CHAT_ID)
     assert state is not None
