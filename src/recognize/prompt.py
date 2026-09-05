@@ -137,18 +137,22 @@ def _zone_lines(zones: Sequence[Zone], lang: str) -> str:
     return "\n".join(f"- {z.code} — {z.title(lang)}" for z in zones)
 
 
-def _pick_lines(picks: Sequence[str], lang: str) -> str:
+def _pick_lines(picks: Sequence[str], lang: str, chat_id: int | None) -> str:
     """Перечень допустимых значений `item` с текстом пункта из методики.
 
     Строка на каждое значение, а не на каждый код: у пункта с выбором класса
     модель должна видеть все варианты ровно так, как они записаны в схеме.
+
+    Текст пункта — из издания ТОЙ проверки (T226): перечисление схемы собрано
+    по нему же, и подписать его словами другого издания значило бы показать
+    модели один пункт под названием другого.
     """
     lines: list[str] = []
     for pick in picks:
         code, _, level = pick.partition(PICK_SEP)
         if not level:
             continue
-        lines.append(f"- {pick} — {get_item(code).question(lang)}")
+        lines.append(f"- {pick} — {get_item(code, chat_id=chat_id).question(lang)}")
     return "\n".join(lines)
 
 
@@ -184,8 +188,14 @@ def question_text(
     lang: str,
     *,
     with_photo: bool,
+    chat_id: int | None,
 ) -> str:
-    """Переменная часть запроса: комментарий, подсказка зоны, перечень кандидатов."""
+    """Переменная часть запроса: комментарий, подсказка зоны, перечень кандидатов.
+
+    `chat_id` обязателен и умолчания не имеет (T226): текст пунктов берётся из
+    издания ТОЙ проверки (T169). Сами зоны приходят готовым списком — их читает
+    вызывающий, и читает по тому же изданию.
+    """
     hint = (
         f"Зона, в которой аудитор сейчас находится: {zone_hint}. Используй её, если "
         "в комментарии места нет."
@@ -198,6 +208,6 @@ def question_text(
         f"{hint}\n{photo_line}\n\n"
         f"ЗОНЫ:\n{_zone_lines(zones, lang)}\n\n"
         f"ДОПУСТИМЫЕ ЗНАЧЕНИЯ item (пункт и класс), в порядке вероятности:\n"
-        f"{_pick_lines(picks, lang)}\n"
+        f"{_pick_lines(picks, lang, chat_id)}\n"
         f"- {NONE_CODE} — ни один пункт перечня не подходит"
     )

@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 from conftest import ROOT, requires_data, requires_examples
 
+from src.recognize.config import NO_CHAT
 from src.recognize.cues import CUES_FILE, load_cues
 from src.recognize.fastpath import NO_COLUMN, NO_ZONE, WRONG_ZONE
 from tools import fastpath_measure as fpm
@@ -212,8 +213,23 @@ def test_load_records_поднимает_боевые_записи() -> None:
 
 
 @requires_data
+@requires_examples
 def test_живой_замер_на_боевых_данных_зелёный(live_data_env: Path) -> None:
     """Ни одного неверного срабатывания на боевых данных — регрессионный якорь T113.
+
+    **Данных нужно двое, поэтому и меток две (T212, задача #180).** Раньше стояла
+    одна `requires_data`, и на копии без `examples/` тест падал: `fpm.main`
+    печатал «боевых данных нет — это не поломка инструмента» и отдавал код 2, а
+    `assert rc == 0` этого не переживал. Соседний
+    `test_load_records_поднимает_боевые_записи` в том же положении спокойно
+    пропускался — одно и то же отсутствие данных давало в наборе два разных
+    исхода, и один из них выглядел поломкой продукта. Две метки — тот же приём,
+    которым живёт `tests/test_engine_regress.py`.
+
+    Ослаблять само утверждение до `rc in (0, 2)` было нельзя: якорь стал бы
+    зелёным и на копии без эталонов, не проверяя ничего, — ровно та беда, из
+    которой вырос баннер `pytest_terminal_summary` (задача #175). Пропуск в нём
+    виден и посчитан, зелёная пустота — нет.
 
     Этому тесту нужна именно боевая методика (`data/`), а не синтетическая
     (T141/T146): он гоняет `fast_path` по боевым записям
@@ -239,7 +255,7 @@ def test_раздел_печатается_с_обеими_таблицами(do
     склеенные строковые константы — сравнивать с ним побайтово значило бы
     зависеть от того, как именно `ruff format` перенёс строку сегодня.
     """
-    text = fpm.render_negation_section(load_cues())
+    text = fpm.render_negation_section(load_cues(chat_id=NO_CHAT))
 
     assert "Замер защиты от отрицания (T195)" in text
     assert "Строк с утвердительным срабатыванием" in text
@@ -302,7 +318,7 @@ def test_повтор_основы_замер_больше_не_считает_�
         "строка с повтором основы не попала в саму копию карты — сценарий теста не тот"
     )
 
-    (cue,) = [c for c in load_cues() if c.phrase == "Мебель и мебель участка"]
+    (cue,) = [c for c in load_cues(chat_id=NO_CHAT) if c.phrase == "Мебель и мебель участка"]
 
     base = fpm.find_affirmative_base(cue)
     assert base is not None, "утвердительная база не нашлась — сценарий теста не тот"
@@ -398,7 +414,7 @@ def test_живой_замер_отрицания_на_боевой_карте(l
     одного срабатывания. Именно этим отличались отброшенные варианты правила —
     один из них терял 30 строк карты из 32, и терял молча.
     """
-    bases = fpm.affirmative_bases(load_cues())
+    bases = fpm.affirmative_bases(load_cues(chat_id=NO_CHAT))
     lost = fpm.insurance_lost(bases)
 
     assert bases, "на боевой карте не нашлось ни одной утвердительно срабатывающей строки"

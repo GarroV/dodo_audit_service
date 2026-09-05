@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from src.domain import allowed_levels
+from src.recognize.config import NO_CHAT
 from src.recognize.errors import RecognizeConfigError
 from src.recognize.models import NONE_CODE, UNKNOWN_ZONE
 from src.recognize.schema import NONE_PICK, picks_for, response_schema, split_pick
@@ -23,7 +24,7 @@ def test_на_каждый_допустимый_класс_своё_значен
     codes = ("PRD09", "CLN05")
 
     # Act
-    picks = picks_for(codes)
+    picks = picks_for(codes, chat_id=NO_CHAT)
 
     # Assert
     assert picks == ("PRD09:D1", "PRD09:D2", "PRD09:D3", "CLN05:D1", NONE_PICK)
@@ -31,7 +32,7 @@ def test_на_каждый_допустимый_класс_своё_значен
 
 def test_отказ_всегда_последний_и_единственный(domain_env: object) -> None:
     # Act
-    picks = picks_for(shortlist("нагар", "hot_kitchen").codes)
+    picks = picks_for(shortlist("нагар", "hot_kitchen", chat_id=NO_CHAT).codes, chat_id=NO_CHAT)
 
     # Assert
     assert picks[-1] == NONE_PICK
@@ -40,10 +41,10 @@ def test_отказ_всегда_последний_и_единственный(
 
 def test_порядок_кодов_сохраняется(domain_env: object) -> None:
     # Arrange: карта кадров поднимает CLN05 в начало перечня
-    picked = shortlist("нагар под конвейерной лентой печи", "hot_kitchen")
+    picked = shortlist("нагар под конвейерной лентой печи", "hot_kitchen", chat_id=NO_CHAT)
 
     # Act
-    picks = picks_for(picked.codes)
+    picks = picks_for(picked.codes, chat_id=NO_CHAT)
 
     # Assert
     assert picks[0].startswith(picked.codes[0])
@@ -57,7 +58,7 @@ def test_пункт_без_классов_это_отказ_а_не_пропус
 
     # Act / Assert
     with pytest.raises(RecognizeConfigError, match="INF01"):
-        picks_for(("CLN05", "INF01"))
+        picks_for(("CLN05", "INF01"), chat_id=NO_CHAT)
 
 
 def test_разбор_значения_на_код_и_класс(domain_env: object) -> None:
@@ -68,7 +69,7 @@ def test_разбор_значения_на_код_и_класс(domain_env: obj
 
 def test_любое_допустимое_значение_разбирается_в_пару_из_методики(domain_env: object) -> None:
     # Arrange
-    picks = picks_for(shortlist("грязь", "dining").codes)
+    picks = picks_for(shortlist("грязь", "dining", chat_id=NO_CHAT).codes, chat_id=NO_CHAT)
 
     # Act / Assert: свойство, ради которого схема и построена
     for pick in picks:
@@ -80,7 +81,7 @@ def test_любое_допустимое_значение_разбирается
 
 def test_схема_перечисляет_ровно_переданный_перечень(domain_env: object) -> None:
     # Arrange
-    picks = picks_for(("CLN05", "PRD09"))
+    picks = picks_for(("CLN05", "PRD09"), chat_id=NO_CHAT)
 
     # Act
     schema = response_schema(picks, ["hot_kitchen", "dining"])
@@ -94,7 +95,7 @@ def test_схема_перечисляет_ровно_переданный_пе�
 
 def test_схема_годится_для_строгого_режима(domain_env: object) -> None:
     # Arrange
-    schema = response_schema(picks_for(("CLN05",)), ["hot_kitchen"])
+    schema = response_schema(picks_for(("CLN05",), chat_id=NO_CHAT), ["hot_kitchen"])
 
     # Act
     record = schema["properties"]["records"]["items"]
@@ -108,7 +109,7 @@ def test_схема_годится_для_строгого_режима(domain_e
 
 def test_в_схеме_нет_ключей_которые_строгий_режим_молча_игнорирует(domain_env: object) -> None:
     # Arrange
-    schema = response_schema(picks_for(("PRD09",)), ["dough"])
+    schema = response_schema(picks_for(("PRD09",), chat_id=NO_CHAT), ["dough"])
 
     # Act
     def keys(node: object) -> set[str]:

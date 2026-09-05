@@ -27,6 +27,7 @@ from mcp_checklist_harness import build_methodology
 from src.mcp import photo_cues
 from src.mcp.checklist import CUES_FILE, VERSION_FILE, Store, _version_dir, current_version
 from src.mcp.errors import ChecklistError
+from src.recognize.config import NO_CHAT
 from src.recognize.cues import load_cues
 
 АРЕНДАТОР = "укашка"
@@ -55,7 +56,9 @@ def изданный(tmp_path: Path) -> Store:
 
 def _карта(store: Store, version: str) -> tuple:
     """Карта версии глазами продукта, а не глазами теста."""
-    return load_cues(_version_dir(store, version) / CUES_FILE)
+    # `NO_CHAT`: карта читается по названному каталогу версии хранилища, живой
+    # проверки за ней нет (T226).
+    return load_cues(_version_dir(store, version) / CUES_FILE, chat_id=NO_CHAT)
 
 
 def _фразы(store: Store, version: str) -> list[str]:

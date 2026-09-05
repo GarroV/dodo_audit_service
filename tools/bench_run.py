@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.recognize.classify import classify
+from src.recognize.config import NO_CHAT
 from src.recognize.errors import RecognizeError
 from tools.bench_dataset import BenchCase, load_cases
 
@@ -73,7 +74,9 @@ def run_case(case: BenchCase, model: str) -> CaseResult:
     пустым ответом и текстом ошибки, а не роняет прогон остальных кадров.
     """
     try:
-        suggestion = classify("", photo=case.photo.read_bytes(), zone_hint=case.zone, model=model)
+        suggestion = classify(
+            "", photo=case.photo.read_bytes(), zone_hint=case.zone, model=model, chat_id=NO_CHAT
+        )
     except RecognizeError as exc:
         return CaseResult(
             model=model,

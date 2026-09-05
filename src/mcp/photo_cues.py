@@ -34,6 +34,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..recognize.config import NO_CHAT
 from ..recognize.cues import CUES_FILE, THRESHOLDS_HEADINGS, load_cues
 from .checklist import Outcome, Store, _ensure, _version_dir, apply_edit
 from .errors import ChecklistError
@@ -208,7 +209,10 @@ def _verify(data_dir: Path, *, expected: dict[str, tuple[str, ...] | None]) -> N
     этой сверки правка возвращала бы успех, не сделав работу: формат карты
     свободный, и строка, записанная чуть не так, тихо перестаёт быть строкой.
     """
-    видно = {cue.phrase: cue.codes for cue in load_cues(_cues_file(data_dir))}
+    # `NO_CHAT`: карта читается по НАЗВАННОМУ каталогу версии из хранилища, а
+    # не по изданию какой-то идущей проверки — здесь правят методику, а не
+    # ведут выезд (T226).
+    видно = {cue.phrase: cue.codes for cue in load_cues(_cues_file(data_dir), chat_id=NO_CHAT)}
     for phrase, codes in expected.items():
         if codes is None:
             if phrase in видно:

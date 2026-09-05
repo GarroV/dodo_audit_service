@@ -40,15 +40,39 @@
 
 **Отказ модели** (`RecognizeError`) — измеримый исход, а не сбой прогона:
 строка с пустым ответом и текстом ошибки, остальные записи считаются дальше.
+**Но отказ и промах — не одно и то же**, и отчёт обязан их различать вслух
+(T224): в строке с отказом запроса не было вовсе, поэтому все три мерки
+попадания у неё нулевые, а токенов ноль. Молча смешать это с настоящим
+промахом значит напечатать «код верный 0 %» и «разница входных токенов +0» на
+прогоне, где не состоялось ни одного вызова, — числа выглядят замером, не
+будучи им. Поэтому при любом отказе печатается предупреждение перед таблицами,
+а вывод про цену кадра снимает своё «это и есть цена»; когда не удался ни один
+вызов, код возврата 1, а не 0.
 
 Ни одного обращения к сети вне `classify()`: загрузчик корпуса и старое
-правило читают только локальные файлы методики и `examples/`. Ключ модели
-берётся `recognize` из окружения — здесь он нигде не печатается и не пишется в
-json (в отчёте и в `--out` его вообще не существует, здесь нечего прятать).
+правило читают только локальные файлы методики и `examples/`.
+
+**Про ключ модели — точно, а не «его тут нет».** Сам инструмент ключ ниоткуда
+не берёт и никуда не кладёт: в его структурах данных `OPENAI_API_KEY` не
+появляется. Но текст отказа провайдера цитируется как есть (`LegOutcome.error`
+→ таблица и `--out`), а провайдер в ответе 401 повторяет ключ ЗАМАСКИРОВАННЫМ
+(«Incorrect API key provided: sk-stub-**********-key», проверено 05.09.2026).
+Это не пригодный к использованию секрет, но и не «ключа тут не бывает»:
+`--out` — местный файл для разбора, а не то, что кладут в публичный
+репозиторий. Резать текст отказа своим выражением здесь не стали намеренно:
+форма ключа — знание о провайдере, а оно по решению D010 живёт в одном месте
+(`src/recognize/client.py`), и копия этого знания в замере разошлась бы с ним
+молча.
 
 Запуск:
     python tools/comment_only_measure.py [--root PATH] [--out PATH] [--limit N]
-Коды возврата: 0 — прогон прошёл, 2 — боевых данных нет.
+
+Окружение: `AUDIT_DATA_DIR` инструмент подставляет сам (методика репозитория),
+`STATE_DIR` обязан задать запускающий — его требует любое обращение к методике
+(`src/domain/config.py`). Не задан — внятный отказ и код 2, а не трассировка.
+
+Коды возврата: 0 — прогон прошёл, 1 — не удался ни один вызов модели,
+2 — боевых данных нет или окружение не настроено.
 """
 
 from __future__ import annotations
@@ -69,8 +93,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from src.domain.errors import DomainError  # noqa: E402
 from src.recognize import classify as classify_module  # noqa: E402
 from src.recognize.classify import classify  # noqa: E402
+from src.recognize.config import NO_CHAT  # noqa: E402
 from src.recognize.errors import RecognizeError  # noqa: E402
 from src.recognize.schema import picks_for  # noqa: E402
 from src.recognize.shortlist import shortlist  # noqa: E402
@@ -163,7 +189,7 @@ def _old_needs_photo(note: str, cue_hits: tuple[str, ...]) -> bool:
         return True
     if len(cue_hits) != 1:
         return True
-    return len(picks_for(cue_hits)) != 2
+    return len(picks_for(cue_hits, chat_id=NO_CHAT)) != 2
 
 
 @dataclass(frozen=True)
@@ -187,7 +213,7 @@ class LegOutcome:
 def _call_leg(note: str, photo: bytes | None, zone_hint: str | None) -> LegOutcome:
     """Один вызов `classify`. Отказ модели не роняет прогон — это исход, а не сбой."""
     try:
-        suggestion = classify(note, photo=photo, zone_hint=zone_hint)
+        suggestion = classify(note, photo=photo, zone_hint=zone_hint, chat_id=NO_CHAT)
     except RecognizeError as exc:
         return LegOutcome(
             top_code=None,
@@ -285,7 +311,7 @@ def run_case(record: Record, hint: Hint) -> CaseOutcome:
     ЗДЕСЬ, а не берётся из `classify()`: после D081 у продукта его взять
     неоткуда, и без этого пересчёта старое правило нечем было бы кормить.
     """
-    cue_hits = shortlist(record.note, hint.zone).cue_hits
+    cue_hits = shortlist(record.note, hint.zone, chat_id=NO_CHAT).cue_hits
     old_value = _old_needs_photo(record.note, cue_hits)
     outcome_a = _leg_a(record, hint.zone, old_value)
     outcome_b = _leg_b(record, hint.zone)
@@ -441,10 +467,55 @@ def _totals_table(a: LegTotals, b: LegTotals) -> list[str]:
 
 
 def _token_diff_line(a: LegTotals, b: LegTotals) -> str:
+    """Цена кадра в токенах. При отказах — та же разность, но без слова «цена».
+
+    Разность считается по тем же суммам, что стоят в таблице, и не
+    пересчитывается по удавшимся вызовам отдельно: два плеча с разным числом
+    отказов дали бы «цену кадра», посчитанную по разным записям, а это уже не
+    сравнение. Поэтому при отказах число печатается, но названо тем, чем
+    является, — неполной суммой.
+    """
     diff = a.usage.get("input", 0) - b.usage.get("input", 0)
+    if a.errors or b.errors:
+        return (
+            f"Разница входных токенов (A − B): {diff:+d}. Ценой кадра это число НЕ является: "
+            f"в прогоне есть отказы, и токены по ним не начислялись вовсе."
+        )
     return (
         f"Разница входных токенов (A − B): {diff:+d}. Это и есть цена кадра — то, ради "
         f"экономии чего принято D081."
+    )
+
+
+def _errors_warning(a: LegTotals, b: LegTotals) -> str:
+    """Предупреждение про отказы — до таблиц, а не примечанием под ними (T224).
+
+    Пустая строка, когда отказов нет: молчание здесь и есть сообщение «числа
+    ниже посчитаны по состоявшимся вызовам».
+
+    Почему это вообще нужно. Отказ идёт в отчёт строкой с пустым ответом, и по
+    каждой мерке попадания такая строка считается промахом — иначе доли
+    считались бы по разному числу записей в двух плечах. Само по себе это
+    верно, но напечатанное без оговорки выглядит результатом: прогон с
+    подставным ключом честно рапортует «код верный 0 (0 %)» и «разница входных
+    токенов +0», то есть ровно то же, что сказал бы настоящий замер, у которого
+    кадр не даёт ничего. Различить эти два прогона по числам нельзя — только по
+    столбцу «Ошибок», который стоит предпоследним и читается последним.
+    """
+    if not (a.errors or b.errors):
+        return ""
+    if a.errors == a.n and b.errors == b.n:
+        return (
+            f"ЗАМЕРА НЕ ПРОИЗОШЛО: все вызовы ({a.n + b.n}) оборвались отказом модели. "
+            f"Ни одна цифра ниже замером не является — это разметка пустого прогона. "
+            f"Текст отказа виден в столбцах плеч; типичная причина — подставной или "
+            f"просроченный ключ модели."
+        )
+    return (
+        f"ЧАСТЬ ВЫЗОВОВ ОБОРВАЛАСЬ ОТКАЗОМ МОДЕЛИ: плечо A — {a.errors} из {a.n}, "
+        f"плечо B — {b.errors} из {b.n}. Такая запись считается промахом по каждой "
+        f"мерке и не приносит токенов, поэтому доли ниже занижены, а суммы неполны: "
+        f"сравнивать плечи между собой можно, объявлять числа замером — нет."
     )
 
 
@@ -461,6 +532,10 @@ def render(records_total: int, skipped: Sequence[str], outcomes: Sequence[CaseOu
         f"Записей в корпусе: {records_total}. Прогнано в этом замере: {len(outcomes)}.",
         "",
     ]
+    # Предупреждение про отказы — ДО таблиц: читатель должен узнать, что числа
+    # неполны, раньше, чем прочтёт сами числа (T224).
+    if warning := _errors_warning(a_totals, b_totals):
+        lines.extend((warning, ""))
     if skipped:
         lines.append(f"Пропущено без фотографий: {len(skipped)}.")
         lines.extend(f"  {line}" for line in skipped)
@@ -478,9 +553,13 @@ def render(records_total: int, skipped: Sequence[str], outcomes: Sequence[CaseOu
 def _write_out(
     out: Path, records_total: int, skipped: Sequence[str], outcomes: Sequence[CaseOutcome]
 ) -> None:
-    """Построчный json замера. `OPENAI_API_KEY` сюда попасть не может: его нет
+    """Построчный json замера — местный файл для разбора, не публикация.
 
-    ни в одной структуре данных этого модуля — писать в json нечего прятать.
+    Сам инструмент ключ модели никуда не кладёт: в его структурах данных
+    `OPENAI_API_KEY` не появляется. Единственное, что приходит сюда извне, —
+    текст отказа провайдера в `LegOutcome.error`, и он цитируется как есть;
+    провайдер в ответе 401 повторяет ключ замаскированным. Почему текст не
+    режется своим выражением — в шапке модуля.
     """
     a_totals = _leg_totals("A — как было (кадр по старому правилу)", outcomes, lambda o: o.a)
     b_totals = _leg_totals("B — как стало (только комментарий, D081)", outcomes, lambda o: o.b)
@@ -529,8 +608,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     records = corpus.records if args.limit is None else corpus.records[: args.limit]
-    hints = hints_bot(records)
-    outcomes = run_all(records, hints)
+    # Методику читают обе половины ниже: `hints_bot` — зоны, `run_case` —
+    # перечень пунктов. Без `STATE_DIR` `check_environment()` отказывает, и до
+    # T224 этот отказ выходил наружу трассировкой на двадцать строк — из неё
+    # человеку надо было ещё вычитать, что не хватает переменной окружения.
+    # Отказ ловится здесь, а не вокруг одного вызова: `run_all` считает в
+    # потоках и поднимает его же из `future.result()`.
+    try:
+        hints = hints_bot(records)
+        outcomes = run_all(records, hints)
+    except DomainError as failure:
+        print(f"Замерять не по чему: {failure}")
+        return 2
 
     print(render(len(corpus.records), corpus.skipped, outcomes))
 
@@ -538,6 +627,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_out(args.out, len(corpus.records), corpus.skipped, outcomes)
         print(f"\nПодробности: {args.out}")
 
+    # Прогон, где не удался ни один вызов, — не «прогон прошёл». Нулём отсюда
+    # выходить нельзя: у платного замера это единственный признак, по которому
+    # видно, что 34 вызова не состоялись, а отчёт заполнен нулями (T224).
+    if all(outcome.a.error and outcome.b.error for outcome in outcomes):
+        return 1
     return 0
 
 

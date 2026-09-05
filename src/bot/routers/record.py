@@ -323,7 +323,7 @@ async def _open_manual(
         return
     _, report_lang = chat_langs(chat_id)
     try:
-        items = await asyncio.to_thread(manual_candidates, zone, lang=report_lang)
+        items = await asyncio.to_thread(manual_candidates, zone, lang=report_lang, chat_id=chat_id)
     except RecognizeError as exc:
         # Сырой текст исключения — в журнал, а не в чат (тот же принцип, что
         # у отказа движка, T127): в нём бывают пути на диске и ссылки на
@@ -388,7 +388,9 @@ async def _try_fast(
     кнопки «Разобрать моделью» под ней. Не записалось — и кнопке нечего
     разбирать: материал уже у модели.
     """
-    found = await asyncio.to_thread(fast_path, base.note, base.zone_hint or None, lang=lang)
+    found = await asyncio.to_thread(
+        fast_path, base.note, base.zone_hint or None, lang=lang, chat_id=chat_id
+    )
     if found.item is None:
         # `reason` — для замера (`tools/fastpath_measure.py`) и разбора, поэтому
         # он идёт в журнал, а не в чат: аудитору он ничего не объясняет, а
@@ -507,7 +509,7 @@ async def analyze(
         await message.answer(t("record.thinking", lang))
     try:
         suggestion = await asyncio.to_thread(
-            classify, note, photo, zone_hint or None, lang=report_lang
+            classify, note, photo, zone_hint or None, lang=report_lang, chat_id=chat_id
         )
     except ModelUnavailable as exc:
         # Модель недоступна — проверка не встаёт: тот же перечень пунктов

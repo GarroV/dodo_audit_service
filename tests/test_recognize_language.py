@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 
 from src.recognize import process_hint as process_hint_module
+from src.recognize.config import NO_CHAT
 from src.recognize.cues import CUES_FILE, class_thresholds, column_words, load_cues, stems
 from src.recognize.errors import RecognizeConfigError
 from src.recognize.fastpath import NO_COLUMN, NO_CUE, fast_path
@@ -289,7 +290,9 @@ def test_быстрый_путь_срабатывает_на_английско�
     `DEM08` выбран не случайно: у него единственный допустимый класс, поэтому
     быстрый путь на нём вправе дойти до пункта, а не отказать по классу.
     """
-    итог = fast_path("Faded date label on a container in dry goods", "storage", lang="en")
+    итог = fast_path(
+        "Faded date label on a container in dry goods", "storage", lang="en", chat_id=NO_CHAT
+    )
 
     assert итог.item is not None, f"{итог.reason} — карта {английская_методика / CUES_FILE}"
     assert (итог.item.code, итог.item.level, итог.item.zone) == ("DEM08", "D1", "storage")
@@ -304,8 +307,8 @@ def test_английские_слова_колонки_разводят_гря�
     """
     _дописать(английская_копия, ДВЕ_КОЛОНКИ)
 
-    грязь = fast_path("Grease on the service hatch", "dining", lang="en")
-    поломка = fast_path("Broken service hatch in dry goods", "storage", lang="en")
+    грязь = fast_path("Grease on the service hatch", "dining", lang="en", chat_id=NO_CHAT)
+    поломка = fast_path("Broken service hatch in dry goods", "storage", lang="en", chat_id=NO_CHAT)
 
     assert грязь.item is not None, грязь.reason
     assert грязь.item.code == "DEM02", "слово о грязи выбрало не ту колонку"
@@ -322,8 +325,14 @@ def test_английское_отрицание_снимает_слово_ко�
     """
     _дописать(английская_копия, ДВЕ_КОЛОНКИ)
 
-    assert fast_path("Service hatch without grease", "dining", lang="en").reason == NO_COLUMN
-    assert fast_path("Service hatch, no grease at all", "dining", lang="en").reason == NO_COLUMN
+    assert (
+        fast_path("Service hatch without grease", "dining", lang="en", chat_id=NO_CHAT).reason
+        == NO_COLUMN
+    )
+    assert (
+        fast_path("Service hatch, no grease at all", "dining", lang="en", chat_id=NO_CHAT).reason
+        == NO_COLUMN
+    )
 
 
 def test_слова_колонок_из_английской_карты_дополняют_встроенные(английская_копия: Path) -> None:
@@ -334,12 +343,15 @@ def test_слова_колонок_из_английской_карты_допо
     заработать без выпуска кода, а встроенное — не пропасть от этого.
     """
     _дописать(английская_копия, ДВЕ_КОЛОНКИ)
-    assert fast_path("Scuffs on the service hatch", "dining", lang="en").reason == NO_COLUMN
+    assert (
+        fast_path("Scuffs on the service hatch", "dining", lang="en", chat_id=NO_CHAT).reason
+        == NO_COLUMN
+    )
 
     _дописать(английская_копия, СЛОВА_КОЛОНОК)
 
-    своё = fast_path("Scuffs on the service hatch", "dining", lang="en")
-    встроенное = fast_path("Grease on the service hatch", "dining", lang="en")
+    своё = fast_path("Scuffs on the service hatch", "dining", lang="en", chat_id=NO_CHAT)
+    встроенное = fast_path("Grease on the service hatch", "dining", lang="en", chat_id=NO_CHAT)
 
     assert своё.item is not None, своё.reason
     assert своё.item.code == "DEM02", "слово карты не выбрало колонку"
@@ -349,11 +361,11 @@ def test_слова_колонок_из_английской_карты_допо
 
 def test_слова_колонок_читаются_из_английской_карты(английская_копия: Path) -> None:
     """Раздел узнаётся по английскому заголовку, а не по русскому."""
-    assert column_words(английская_копия) == {}
+    assert column_words(английская_копия, chat_id=NO_CHAT) == {}
 
     _дописать(английская_копия, СЛОВА_КОЛОНОК)
 
-    прочитано = column_words(английская_копия)
+    прочитано = column_words(английская_копия, chat_id=NO_CHAT)
 
     assert set(прочитано) == {"dirt", "breakage"}, f"раздел не прочитан: {прочитано}"
 
@@ -363,7 +375,7 @@ def test_слова_колонок_читаются_из_английской_к
 
 def test_пороги_классов_читаются_из_английской_карты(английская_методика: Path) -> None:
     """Раздел порогов уходит в промпт: без него класс выбирает модель наугад."""
-    пороги = class_thresholds()
+    пороги = class_thresholds(chat_id=NO_CHAT)
 
     assert пороги, f"раздел порогов классов не найден в {английская_методика / CUES_FILE}"
     assert "DEM05" in пороги, "в порогах нет ни одного пункта — прочитан не тот раздел"
@@ -371,7 +383,7 @@ def test_пороги_классов_читаются_из_английской_
 
 def test_раздел_порогов_не_становится_подсказками(английская_методика: Path) -> None:
     """В порогах коды стоят в первой ячейке, и подсказками эти строки не являются."""
-    фразы = [c.phrase for c in load_cues()]
+    фразы = [c.phrase for c in load_cues(chat_id=NO_CHAT)]
 
     assert фразы, f"карта {английская_методика / CUES_FILE} не разобралась вовсе"
     assert not [ф for ф in фразы if ф.startswith("DEM")], (
@@ -394,8 +406,8 @@ def test_раздел_слов_колонок_не_становится_подс
         "| Dirt | scuffs, see also DEM04 |\n",
     )
 
-    фразы = [c.phrase for c in load_cues(английская_копия)]
-    итог = fast_path("Dirt on the menu board", "dining", lang="en")
+    фразы = [c.phrase for c in load_cues(английская_копия, chat_id=NO_CHAT)]
+    итог = fast_path("Dirt on the menu board", "dining", lang="en", chat_id=NO_CHAT)
 
     assert "Dirt" not in фразы, "строка словаря колонок стала подсказкой карты"
     assert итог.item is None, f"словарь колонок показал пункт {итог.item}"
@@ -408,7 +420,7 @@ def test_неизвестный_заголовок_остаётся_подска
     """
     _дописать(английская_копия, ДВЕ_КОЛОНКИ)
 
-    фразы = [c.phrase for c in load_cues(английская_копия)]
+    фразы = [c.phrase for c in load_cues(английская_копия, chat_id=NO_CHAT)]
 
     assert "service hatch" in фразы, "обычный раздел карты пропал из подсказок"
 
@@ -426,7 +438,7 @@ def test_английская_строка_карты_без_основ_не_л�
         "| what you see here | DEM04 |\n",
     )
 
-    итог = fast_path("Nothing worth recording", "dining", lang="en")
+    итог = fast_path("Nothing worth recording", "dining", lang="en", chat_id=NO_CHAT)
 
     assert итог.item is None, f"строка из служебных слов показала пункт {итог.item}"
     assert итог.reason == NO_CUE

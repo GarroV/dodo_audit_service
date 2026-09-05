@@ -34,7 +34,7 @@ class ManualCandidate:
 
 
 def manual_candidates(
-    zone_hint: str | None, *, lang: str = DEFAULT_LANG
+    zone_hint: str | None, *, lang: str = DEFAULT_LANG, chat_id: int | None
 ) -> tuple[ManualCandidate, ...]:
     """Пункты для ручного выбора — без сети, без ранжирования по словам.
 
@@ -42,11 +42,18 @@ def manual_candidates(
     `None` — крайний случай, когда даже зона неизвестна, отдаёт пункты всех
     зон. `with_manual=True` — единственное отличие от запроса к модели: тут
     решает человек, и `MGM22`/`MGM23` ему доступны.
+
+    `chat_id` обязателен и умолчания не имеет (T226): кнопка обязана предлагать
+    ровно то, что примет движок этой проверки, — пункт и класс её издания
+    (T169). Ошибка здесь заметнее всего: аудитор жмёт кнопку, а запись не
+    проходит, и на точке это выглядит поломкой на ровном месте.
     """
-    picked = shortlist("", zone_hint, with_manual=True)
+    picked = shortlist("", zone_hint, with_manual=True, chat_id=chat_id)
     return tuple(
         ManualCandidate(
-            code=code, levels=tuple(allowed_levels(code)), title=get_item(code).question(lang)
+            code=code,
+            levels=tuple(allowed_levels(code, chat_id=chat_id)),
+            title=get_item(code, chat_id=chat_id).question(lang),
         )
         for code in picked.codes
     )
