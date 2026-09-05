@@ -23,10 +23,8 @@ import pytest
 
 from src.domain import allowed_levels, get_item, list_items
 from src.domain.errors import ValidationError
-from src.recognize.cues import load_cues, stems
+from src.recognize.cues import load_cues
 from src.recognize.fastpath import (
-    BREAKAGE_WORDS,
-    DIRT_WORDS,
     NO_COLUMN,
     NO_CUE,
     NO_ZONE,
@@ -219,23 +217,10 @@ def test_служебный_пункт_быстрым_путём_не_предл
 # --- словарь колонок --------------------------------------------------------
 
 
-def test_словарь_колонок_разбирается_тем_же_стеммером(domain_env: Path) -> None:
-    """Слова словаря обязаны сводиться к тем же основам, что и слова комментария.
-
-    Иначе словарь молча не совпадает ни с чем: «нагаре» из комментария даёт
-    основу `нагар`, и если в словаре лежит форма, которая стеммером не берётся,
-    колонка не разрешается никогда, а быстрый путь тихо не работает.
-    """
-    for слово in DIRT_WORDS + BREAKAGE_WORDS:
-        assert stems(слово), f"слово словаря «{слово}» стеммер отбрасывает целиком"
-
-
-def test_словари_колонок_не_пересекаются(domain_env: Path) -> None:
-    общие = {s for w in DIRT_WORDS for s in stems(w)} & {
-        s for w in BREAKAGE_WORDS for s in stems(w)
-    }
-
-    assert not общие, f"слово в обоих словарях делает выбор колонки случайным: {общие}"
+# Тесты «словарь колонок разбирается тем же стеммером» и «словари колонок не
+# пересекаются» переехали в `tests/test_recognize_language.py` (T192): слова
+# колонок стали данными и объявляются на каждый язык, поэтому проверять их
+# по-русски мало — там они проверяются по всем объявленным языкам сразу.
 
 
 def test_отрицание_рядом_снимает_слово_колонки(domain_env: Path) -> None:

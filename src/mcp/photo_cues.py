@@ -34,7 +34,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..recognize.cues import CUES_FILE, THRESHOLDS_HEADING, load_cues
+from ..recognize.cues import CUES_FILE, THRESHOLDS_HEADINGS, load_cues
 from .checklist import Outcome, Store, _ensure, _version_dir, apply_edit
 from .errors import ChecklistError
 
@@ -82,7 +82,7 @@ def _scan(text: str) -> tuple[list[_Row], dict[str, tuple[str, ...]]]:
     for index, line in enumerate(text.splitlines()):
         if line.startswith("## "):
             section = line[3:].strip()
-            in_thresholds = line.strip().startswith(THRESHOLDS_HEADING)
+            in_thresholds = line.strip().startswith(THRESHOLDS_HEADINGS)
             continue
         if in_thresholds or not line.lstrip().startswith(_PIPE):
             continue
