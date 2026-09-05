@@ -120,7 +120,7 @@ where i.tenant_code = %(tenant)s and i.id = %(id)s
 _FINDINGS_OF_INSPECTION_SQL = """
 select
     f.id, f.inspection_id, u.name, i.inspection_date, f.n, f.code, f.level,
-    f.zone, f.zone_unusual, f.source, i.speech_lang,
+    f.zone, f.zone_unusual, f.source, f.words, i.speech_lang,
     f.suggested_code, f.suggested_level, f.suggested_zone, f.suggested_confidence,
     (select t.text from translations t
       where t.entity_type = 'finding' and t.entity_id = f.id
@@ -140,7 +140,7 @@ order by f.n
 _FINDINGS_BY_UNIT_SQL = """
 select
     f.id, f.inspection_id, u.name, i.inspection_date, f.n, f.code, f.level,
-    f.zone, f.zone_unusual, f.source, i.speech_lang,
+    f.zone, f.zone_unusual, f.source, f.words, i.speech_lang,
     f.suggested_code, f.suggested_level, f.suggested_zone, f.suggested_confidence,
     (select t.text from translations t
       where t.entity_type = 'finding' and t.entity_id = f.id
@@ -192,7 +192,9 @@ def _row_to_finding(row: Any) -> FindingRow:
     """Строка курсора → `FindingRow`. Порядок колонок — как в запросах выше.
 
     `source` склеивает NULL и пустую строку: и то, и другое означает «источник
-    не записан», и двух разных видов у этого не бывает. Формулировка и
+    не записан», и двух разных видов у этого не бывает. Так же склеены и слова
+    аудитора (T185): «слов не записано» тоже не бывает двух видов, а «их не было
+    вовсе» от «запись сделана до T183» отличает как раз `source`. Формулировка и
     комментарий, наоборот, остаются `None`, когда строки перевода нет вовсе:
     подменённые пустой строкой, они стали бы неотличимы от «аудитор ничего не
     написал».
@@ -208,18 +210,23 @@ def _row_to_finding(row: Any) -> FindingRow:
         zone=str(row[7]),
         zone_unusual=bool(row[8]),
         source=str(row[9] or ""),
-        lang=str(row[10]),
+        # Сырые слова аудитора (T185) отдаются дословно — обрезка здесь меняла
+        # бы показание о моменте, по которому управляющая компания сверяет
+        # промах модели. На языке `lang` ниже: своего языка у них нет, они
+        # сказаны на языке речи той проверки, в которой записаны.
+        words=str(row[10] or ""),
+        lang=str(row[11]),
         # Предложение модели (T164). `None` во всех четырёх — модель не
         # предлагала ничего; пустая строка сюда не доезжает, её склеивает с
         # `None` ещё слив. Уверенность приходит из `numeric` десятичной дробью
         # (`Decimal`), и `float` здесь — не округление, а приведение к тому же
         # типу, которым её отдал распознаватель.
-        suggested_code=row[11],
-        suggested_level=row[12],
-        suggested_zone=row[13],
-        suggested_confidence=None if row[14] is None else float(row[14]),
-        text=row[15],
-        comment=row[16],
+        suggested_code=row[12],
+        suggested_level=row[13],
+        suggested_zone=row[14],
+        suggested_confidence=None if row[15] is None else float(row[15]),
+        text=row[16],
+        comment=row[17],
     )
 
 
