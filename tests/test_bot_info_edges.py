@@ -95,8 +95,8 @@ async def test_поля_без_пункта_в_методике_не_спраш�
     задают, — тот же урок, что D068 и D075 про необязательные файлы.
     """
     assert "INF02" not in [f.code for f in FIELDS], "вид проверки спрашивается второй раз (D070)"
-    assert question(InfoField("INF99", "text"), "ru") is None
-    спрошены = [field.code for field, _ in fields_to_ask("ru")]
+    assert question(InfoField("INF99", "text"), "ru", chat_id=CHAT_ID) is None
+    спрошены = [field.code for field, _ in fields_to_ask("ru", chat_id=CHAT_ID)]
     assert спрошены == [f.code for f in FIELDS]
 
 

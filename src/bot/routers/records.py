@@ -111,7 +111,11 @@ async def show_records(message: Message, chat_id: int, lang: str) -> None:
 
     if inspection.findings:
         await message.answer(
-            t("finish.records", lang, lines=view.record_lines(inspection.findings, lang))
+            t(
+                "finish.records",
+                lang,
+                lines=view.record_lines(inspection.findings, lang, chat_id=chat_id),
+            )
         )
     else:
         await message.answer(t("finish.empty", lang))

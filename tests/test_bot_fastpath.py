@@ -177,7 +177,7 @@ async def test_показ_записи_называет_пункт_словам�
             n=1,
             code="CLN05",
             level="D1",
-            zone=zone_title("hot_kitchen", "ru"),
+            zone=zone_title("hot_kitchen", "ru", chat_id=CHAT_ID),
         ),
         title=question,
         note=CLEAR,

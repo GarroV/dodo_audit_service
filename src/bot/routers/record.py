@@ -202,7 +202,9 @@ async def _show_candidates(
     остальных: нажатие даёт второй отказ подряд по поводу, о котором бот только
     что сказал сам.
     """
-    lines = view.candidate_lines(proposal.candidates, lang, refusal.occupied_pairs(message.chat.id))
+    lines = view.candidate_lines(
+        proposal.candidates, lang, refusal.occupied_pairs(chat_id), chat_id=chat_id
+    )
     # Под правкой (T204) спрашивается другое: не «что записать», а «чем
     # поправить запись №N». Число кадров там ни при чём — кадры остались у
     # записи, и «Кадров: 0» читалось бы как потеря материала.
@@ -242,8 +244,8 @@ async def _show_manual_page(
     """Страница ручного перечня: 70+ пунктов зоны кнопками разом не показать.
 
     Занятые пары «пункт + зона» помечаются здесь же (T173), но не на кнопке:
-    под формулировку там отведено 34 знака, и пометка съела бы ровно то, ради
-    чего аудитор перечень открыл. Она уходит в текст над клавиатурой — у
+    там уже стоят код и формулировка во всю ширину ряда (T217), и пометка съела
+    бы ровно то, ради чего аудитор перечень открыл. Она уходит в текст над клавиатурой — у
     ручного перечня он до сих пор нёс только номер страницы, тогда как у
     перечня модели там стоит сам список.
 
@@ -295,7 +297,7 @@ async def _ask_zone(
     lang: str,
 ) -> None:
     """Зону взять неоткуда — назвать её кнопкой (D047: обычно она из слов)."""
-    zones = [(zone.code, zone.title(lang)) for zone in domain.list_zones()]
+    zones = [(zone.code, zone.title(lang)) for zone in domain.list_zones(chat_id=chat_id)]
     await _hand(
         message,
         chat_id,
@@ -469,7 +471,7 @@ async def analyze(
     # Слова текущего комментария — первыми, память — только если о зоне в них
     # ничего не сказано (T124). Обратный порядок и был дефектом: «в зале лужа»
     # ложилось в горячий цех, потому что там была прошлая запись.
-    spoken = zone_from_words(note)
+    spoken = zone_from_words(note, chat_id=chat_id)
     zone_hint = spoken or sidecar.read(chat_id).zone
     base = Proposal(
         file_ids=file_ids,
@@ -728,7 +730,8 @@ async def _save(
             view.corrected_block(
                 shown,
                 lang,
-                title=refusal.item_title(shown.code, lang),
+                chat_id=chat_id,
+                title=refusal.item_title(shown.code, lang, chat_id=chat_id),
                 cue="" if auto is None else auto.cue,
                 zone_guessed=zone_guessed,
             ),
@@ -743,7 +746,8 @@ async def _save(
             view.confirmed_block(
                 shown,
                 lang,
-                title=refusal.item_title(shown.code, lang),
+                chat_id=chat_id,
+                title=refusal.item_title(shown.code, lang, chat_id=chat_id),
                 zone_guessed=zone_guessed,
             ),
             reply_markup=edit_keyboard(finding.n, lang),
@@ -751,7 +755,12 @@ async def _save(
     else:
         sent = await message.answer(
             view.fixed_block(
-                shown, lang, title=auto.title, cue=auto.cue, zone_guessed=zone_guessed
+                shown,
+                lang,
+                title=auto.title,
+                cue=auto.cue,
+                chat_id=chat_id,
+                zone_guessed=zone_guessed,
             ),
             reply_markup=fixed_keyboard(finding.n, lang),
         )

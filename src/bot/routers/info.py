@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from functools import partial
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -102,7 +103,7 @@ async def start_info(message: Message, state: FSMContext, chat_id: int, lang: st
     if read_inspection(chat_id) is None:
         await message.answer(t("material.no_inspection", lang))
         return
-    asked = await asyncio.to_thread(fields_to_ask, lang)
+    asked = await asyncio.to_thread(partial(fields_to_ask, lang, chat_id=chat_id))
     if not asked:
         # Методика без информационных пунктов — законная методика: их состав
         # задаёт управляющая компания. Тогда шага просто нет, и отчёт собирается

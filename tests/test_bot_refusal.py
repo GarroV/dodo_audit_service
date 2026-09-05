@@ -98,7 +98,7 @@ async def test_отказ_называет_пункт_и_зону_по_чело�
         "ru",
         n=1,
         item=domain.get_item("CLN05").question("ru"),
-        zone=zone_title("hot_kitchen", "ru"),
+        zone=zone_title("hot_kitchen", "ru", chat_id=CHAT_ID),
     )
     assert "hot_kitchen" not in отказ, "зона названа кодом, а не по-человечески"
 
@@ -125,7 +125,7 @@ async def test_отказ_говорит_на_языке_интерфейса(do
         "en",
         n=1,
         item=domain.get_item("CLN05").question("en"),
-        zone=zone_title("hot_kitchen", "en"),
+        zone=zone_title("hot_kitchen", "en", chat_id=CHAT_ID),
     )
 
 
@@ -172,7 +172,7 @@ async def test_правка_в_занятую_зону_отвечает_по_ч�
         "ru",
         n=1,
         item=domain.get_item("CLN05").question("ru"),
-        zone=zone_title("hot_kitchen", "ru"),
+        zone=zone_title("hot_kitchen", "ru", chat_id=CHAT_ID),
     )
     assert "audit.py" not in session.last_text
     assert кнопки_под(session, "Не поправил") == [
@@ -196,7 +196,7 @@ async def test_прочий_отказ_правки_тоже_не_показыв
         "ru",
         n=1,
         item=domain.get_item("CLN05").question("ru"),
-        zone=zone_title("hot_kitchen", "ru"),
+        zone=zone_title("hot_kitchen", "ru", chat_id=CHAT_ID),
     )
     проверка = domain.get_state(CHAT_ID)
     assert проверка is not None

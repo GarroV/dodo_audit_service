@@ -52,16 +52,32 @@ def percent(value: float) -> str:
     return f"{value:.1f}"
 
 
-def zone_titles(lang: str) -> dict[str, str]:
-    """Код зоны → название на нужном языке. Коды связывают, названия показывают."""
-    return {zone.code: zone.title(lang) for zone in domain.list_zones()}
+def zone_titles(lang: str, *, chat_id: int) -> dict[str, str]:
+    """Код зоны → название на нужном языке. Коды связывают, названия показывают.
+
+    `chat_id` обязателен и умолчания не имеет (T225). Справочник зон читается из
+    ИЗДАНИЯ той проверки, по которому её начали (T169): переиздание методики
+    посреди выезда переставляет действующий каталог, и без чата бот показывал бы
+    аудитору зоны, которых в его издании нет. Умолчание здесь и было бы тем самым
+    молчаливым откатом на действующую методику, ради снятия которого всё
+    делается, поэтому его нет: забыть чат не даст проверка типов.
+    """
+    return {zone.code: zone.title(lang) for zone in domain.list_zones(chat_id=chat_id)}
 
 
-def zone_title(code: str, lang: str, titles: Mapping[str, str] | None = None) -> str:
-    """Название зоны. Незнакомый код показываем как есть — врать про зону нельзя."""
+def zone_title(
+    code: str, lang: str, titles: Mapping[str, str] | None = None, *, chat_id: int
+) -> str:
+    """Название зоны. Незнакомый код показываем как есть — врать про зону нельзя.
+
+    `titles` — готовый справочник, когда названий нужно много: список записей
+    читал бы методику на каждую строку. `chat_id` требуется и с ним: справочник
+    собирают тем же ключом, и разрешить его опустить значило бы разрешить собрать
+    справочник по чужому изданию.
+    """
     if not code or code == UNKNOWN_ZONE:
         return t("record.zone_unknown", lang)
-    known = zone_titles(lang) if titles is None else titles
+    known = zone_titles(lang, chat_id=chat_id) if titles is None else titles
     return known.get(code, code)
 
 
@@ -69,6 +85,8 @@ def candidate_lines(
     candidates: Sequence[Candidate],
     lang: str,
     taken: Mapping[tuple[str, str], int] | None = None,
+    *,
+    chat_id: int,
 ) -> str:
     """Пронумерованный список предложений: пункт, класс, зона, формулировка.
 
@@ -85,7 +103,7 @@ def candidate_lines(
     Пара, а не код: тот же пункт в другой зоне — законная и частая запись, и
     пометить её значило бы отговаривать аудитора от верного действия.
     """
-    titles = zone_titles(lang)
+    titles = zone_titles(lang, chat_id=chat_id)
     occupied = taken or {}
     lines = []
     for index, candidate in enumerate(candidates, start=1):
@@ -96,7 +114,7 @@ def candidate_lines(
             index=index,
             code=candidate.code,
             level=candidate.level,
-            zone=zone_title(candidate.zone, lang, titles),
+            zone=zone_title(candidate.zone, lang, titles, chat_id=chat_id),
             wording=candidate.wording,
         )
         n = occupied.get((candidate.code, candidate.zone))
@@ -151,7 +169,7 @@ def zone_unusual_mark(finding: domain.Finding, lang: str) -> str:
     return t("record.zone_unusual", lang) if finding.zone_unusual else ""
 
 
-def confirm_line(finding: domain.Finding, lang: str) -> str:
+def confirm_line(finding: domain.Finding, lang: str, *, chat_id: int) -> str:
     """Подтверждение фиксации — одна строка (T055).
 
     Пункт, класс, зона. Ни таблицы после каждого кадра, ни пересказа
@@ -170,13 +188,13 @@ def confirm_line(finding: domain.Finding, lang: str) -> str:
         n=finding.n,
         code=finding.code,
         level=finding.level,
-        zone=zone_title(finding.zone, lang),
+        zone=zone_title(finding.zone, lang, chat_id=chat_id),
     )
     return line + zone_unusual_mark(finding, lang)
 
 
 def confirmed_block(
-    finding: domain.Finding, lang: str, *, title: str, zone_guessed: bool = False
+    finding: domain.Finding, lang: str, *, title: str, chat_id: int, zone_guessed: bool = False
 ) -> str:
     """Запись, которую аудитор подтвердил кнопкой (T055, расширен T135).
 
@@ -203,7 +221,7 @@ def confirmed_block(
     на кнопке кандидата, — но вычет уезжает партнёру в ту же зону, и пометка,
     которая появляется через раз, перестаёт что-либо значить.
     """
-    line = confirm_line(finding, lang)
+    line = confirm_line(finding, lang, chat_id=chat_id)
     guess = t("record.fixed_zone_guess", lang) if zone_guessed else ""
     note = shorten(finding.text, FAST_NOTE_LIMIT)
     if note.strip() == title.strip():
@@ -217,6 +235,7 @@ def fixed_block(
     *,
     title: str,
     cue: str,
+    chat_id: int,
     zone_guessed: bool = False,
 ) -> str:
     """Запись, легшая по словам сразу, без подтверждения (T121, D064).
@@ -240,7 +259,7 @@ def fixed_block(
     return t(
         "record.fixed",
         lang,
-        line=confirm_line(finding, lang),
+        line=confirm_line(finding, lang, chat_id=chat_id),
         guess=t("record.fixed_zone_guess", lang) if zone_guessed else "",
         title=title,
         note=shorten(finding.text, FAST_NOTE_LIMIT),
@@ -253,6 +272,7 @@ def corrected_block(
     lang: str,
     *,
     title: str,
+    chat_id: int,
     cue: str = "",
     zone_guessed: bool = False,
 ) -> str:
@@ -275,7 +295,7 @@ def corrected_block(
         "record.corrected",
         lang,
         n=finding.n,
-        line=confirm_line(finding, lang),
+        line=confirm_line(finding, lang, chat_id=chat_id),
         guess=t("record.fixed_zone_guess", lang) if zone_guessed else "",
         title=title,
         note=shorten(finding.text, FAST_NOTE_LIMIT),
@@ -283,7 +303,7 @@ def corrected_block(
     )
 
 
-def changed_line(finding: domain.Finding, lang: str) -> str:
+def changed_line(finding: domain.Finding, lang: str, *, chat_id: int) -> str:
     """Та же строка после правки (T056).
 
     Процент пересчитывается движком, как и раньше, но аудитору по ходу обхода
@@ -301,7 +321,7 @@ def changed_line(finding: domain.Finding, lang: str) -> str:
         n=finding.n,
         code=finding.code,
         level=finding.level,
-        zone=zone_title(finding.zone, lang),
+        zone=zone_title(finding.zone, lang, chat_id=chat_id),
     )
     return line + zone_unusual_mark(finding, lang)
 
@@ -315,7 +335,7 @@ def counts_line(counts: Mapping[str, int]) -> str:
     return ", ".join(f"{level} — {count}" for level, count in sorted(counts.items()) if count)
 
 
-def record_lines(findings: Sequence[domain.Finding], lang: str) -> str:
+def record_lines(findings: Sequence[domain.Finding], lang: str, *, chat_id: int) -> str:
     """Список зафиксированного для предвычитки отчёта (T058).
 
     Записи, которые бот распознал по кадру сам, помечены (решение D044): за
@@ -330,7 +350,7 @@ def record_lines(findings: Sequence[domain.Finding], lang: str) -> str:
     момент, когда ошибку в зоне ещё можно поймать: дальше отчёт уходит
     партнёру, а в нём пометки нет.
     """
-    titles = zone_titles(lang)
+    titles = zone_titles(lang, chat_id=chat_id)
     lines = []
     for finding in findings:
         mark = t("finish.source_photo", lang) if finding.source == domain.SOURCE_PHOTO else ""
@@ -341,7 +361,7 @@ def record_lines(findings: Sequence[domain.Finding], lang: str) -> str:
                 n=finding.n,
                 code=finding.code,
                 level=finding.level,
-                zone=zone_title(finding.zone, lang, titles),
+                zone=zone_title(finding.zone, lang, titles, chat_id=chat_id),
                 source=mark,
                 text=shorten(finding.text),
                 unusual=zone_unusual_mark(finding, lang),

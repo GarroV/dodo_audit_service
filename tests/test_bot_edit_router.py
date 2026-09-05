@@ -289,7 +289,7 @@ async def test_engine_refusal_reaches_the_auditor_in_his_own_words(domain_env: o
         "ru",
         n=1,
         item=domain.get_item("CLN05").question("ru"),
-        zone=zone_title("hot_kitchen", "ru"),
+        zone=zone_title("hot_kitchen", "ru", chat_id=CHAT_ID),
     )
     inspection = domain.get_state(CHAT_ID)
     assert inspection is not None

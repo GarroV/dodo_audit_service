@@ -43,10 +43,16 @@ class Refusal:
     clash: domain.Finding | None = None
 
 
-def item_title(code: str, lang: str) -> str:
-    """Вопрос чек-листа словами. Незнакомый код показываем кодом — врать нельзя."""
+def item_title(code: str, lang: str, *, chat_id: int) -> str:
+    """Вопрос чек-листа словами. Незнакомый код показываем кодом — врать нельзя.
+
+    `chat_id` обязателен (T225): пункт берётся из издания ТОЙ проверки (T169), а
+    не из действующей методики. После переиздания посреди выезда действующая
+    знает пункт под другой формулировкой или не знает вовсе — и отказ назвал бы
+    аудитору чужой текст либо голый код.
+    """
     try:
-        return domain.get_item(code).question(lang)
+        return domain.get_item(code, chat_id=chat_id).question(lang)
     except DomainError:
         logger.warning("пункт %s не нашёлся в методике при разборе отказа", code)
         return code
@@ -114,8 +120,8 @@ def _refusal(
     logger.warning("движок отказал в чате %s (%s в зоне %s): %s", chat_id, code, zone, exc)
     duplicate_key, failed_key = keys
     clash = occupied_by(chat_id, code, zone, skip=skip)
-    item = item_title(code, lang)
-    place = zone_title(zone, lang)
+    item = item_title(code, lang, chat_id=chat_id)
+    place = zone_title(zone, lang, chat_id=chat_id)
     if clash is not None:
         return Refusal(t(duplicate_key, lang, n=clash.n, item=item, zone=place), clash)
     if n is None:

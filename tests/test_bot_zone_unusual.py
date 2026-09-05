@@ -126,9 +126,9 @@ def test_пометка_собирается_одним_правилом_на_в
     запись = edit_finding(CHAT_ID, 1, zone=ЧУЖАЯ_ЗОНА)
     assert запись.zone_unusual is True, "движок не пометил запись — проверять нечего"
 
-    assert ПОМЕТКА in view.confirm_line(запись, "ru")
-    assert ПОМЕТКА in view.changed_line(запись, "ru")
-    assert ПОМЕТКА in view.record_lines([запись], "ru")
+    assert ПОМЕТКА in view.confirm_line(запись, "ru", chat_id=CHAT_ID)
+    assert ПОМЕТКА in view.changed_line(запись, "ru", chat_id=CHAT_ID)
+    assert ПОМЕТКА in view.record_lines([запись], "ru", chat_id=CHAT_ID)
 
 
 def test_пометка_переводится_вместе_с_остальным_интерфейсом(domain_env: Path) -> None:
@@ -137,5 +137,5 @@ def test_пометка_переводится_вместе_с_остальны�
     запись = edit_finding(CHAT_ID, 1, zone=ЧУЖАЯ_ЗОНА)
     английская = t("record.zone_unusual", "en")
 
-    assert английская in view.changed_line(запись, "en")
-    assert английская in view.record_lines([запись], "en")
+    assert английская in view.changed_line(запись, "en", chat_id=CHAT_ID)
+    assert английская in view.record_lines([запись], "en", chat_id=CHAT_ID)

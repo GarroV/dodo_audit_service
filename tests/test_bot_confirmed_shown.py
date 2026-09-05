@@ -177,7 +177,7 @@ async def test_показ_подтверждённой_и_автоматичес
         n=1,
         code="CLN05",
         level="D1",
-        zone=zone_title("hot_kitchen", "ru"),
+        zone=zone_title("hot_kitchen", "ru", chat_id=CHAT_ID),
     )
     assert line in confirmed
     assert get_item("CLN05").question("ru") in confirmed
