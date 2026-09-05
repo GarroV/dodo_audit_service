@@ -5,6 +5,21 @@
 одинаковый отпечаток, а уникальный индекс на нём в `inspections` — техническая
 гарантия того, что повторный `push_inspection` не создаёт вторую строку (DoD
 блока), даже если локальная отметка в `inspection.json` потерялась.
+
+**Что входит в отпечаток, а что нет.** Входит содержимое документа, ушедшего
+партнёру: точка, вид и дата проверки, находки, оценка движка. Не входит то,
+что этот документ сопровождает, но в нём не печатается, — сырые слова аудитора
+(T185), предложение модели (T164) и источник записи, «со слов» или «по кадру»
+(T193, задача #158). Все три обстоятельства фиксации, а не содержимое, и все
+три появляются или уточняются отдельно от него: попади они в отпечаток, одна и
+та же для читателя проверка дала бы две строки в истории точки.
+
+**Рецепт отпечатка — это идентичность строк, УЖЕ лежащих в базе.** Меняя его,
+пересчитать нельзя: слитая вчера проверка перестала бы находиться, повторный
+слив вставил бы её второй раз, а разделить эти две строки обратно нечем —
+миграция `0004` запрещает запечатанную проверку и править, и удалять. Поэтому
+прежние рецепты отсюда не выбрасываются (`previous_fingerprints`): слив ищет
+проверку сперва по ним и только не найдя — пишет по текущему.
 """
 
 from __future__ import annotations
@@ -15,8 +30,8 @@ import json
 from src.domain.models import Finding, Inspection, Score
 
 
-def _finding_payload(finding: Finding) -> dict[str, object]:
-    return {
+def _finding_payload(finding: Finding, *, with_source: bool) -> dict[str, object]:
+    payload: dict[str, object] = {
         "n": finding.n,
         "code": finding.code,
         "level": finding.level,
@@ -25,20 +40,19 @@ def _finding_payload(finding: Finding) -> dict[str, object]:
         "comment": finding.comment,
         "zone_unusual": finding.zone_unusual,
         "photos": list(finding.photos),
-        # Источник записи домен отдаёт с T065; читается через `getattr`,
-        # чтобы отпечаток пережил чтение проверок, созданных до неё.
-        #
-        # Оговорка: по доводу, которым слова и предложение модели из отпечатка
-        # исключены, источнику здесь тоже не место — это обстоятельство
-        # фиксации, а не содержимое документа. Убрать его прямым удалением
-        # нельзя: сменит отпечаток у всех проверок разом (задача #158).
-        "source": getattr(finding, "source", None),
     }
+    if with_source:
+        # Только рецепт до T193. `getattr` — по той же причине, по какой он
+        # стоял здесь тогда: прежний отпечаток должен пересчитываться и для
+        # проверок, созданных до появления источника (T065).
+        payload["source"] = getattr(finding, "source", None)
+    return payload
 
 
-def compute_fingerprint(inspection: Inspection, score: Score, *, tenant_code: str) -> str:
-    """Отпечаток проверки: чата, точки, находок и итоговой оценки движка."""
-    payload = {
+def _payload(
+    inspection: Inspection, score: Score, *, tenant_code: str, with_source: bool
+) -> dict[str, object]:
+    return {
         "tenant": tenant_code,
         "chat_id": inspection.chat_id,
         "unit": inspection.unit,
@@ -46,9 +60,38 @@ def compute_fingerprint(inspection: Inspection, score: Score, *, tenant_code: st
         "date": inspection.date,
         "report_lang": inspection.report_lang,
         "checklist_version": inspection.checklist_version,
-        "findings": [_finding_payload(f) for f in sorted(inspection.findings, key=lambda f: f.n)],
+        "findings": [
+            _finding_payload(f, with_source=with_source)
+            for f in sorted(inspection.findings, key=lambda f: f.n)
+        ],
         "pct": score.pct,
         "grade": score.grade,
     }
+
+
+def _digest(payload: dict[str, object]) -> str:
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def compute_fingerprint(inspection: Inspection, score: Score, *, tenant_code: str) -> str:
+    """Отпечаток проверки: чата, точки, находок и итоговой оценки движка."""
+    return _digest(_payload(inspection, score, tenant_code=tenant_code, with_source=False))
+
+
+def previous_fingerprints(
+    inspection: Inspection, score: Score, *, tenant_code: str
+) -> tuple[str, ...]:
+    """Та же проверка по ВЫШЕДШИМ ИЗ УПОТРЕБЛЕНИЯ рецептам, новейший первым.
+
+    Нужны сливу и только ему: проверка, лежащая в базе под прежним отпечатком,
+    обязана найтись, а не лечь второй строкой (`push._push`). Запись уходит
+    отсюда не тогда, когда рецепт надоел, а тогда, когда известно, что строк
+    того рецепта не осталось ни в одной базе, — а такое знание есть у площадки,
+    не у кода.
+
+    Рецепты:
+
+    * **до T193** — тот же набор полей плюс источник записи у каждой находки.
+    """
+    return (_digest(_payload(inspection, score, tenant_code=tenant_code, with_source=True)),)
