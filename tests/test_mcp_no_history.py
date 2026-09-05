@@ -16,15 +16,22 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
+from mcp_checklist_harness import build_methodology
 from test_mcp_no_paths import ГОДНЫЕ
 
-from src.mcp.catalogue import KIND_INSPECTIONS, TOOLS
+from src.mcp.catalogue import TOOLS
+from src.mcp.checklist import Store
 from src.mcp.rpc import handle
 
-ЧИТАЮЩИЕ = [spec for spec in TOOLS if spec.kind == KIND_INSPECTIONS]
+#: Перебор идёт по объявленному признаку «ходит в базу», а не по виду
+#: инструмента. Инструмент методики, который тоже читает историю
+#: (`photo_cue_suggestions`, T165), по виду сюда не попадал бы — и заслон
+#: выключился бы для него молча, без единого красного теста.
+ЧИТАЮЩИЕ = [spec for spec in TOOLS if spec.history]
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +39,14 @@ def без_базы(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
 
 
-def _вызов(имя: str, аргументы: dict[str, Any]) -> dict[str, Any]:
+@pytest.fixture
+def хранилище(tmp_path: Path) -> Store:
+    """Хранилище версий методики: без него инструмент методики получил бы отказ
+    ДОСТУПА, и перебор проверял бы не то, ради чего он написан."""
+    return Store(root=tmp_path / "хранилище", live=build_methodology(tmp_path / "живая"))
+
+
+def _вызов(имя: str, аргументы: dict[str, Any], хранилище: Store) -> dict[str, Any]:
     ответ = handle(
         {
             "jsonrpc": "2.0",
@@ -41,35 +55,38 @@ def _вызов(имя: str, аргументы: dict[str, Any]) -> dict[str, An
             "params": {"name": имя, "arguments": аргументы},
         },
         tenant="укашка",
+        checklist=хранилище,
     )
     assert ответ is not None
     return ответ["result"]
 
 
-def test_каждый_читающий_инструмент_отвечает_отказом_а_не_пустой_выдачей() -> None:
+def test_каждый_читающий_инструмент_отвечает_отказом_а_не_пустой_выдачей(
+    хранилище: Store,
+) -> None:
     """Главное утверждение файла: инструмент, добавленный завтра, попадёт сюда
     сам — перебор идёт по каталогу, а не по списку имён."""
     assert ЧИТАЮЩИЕ, "читающие инструменты обязаны быть в каталоге"
     for spec in ЧИТАЮЩИЕ:
-        результат = _вызов(spec.name, ГОДНЫЕ[spec.name])
+        результат = _вызов(spec.name, ГОДНЫЕ[spec.name], хранилище)
         assert результат.get("isError") is True, spec.name
         текст = результат["content"][0]["text"]
         assert "not found" not in текст, spec.name
         assert "no inspection" not in текст, spec.name
 
 
-def test_отказ_называет_переменную_и_говорит_что_настройка_законная() -> None:
+def test_отказ_называет_переменную_и_говорит_что_настройка_законная(хранилище: Store) -> None:
     """Человеку надо понять, что чинить нечего: базу тут не поднимали."""
     for spec in ЧИТАЮЩИЕ:
-        текст = _вызов(spec.name, ГОДНЫЕ[spec.name])["content"][0]["text"]
+        текст = _вызов(spec.name, ГОДНЫЕ[spec.name], хранилище)["content"][0]["text"]
         assert "DATABASE_URL" in текст, spec.name
         assert "история" in текст.lower(), spec.name
 
 
-def test_отказ_не_выглядит_поломкой_продукта() -> None:
+def test_отказ_не_выглядит_поломкой_продукта(хранилище: Store) -> None:
     """Прежний текст был «Не удалось выполнить проверки (ConfigError)»:
     он одинаков и для не поднятой базы, и для упавшей, — а это разные события,
     и человек по нему шёл искать поломку, которой нет."""
     for spec in ЧИТАЮЩИЕ:
-        текст = _вызов(spec.name, ГОДНЫЕ[spec.name])["content"][0]["text"]
+        текст = _вызов(spec.name, ГОДНЫЕ[spec.name], хранилище)["content"][0]["text"]
         assert "ConfigError" not in текст, spec.name

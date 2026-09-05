@@ -95,6 +95,7 @@ from src.mcp.rpc import handle
         "version_name": "imf",
     },
     "remove_photo_cue": {"phrase": "Стена в подтёках", "version_name": "imf"},
+    "photo_cue_suggestions": {},
 }
 
 #: Негодные аргументы: каждый доводит до СВОЕГО отказа, и вместе они проходят
@@ -128,6 +129,10 @@ from src.mcp.rpc import handle
     "edit_photo_cue": {"phrase": "Стена в потёках", "codes": ["ZZZ99"]},
     "remove_photo_cue": {"phrase": "Потолок"},
     "publish_checklist_version": {"version": ЗАГЛУШКА_ВЕРСИИ},
+    # Порог назван процентами вместо доли: отказ приходит до базы и до
+    # движка, и по тексту видно, что шкала не та, — а не пустая выдача
+    # «промахов не найдено», которая читается как измеренное качество.
+    "photo_cue_suggestions": {"min_confidence": 70},
 }
 
 НАБОРЫ = {"годные": ГОДНЫЕ, "негодные": НЕГОДНЫЕ}
