@@ -22,13 +22,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
 import pytest
 from mcp_checklist_harness import build_methodology
 
-from src.db.models import FindingRow, InspectionDetail, InspectionRow
+from src.db.models import FindingRow, InfoRow, InspectionDetail, InspectionRow
 from src.mcp import letters
 from src.mcp.errors import ToolError
 
@@ -242,8 +243,16 @@ def test_недостающая_шапка_названа_и_письмо_не_�
     хранилище: letters.Papers,
 ) -> None:
     """Слой чтения не отдаёт аудитора, город, партнёра и контакт: движок
-    подписывает такое письмо прочерком и выходит с нулевым кодом."""
-    ответ = letters.build(_проверка(), lang=None, papers=хранилище)
+    подписывает такое письмо прочерком и выходит с нулевым кодом.
+
+    Информационная часть у проверки записана (T200): без неё в перечень попал
+    бы ещё и срок плана действий, и этот тест про шапку проверял бы заодно
+    чужое — а про сам срок спрашивает `tests/test_mcp_letters_info.py`."""
+    ответ = letters.build(
+        replace(_проверка(), info=(InfoRow(code="INF07", text="30.09.2026"),)),
+        lang=None,
+        papers=хранилище,
+    )
 
     не_восстановлено = ответ["not_restored"]
     assert isinstance(не_восстановлено, list)
@@ -272,6 +281,10 @@ def test_шапка_подхватывается_сама_как_только_с
         counts=проверка.counts,
         by_zone=проверка.by_zone,
         findings=проверка.findings,
+        # Информационная часть записана: полнота письма с T200 складывается из
+        # шапки И ответов аудитора, и без неё «стало полным само» проверялось бы
+        # на письме, которому всё ещё не хватает срока плана действий.
+        info=(InfoRow(code="INF07", text="30.09.2026"),),
     )
     ответ = letters.build(полная, lang=None, papers=хранилище)
 

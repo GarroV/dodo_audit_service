@@ -34,7 +34,7 @@ import psycopg
 
 from .config import check_environment
 from .errors import DbError
-from .models import FindingRow, InspectionDetail, InspectionRow
+from .models import FindingRow, InfoRow, InspectionDetail, InspectionRow
 from .units import normalize_unit_name
 
 #: Сколько строк отдаётся, если предел не назвали. Сотня — это и есть
@@ -154,6 +154,19 @@ join units u on u.tenant_code = i.tenant_code and u.id = i.unit_id
 where i.tenant_code = %(tenant)s and u.name_normalized = %(unit)s
 order by i.inspection_date desc, i.pushed_at desc, f.n
 limit %(limit)s
+"""
+
+# Информационная часть проверки (T200) — в ЗАПИСАННОМ порядке, а не по коду.
+# Движок печатает поля в том порядке, в каком их записали, и это порядок
+# разделов документа партнёру: `order by code` переставил бы их при первой же
+# правке порядка вопросов, а заметить это можно было бы только сличением двух
+# бумаг. Арендатор здесь не проверяется по той же причине, что у находок: поля
+# берутся у проверки, которую `get_inspection` уже сверил с арендатором.
+_INFO_OF_INSPECTION_SQL = """
+select code, text
+from inspection_info
+where inspection_id = %(id)s
+order by position
 """
 
 
@@ -389,12 +402,18 @@ def get_inspection(inspection_id: str, *, tenant: str) -> InspectionDetail | Non
         # бы с телом документа.
         cur.execute(_FINDINGS_OF_INSPECTION_SQL, {"id": ident})
         findings = cur.fetchall()
+        # Информационная часть — тем же соединением и той же транзакцией, по
+        # той же причине: собранный заново документ обязан быть одним
+        # документом, а не шапкой одной проверки и сроком другой.
+        cur.execute(_INFO_OF_INSPECTION_SQL, {"id": ident})
+        info = cur.fetchall()
     return InspectionDetail(
         inspection=_row_to_inspection(row),
         deductions=float(row[16]),
         counts=dict(row[17]),
         by_zone=dict(row[18]),
         findings=tuple(_row_to_finding(строка) for строка in findings),
+        info=tuple(InfoRow(code=str(строка[0]), text=str(строка[1])) for строка in info),
     )
 
 

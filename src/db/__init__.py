@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .errors import ConfigError, DbError, PushError, StorageError, VersionMismatchError
-from .models import FindingRow, InspectionDetail, InspectionRow
+from .models import FindingRow, InfoRow, InspectionDetail, InspectionRow
 
 # `apply_migrations` (src.db.migrate) и `check_environment` (src.db.config)
 # сюда намеренно не попадают: это операционные функции наката и диагностики
@@ -41,6 +41,7 @@ __all__ = [
     "ConfigError",
     "DbError",
     "FindingRow",
+    "InfoRow",
     "InspectionDetail",
     "InspectionRow",
     "PushError",

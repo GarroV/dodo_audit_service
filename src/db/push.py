@@ -97,6 +97,23 @@ insert into photos (finding_id, inspection_id, telegram_file_id)
 values (%s, %s, %s)
 """
 
+#: Одно поле информационной части (T200). Место в записанном порядке кладётся
+#: явной колонкой: движок печатает поля в том порядке, в каком их записали, и
+#: чтение «order by code» переставило бы разделы документа партнёру.
+_INSERT_INFO_SQL = """
+insert into inspection_info (inspection_id, position, code, text)
+values (%(inspection_id)s, %(position)s, %(code)s, %(text)s)
+returning id
+"""
+
+#: Кадр информационного поля — та же таблица, что и у кадров записей: выгрузка
+#: в хранилище (T094) берёт кадры проверки по `inspection_id` и про владельца
+#: не спрашивает, поэтому кадр поля уезжает в хранилище без единой правки в ней.
+_INSERT_INFO_PHOTO_SQL = """
+insert into photos (info_id, inspection_id, telegram_file_id)
+values (%s, %s, %s)
+"""
+
 _INSERT_TRANSLATION_SQL = """
 insert into translations (entity_type, entity_id, field, lang, text)
 values (%s, %s, %s, %s, %s)
@@ -227,6 +244,50 @@ def _suggestion(finding: object) -> dict[str, object]:
     }
 
 
+def _push_info(cur: psycopg.Cursor[Any], inspection: Inspection, *, inspection_id: Any) -> None:
+    """Информационная часть проверки: ответы аудитора и приложенные к ним кадры (T200).
+
+    Кладётся В ЗАПИСАННОМ ПОРЯДКЕ, и место каждого поля пишется явной колонкой.
+    Порядок здесь — содержимое документа, а не оформление: движок печатает поля
+    в том порядке, в каком их записали, и отсортированное по коду чтение
+    переставило бы разделы отчёта партнёру. Сегодня коды и порядок вопросов
+    совпадают, но совпадение не правило: порядок задаёт бот (`src/bot/info.py`),
+    а состав части — чек-лист управляющей компании.
+
+    Ответ уезжает ДОСЛОВНО. Это не формулировка по правилам фиксации, а слова,
+    которые аудитор адресовал партнёру, и один из них — срок, по которому с
+    партнёра спросят. Подправленный по дороге, он перестаёт быть тем, что было
+    названо, а расхождение видно только когда обе бумаги уже на руках.
+
+    Пустой ответ не пишется вовсе. Пропущенное поле по решению D070 не
+    печатается, и пустая строка в базе выглядела бы ответом, которого не было:
+    в выборке она неотличима от заполненного поля. Домен пустое и не пропустит
+    (`domain.set_info` отказывает), но состояние — обычный JSON на диске, и
+    сюда доезжает то, что в нём лежит; отказать в сливе всей проверки из-за
+    пустого поля значило бы потерять документ целиком ради одной строки.
+    """
+    место = 0
+    for code, answer in inspection.info.items():
+        if not answer.text.strip():
+            continue
+        cur.execute(
+            _INSERT_INFO_SQL,
+            {
+                "inspection_id": inspection_id,
+                "position": место,
+                # Код берётся ключом состояния, а не полем ответа: ключом
+                # движок и адресует поле, и он же уедет в собранный заново
+                # документ.
+                "code": code,
+                "text": answer.text,
+            },
+        )
+        info_id = _require_row(cur)[0]
+        for photo in answer.photos:
+            cur.execute(_INSERT_INFO_PHOTO_SQL, (info_id, inspection_id, photo))
+        место += 1
+
+
 def _push(conn: psycopg.Connection[Any], inspection: Inspection, result: Score) -> str:
     tenant_code = _tenant_code(inspection)
     fingerprint = compute_fingerprint(inspection, result, tenant_code=tenant_code)
@@ -323,6 +384,8 @@ def _push(conn: psycopg.Connection[Any], inspection: Inspection, result: Score) 
 
             for photo in finding.photos:
                 cur.execute(_INSERT_PHOTO_SQL, (finding_id, inspection_id, photo))
+
+        _push_info(cur, inspection, inspection_id=inspection_id)
 
         for lang, label in (("ru", result.label_ru), ("en", result.label_en)):
             if label:
