@@ -77,6 +77,11 @@ FROM_LIVE = "live methodology, which is that exact version"
 #: только поля появятся, письмо станет полным само.
 COVER_FIELDS = ("auditor", "city", "partner", "contact")
 
+#: Чего не хватает письму, когда информационной части у записанной проверки нет
+#: вовсе (T200). Названо отдельным именем, а не строкой по месту: его читают в
+#: ответе инструмента и по нему же спрашивают тесты.
+PLAN_DUE_FIELD = "action plan deadline"
+
 #: Переменная, из которой берётся боевая методика. Имя названо в отказе:
 #: абсолютного пути в ответе быть не должно (T120), а чинить человеку что-то
 #: надо.
@@ -196,6 +201,13 @@ def state_json(detail: InspectionDetail, *, lang: str) -> str:
 
     Формулировка находки уезжает как записана, на языке речи аудитора.
     Переводить её нельзя: это чужие слова в отчёте партнёру.
+
+    **Информационная часть уезжает в том порядке, в каком записана** (T200).
+    Из неё письмо читает срок плана действий — ответ аудитора, который партнёру
+    уже назван; пустой блок здесь означал ровно то, что движок подставит вместо
+    ответа свой расчёт, и партнёр получит от управляющей компании другой срок.
+    Ответ уходит дословно и не переводится: движок печатает его как записан на
+    любом языке письма, а срок вдобавок читается человеком, а не машиной.
     """
     шапка, _ = _cover(detail)
     строка = detail.inspection
@@ -228,7 +240,10 @@ def state_json(detail: InspectionDetail, *, lang: str) -> str:
                 }
                 for находка in detail.findings
             ],
-            "info": {},
+            # Форма поля — пара «текст + кадры», та же, что пишет движок с T172.
+            # Кадры пусты по той же причине, что и у находок: письмо их не
+            # печатает, а лежат они в хранилище за ссылками.
+            "info": {поле.code: {"text": поле.text, "photos": []} for поле in detail.info},
         },
         ensure_ascii=False,
     )
@@ -306,16 +321,65 @@ def _verify(detail: InspectionDetail, data_dir: Path, state: Path) -> None:
         )
 
 
+def _status(шапки_нет: list[str], *, срока_нет: bool) -> str:
+    """Прямой ответ на вопрос «это можно отправлять».
+
+    Про срок сказано отдельным предложением, а не ещё одним именем в общем
+    перечне, и это не оформление. У пустой шапки видно пустое место — движок
+    подписывает письмо прочерком, и получатель ответа сразу понимает, что
+    чинить. Срок же ПОДСТАВЛЯЕТСЯ расчётом: он читается как ответ аудитора,
+    выглядит настоящим и ничем себя не выдаёт. Одно слово в списке рядом с
+    «engine signed the letter with a blank line» описывало бы его неверно.
+    """
+    if not шапки_нет and not срока_нет:
+        return (
+            "letter rebuilt on the methodology version this inspection was scored by; "
+            "the score the engine computed matches the one recorded"
+        )
+    предложения = [
+        "letter rebuilt and its score matches the one recorded, but it is NOT ready to send "
+        "as it stands."
+    ]
+    if шапки_нет:
+        предложения.append(
+            f"The recorded inspection cannot be read back in full, so {', '.join(шапки_нет)} "
+            f"are missing and the engine signed the letter with a blank line; fill them in "
+            f"before sending."
+        )
+    if срока_нет:
+        предложения.append(
+            "No information part is recorded for this inspection, so the action plan deadline "
+            "in this letter is the engine's own fallback (inspection date plus the standard "
+            "term), not the date the auditor named to the partner; check it against the report "
+            "the partner already received before sending."
+        )
+    return " ".join(предложения)
+
+
 def build(detail: InspectionDetail, *, lang: str | None, papers: Papers) -> dict[str, object]:
     """Собрать письмо партнёру по записанной проверке.
 
     Возвращается записанная оценка, текст письма и прямой ответ на вопрос,
     можно ли это отправлять: письмо с неполной шапкой выглядит готовым, и
     именно поэтому его нельзя отдавать молча.
+
+    **Срок плана действий называет аудитор**, и письмо печатает его ответ
+    (T200). Информационной части у записанной проверки может не быть вовсе —
+    проверка слита до T200 либо аудитор пропустил все поля (D070), — и тогда
+    движок подставляет свой расчёт: дата обхода плюс стандартный срок. Такое
+    письмо отдаётся, но НЕ молча: подставленная дата читается как ответ
+    аудитора, и партнёр, у которого на руках бумага от аудитора, получил бы от
+    управляющей компании другой срок. Проверить по коду, что срок в письме
+    настоящий, нечем: поле ищет сам движок и не по коду пункта, а по
+    формулировке вопроса методики, — вторая копия этого правила здесь разошлась
+    бы с первой молча. Поэтому названо то, что известно точно: информационной
+    части нет, значит ответа аудитора в письме нет тоже.
     """
     язык = _lang(detail, lang)
     каталог, откуда = _methodology(detail.inspection.checklist_version, papers)
-    _, не_восстановлено = _cover(detail)
+    _, шапки_нет = _cover(detail)
+    срока_нет = not detail.info
+    не_восстановлено = [*шапки_нет, *([PLAN_DUE_FIELD] if срока_нет else [])]
     with tempfile.TemporaryDirectory(prefix="mcp-letter-") as рядом:
         состояние = Path(рядом) / "inspection.json"
         состояние.write_text(state_json(detail, lang=язык), encoding="utf-8")
@@ -344,15 +408,5 @@ def build(detail: InspectionDetail, *, lang: str | None, papers: Papers) -> dict
         "letter": текст,
         "not_restored": не_восстановлено,
         "ready_to_send": готово,
-        "status": (
-            "letter rebuilt on the methodology version this inspection was scored by; "
-            "the score the engine computed matches the one recorded"
-            if готово
-            else (
-                "letter rebuilt and its score matches the one recorded, but it is NOT ready to "
-                "send as it stands: the recorded inspection cannot be read back in full, so "
-                f"{', '.join(не_восстановлено)} are missing and the engine signed the letter "
-                "with a blank line. Fill them in before sending"
-            )
-        ),
+        "status": _status(шапки_нет, срока_нет=срока_нет),
     }
