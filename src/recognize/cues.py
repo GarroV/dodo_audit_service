@@ -19,69 +19,40 @@ from pathlib import Path
 
 from src.domain import check_environment
 
+from . import language
+
 #: Файл карты кадров внутри каталога методики (`AUDIT_DATA_DIR`).
 CUES_FILE = "photo-cues.md"
 
-#: Заголовок раздела с порогами классов. Это не подсказки «что видно», а
-#: справка «когда D1, а когда D2» — она уходит в промпт отдельным куском.
-THRESHOLDS_HEADING = "## Пороги классов"
+#: Начала заголовков раздела с порогами классов — на всех языках правил (T192).
+#: Это не подсказки «что видно», а справка «когда D1, а когда D2»: она уходит в
+#: промпт отдельным куском. Кортеж, потому что его отдают в `str.startswith`:
+#: карту пишет управляющая компания, и на каком языке — код знать не может.
+THRESHOLDS_HEADINGS = language.section_headings(language.THRESHOLDS)
 
-#: Заголовок раздела со словами колонок (T143). Тоже не подсказки «что видно»:
-#: его строки говорят, какими словами аудитор называет колонку («Грязь»,
+#: Начала заголовков раздела со словами колонок (T143). Тоже не подсказки «что
+#: видно»: его строки говорят, какими словами аудитор называет колонку («Грязь»,
 #: «Поломка»), а не какой пункт стоит за объектом на кадре.
-COLUMN_WORDS_HEADING = "## Слова, которыми аудитор называет колонку"
+COLUMN_WORDS_HEADINGS = language.section_headings(language.COLUMN_WORDS)
 
 #: Разделы карты, которые подсказками не являются и в перечень строк не идут.
-_NOT_CUES = (THRESHOLDS_HEADING, COLUMN_WORDS_HEADING)
+_NOT_CUES = THRESHOLDS_HEADINGS + COLUMN_WORDS_HEADINGS
 
 _CODE = re.compile(r"\b[A-Z]{3}\d{2}\b")
 _WORD = re.compile(r"[а-яёa-z0-9]+")
 
 #: Окончания отсекаются по длине — от длинных к коротким. Полноценный
 #: морфологический разбор здесь не нужен и стоил бы отдельной зависимости:
-#: задача — свести «печь» и «печи», «маркировки» и «маркировка» к одному ключу.
-_SUFFIXES = (
-    "ами",
-    "ями",
-    "ого",
-    "его",
-    "ые",
-    "ие",
-    "ый",
-    "ий",
-    "ой",
-    "ей",
-    "ом",
-    "ем",
-    "ах",
-    "ях",
-    "ов",
-    "ев",
-    "ая",
-    "яя",
-    "ое",
-    "ее",
-    "ся",
-    "ть",
-    "а",
-    "я",
-    "ы",
-    "и",
-    "у",
-    "ю",
-    "е",
-    "о",
-    "ь",
-)
+#: задача — свести «печь» и «печи», «crumbs» и «crumb» к одному ключу.
+#:
+#: Сами окончания и стоп-слова живут в `language_rules.json` рядом с кодом:
+#: язык — параметр, а не константа (T192), и третий язык добавляется словарём,
+#: а не правкой этого файла. Правила всех языков складываются — почему именно
+#: так, написано в `src/recognize/language.py`.
+_SUFFIXES = language.suffixes()
 
 #: Слова, которые есть в половине подсказок и потому ничего не различают.
-_STOPWORDS = frozenset(
-    """
-    без более все всё вид виден видно вокруг где для его есть еще ещё или
-    как когда который мест над нет них ним она они оно под при про рядом сам
-    свой себя так там тот три чем что это этот
-    """.split()
-)
+_STOPWORDS = language.stopwords()
 
 #: Стем считается различающим, если ведёт не более чем к стольким **различным
 #: кодам** — сколько бы строк карты его ни содержало (T142, задача #113).
@@ -284,7 +255,7 @@ def class_thresholds(path: Path | None = None) -> str:
         if line.startswith("## "):
             if collecting:
                 break
-            collecting = line.strip().startswith(THRESHOLDS_HEADING)
+            collecting = line.strip().startswith(THRESHOLDS_HEADINGS)
             continue
         if collecting:
             lines.append(line)
@@ -315,7 +286,7 @@ def column_words(path: Path | None = None) -> dict[str, frozenset[str]]:
         if line.startswith("## "):
             if collecting:
                 break
-            collecting = line.strip().startswith(COLUMN_WORDS_HEADING)
+            collecting = line.strip().startswith(COLUMN_WORDS_HEADINGS)
             after_separator = False
             continue
         if not collecting or not line.lstrip().startswith("|"):
