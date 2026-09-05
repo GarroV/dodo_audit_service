@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from .config import Settings, check_environment
+from .config import Settings
 from .engine import option, run_audit, state_file
 from .errors import EngineError, ValidationError
 from .models import SOURCES, Finding, Suggestion
@@ -24,6 +24,7 @@ from .state import (
     remember_source,
     remember_suggestion,
     remember_words,
+    settings_for,
 )
 
 #: Номер записи в ответе движка: «#3 CLN05 D1 / hot_kitchen: …».
@@ -104,7 +105,7 @@ def add_finding(
     записи их не трогает (`edit_finding`), и это то же правило, что у
     предложения: разница между сказанным и записанным и есть весь сигнал.
     """
-    settings = check_environment()
+    settings = settings_for(chat_id)
     # До вызова движка: иначе запись есть, а источник у неё неизвестно какой.
     if source and source not in SOURCES:
         raise ValidationError(
@@ -147,7 +148,7 @@ def edit_finding(chat_id: int, n: int, **fields: str) -> Finding:
     Меняются только переданные поля. Пустой вызов и незнакомое имя поля — отказ:
     молча ничего не сделать здесь хуже всего, аудитор уйдёт с ошибкой в отчёте.
     """
-    settings = check_environment()
+    settings = settings_for(chat_id)
     unknown = sorted(set(fields) - set(FIELD_OPTIONS))
     if unknown:
         raise ValidationError(
@@ -167,7 +168,7 @@ def edit_finding(chat_id: int, n: int, **fields: str) -> Finding:
 
 def drop_finding(chat_id: int, n: int) -> None:
     """Удалить запись. Удалять нечего — отказ, а не тихий успех."""
-    settings = check_environment()
+    settings = settings_for(chat_id)
     run_audit(["drop", str(n)], chat_id=chat_id, settings=settings)
     path = state_file(chat_id, settings)
     forget_source(path, n)
@@ -191,7 +192,7 @@ def attach_photo(chat_id: int, n: int, file_id: str) -> None:
     сборке отчёта. Запятая в идентификаторе запрещена не из вредности: движок
     режет по ней список, и один кадр молча превратился бы в два несуществующих.
     """
-    settings = check_environment()
+    settings = settings_for(chat_id)
     photo = file_id.strip()
     if not photo:
         raise ValidationError(f"Пустой идентификатор кадра для записи #{n}")

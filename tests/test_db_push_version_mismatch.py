@@ -15,11 +15,18 @@
 Случай узкий (методику переиздали между итогом и сливом, то есть между двумя
 нажатиями), но именно узкие случаи и разбирают по типу исключения, а не по
 тексту. Поэтому проверяется тип и поля, а не формулировка.
+
+**С T169 расхождение стало ещё уже.** Проверка идёт по снимку своего издания, и
+переиздание методики её больше не задевает; отказ остаётся для проверок, у
+которых снимка нет, — заведённых до T169 и переживших потерю полки. Поэтому
+оснастка ниже снимок УБИРАЕТ: иначе тесты проверяли бы отказ, до которого дело
+не доходит.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -29,7 +36,14 @@ psycopg = pytest.importorskip("psycopg")
 
 from src.db.errors import DbError, PushError, VersionMismatchError  # noqa: E402
 from src.db.push import push_inspection  # noqa: E402
-from src.domain import add_finding, checklist_version, list_items, start_inspection  # noqa: E402
+from src.domain import (  # noqa: E402
+    add_finding,
+    checklist_version,
+    edition,
+    list_items,
+    start_inspection,
+)
+from src.domain.config import check_environment  # noqa: E402
 
 pytestmark = requires_db
 
@@ -73,11 +87,18 @@ def _издать_заново(data_dir: Path) -> None:
 
 
 def _проверка(методика: Path, chat_id: int) -> str:
-    """Проверка с одной штрафной записью. Возвращает записанную версию методики."""
+    """Проверка без снимка издания — та, что заведена до T169.
+
+    Возвращает записанную версию методики. Снимок убирается сразу: расхождение
+    версий на сливе бывает только у проверки, которой не по чему считать своё
+    издание, — иначе `domain.score` посчитает её и сливать будет что.
+    """
     start_inspection(chat_id, unit="Белград-1", kind="planned", report_lang="ru", tenant=АРЕНДАТОР)
     пункт, зона, класс = _штрафной_пункт(методика)
     add_finding(chat_id, code=пункт, level=класс, zone=зона, text="нагар на печи")
-    return checklist_version()
+    версия = checklist_version()
+    shutil.rmtree(edition.shelf(check_environment()) / версия)
+    return версия
 
 
 def test_расхождение_версии_на_сливе_отличимо_по_типу(методика: Path, db_env: str) -> None:

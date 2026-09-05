@@ -60,7 +60,7 @@ def build_pdf(
     аудитору — он уже уехал с точки и переснять не может; тогда на месте кадра
     печатается видимая отметка, а не пустота.
     """
-    env = settings()
+    env = settings(chat_id)
     plan = resolve_photos(chat_id, env, fetch_photo)
     if plan.misses and not allow_missing_photos:
         raise PhotoMissing(misses_text(plan.misses), misses=plan.misses)
@@ -94,7 +94,7 @@ def build_letter(chat_id: int) -> str:
     Шаблон выбирает движок по наличию D2 и D3: чистая проверка не требует плана
     действий по нарушениям, которых нет. Третьего шаблона здесь не заводится.
     """
-    env = settings()
+    env = settings(chat_id)
     text = run_report(["letter"], chat_id=chat_id, settings=env)
     if not text.strip():
         raise ReportError("Сборщик письма вернул пустой текст — отправлять партнёру нечего")

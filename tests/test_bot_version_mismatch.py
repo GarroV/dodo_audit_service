@@ -12,11 +12,18 @@
 вызов, оставляющий след в самой проверке) или вернуть прежнюю версию на диск и
 досчитать по ней. Бот не выбирает ни то, ни другое — он называет обе версии и
 даёт кнопки.
+
+**С T169 в этот разговор попадают не все.** Проверка идёт по снимку своего
+издания, и переиздание методики посреди выезда её больше не задевает: спрашивать
+не о чем. Разговор остался для проверок, у которых снимка нет, — заведённых до
+T169 и переживших потерю полки снимков. Поэтому оснастка ниже снимок УБИРАЕТ:
+без этого тесты проверяли бы разговор, до которого дело не доходит.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +34,14 @@ from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.keyboards import VERSION_KEEP_CALLBACK, VERSION_SYNC_CALLBACK
 from src.bot.texts import t
-from src.domain import add_finding, checklist_version, get_state, list_items, start_inspection
+from src.domain import (
+    add_finding,
+    checklist_version,
+    edition,
+    get_state,
+    list_items,
+    start_inspection,
+)
 from src.domain.config import check_environment
 from src.domain.errors import DomainError
 from src.domain.state import DOMAIN_KEY, HISTORY_KEY, state_file
@@ -86,9 +100,15 @@ def начать(методика: Path) -> str:
     return состояние.checklist_version
 
 
+def потерять_снимок(отметка: str) -> None:
+    """Проверка без снимка своего издания — та, что заведена до T169."""
+    shutil.rmtree(edition.shelf(check_environment()) / отметка)
+
+
 async def завершить(методика: Path) -> tuple[Any, Any, Any, str]:
-    """Проверка, переизданная методика и нажатая «Завершить»."""
+    """Проверка без снимка, переизданная методика и нажатая «Завершить»."""
     отметка = начать(методика)
+    потерять_снимок(отметка)
     издать_заново(методика)
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)

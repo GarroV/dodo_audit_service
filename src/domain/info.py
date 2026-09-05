@@ -19,10 +19,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .config import check_environment
 from .engine import option, run_audit
 from .errors import EngineError, ValidationError
-from .state import read_state
+from .state import read_state, settings_for
 
 
 def set_info(chat_id: int, code: str, text: str, *, photos: Sequence[str] = ()) -> None:
@@ -69,7 +68,7 @@ def set_info(chat_id: int, code: str, text: str, *, photos: Sequence[str] = ()) 
                 f"В ссылке на кадр поля {clean_code} запятая: «{ref}». Движок разрежет её "
                 f"по запятой на два кадра, и оба окажутся несуществующими"
             )
-    settings = check_environment()
+    settings = settings_for(chat_id)
     run_audit(
         ["info", option("qid", clean_code), option("text", text)]
         + [option("photo", ref) for ref in shots],
