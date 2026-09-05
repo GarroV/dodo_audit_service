@@ -11,6 +11,22 @@
 ПРЕДЛОЖЕНИЕ человеку — с готовым вызовом, который сделает он сам, — и ни один
 файл методики этим модулем не открывается на запись вовсе.
 
+**Промах называется и фразой аудитора, и строкой карты (T194).** Требование
+владельца звучало про ФРАЗУ, а инструмент до T194 называл только строку карты
+слов, которую эта фраза задела, — и честно оговаривался, что сказанного нигде
+нет. Слова записываются с T183 (колонка — T185), поэтому оговорка снята, а в
+каждом промахе стоит `heard`: что говорили, дословно и целиком, с числом
+повторов. Строка карты осталась рядом и фразой не заменяется: по строке
+управляющая компания понимает, ЧТО править, по фразе аудитор видит, что
+именно он сказал.
+
+**«Слов нет» и «сказано пустое» — разные вещи.** Слов не бывает у записей до
+T183 и у записей, где аудитор не говорил ничего: разбор голого кадра, выбор
+пункта кнопкой. Такие записи считаются числом (`without_words`) и пустой
+фразой не показываются — пустая строка среди сказанного читалась бы как
+произнесённое молчание. Это та же развилка, что три вида пустоты у всей
+выдачи.
+
 **Считается сравнением того, что уже записано.** Что аудитор поправил, отдельно
 нигде не хранится: это разница между тройкой предложения и тройкой самой
 записи (`db.FindingRow.corrections`). Здесь она не пересчитывается своей
@@ -37,6 +53,13 @@ from .errors import ToolError
 #: скажет, что хвост есть.
 DEFAULT_MISSES = 50
 
+#: Сколько РАЗНЫХ фраз аудитора называем у одного промаха. За одним промахом
+#: может стоять сотня разных формулировок, и вывалить их все значило бы утопить
+#: ответ ради хвоста, который человек всё равно не разберёт. Обрезка называется
+#: числом тут же (`other_phrases`), а не общим `truncated`: тот говорит про
+#: непрочитанные проверки, и подмена одного другим сказала бы неправду.
+PHRASES_PER_MISS = 10
+
 #: Приписка, которой кончается любой ответ этого инструмента. Отдельной
 #: строкой и в каждом исходе: агент пересказывает человеку статус, и «собрано
 #: N предложений» без неё читается как «N слов добавлено».
@@ -59,9 +82,10 @@ LEVEL_NOTE = (
 #: ответ списком, а не остаются в этом файле: читающий обязан узнать границы
 #: выборки из самой выборки.
 CAVEATS = (
-    "The auditor's raw words are not stored in the history yet (task T185: the column "
-    "does not exist), so a proposal can name the cue row that led to the wrong code, "
-    "but not the phrase the auditor actually used.",
+    "The auditor's raw words are stored beside a finding only since task T183: records made "
+    "before that, and records where the auditor said nothing at all — a photo read on its own, "
+    "an item picked by button — carry none. Those are counted as without_words beside every "
+    "miss and are never shown as an empty phrase.",
     "Fast-path records carry no confidence at all — matching against the word map never "
     "measures one — and they are the records made without the auditor confirming the item. "
     "They are therefore always included, whatever min_confidence says.",
@@ -131,6 +155,56 @@ def _passes(row: FindingRow, threshold: float | None) -> bool:
     return row.suggested_confidence is None or row.suggested_confidence >= threshold
 
 
+def _spoken(row: FindingRow) -> bool:
+    """У записи есть слова аудитора.
+
+    Пробельная строка словами не считается — так же, как её не считает словами
+    слив (`db.push._words` кладёт в колонку `NULL`): молчание не речь, а пробелы
+    выглядели бы фразой, у которой не прочитать ни слова. Проверка повторена
+    здесь не ради второй формулы правила, а ради строк, приехавших мимо слива
+    (запись до T183 отдаётся пустой строкой, и оба вида пустоты склеены ещё
+    чтением — `db.queries`).
+    """
+    return bool(row.words.strip())
+
+
+def _heard_note(*, spoken: int, total: int, wordless: int, other: int) -> str:
+    """Словами: сколько записей промаха могут назвать фразу, а сколько нет.
+
+    Пустой список фраз без объяснения читался бы как «аудитор молчал», хотя
+    мерить было нечего: слова записаны только с T183, а у записи, сделанной
+    кнопкой по голому кадру, их не было вовсе. Это та же развилка, что три
+    вида пустоты у всей выдачи, только про одну строку промаха.
+    """
+    сделано = "1 record" if total == 1 else f"{total} records"
+    if spoken == 0:
+        основа = (
+            f"No record here carries the auditor's words ({сделано} in all): such a record was "
+            f"made before task T183, or made with no words at all — a photo read on its own, an "
+            f"item picked by button. That is 'nothing was recorded', not an empty phrase."
+        )
+    elif wordless == 0:
+        основа = (
+            f"Every record here carries the auditor's words, quoted whole and verbatim "
+            f"({сделано} in all)."
+        )
+    else:
+        основа = (
+            f"{spoken} of {сделано} here carry the auditor's words, quoted whole and verbatim. "
+            f"The rest carry none: made before task T183, or made with no words at all (a photo "
+            f"read on its own, an item picked by button) — counted as without_words, never shown "
+            f"as an empty phrase."
+        )
+    if not other:
+        return основа
+    # Число за двоеточием, а не перед существительным: «1 phrases» читается как
+    # сбой (то же исправление уже делали статусу этого инструмента).
+    return (
+        f"{основа} Distinct phrases heard here but not listed: {other}. This tail is cut per "
+        f"miss, and a cut tail is not what 'truncated' means."
+    )
+
+
 @dataclass
 class _Bucket:
     """Копилка одной пары «предложено → записано»."""
@@ -140,6 +214,17 @@ class _Bucket:
     codes: set[str] = field(default_factory=set)
     known: list[float] = field(default_factory=list)
     unknown: int = 0
+    #: Сказанное аудитором: фраза целиком → сколько раз встретилась. Ключ —
+    #: строка ДОСЛОВНО, как её записал слив: складываются только совпавшие
+    #: буква в букву. Похожие не склеиваются намеренно — по этим фразам правят
+    #: карту слов, а склейка «почти одинаковых» стала бы решением за человека
+    #: и показала бы ему формулировку, которой никто не произносил.
+    words: dict[str, int] = field(default_factory=dict)
+    #: Записей без слов: их не было вовсе (голый кадр, выбор пункта кнопкой)
+    #: либо запись начата до T183. Считается отдельно от фраз, потому что «слов
+    #: нет» и «сказано пустое» — разные вещи, а пустая строка среди фраз
+    #: читалась бы как произнесённое молчание.
+    wordless: int = 0
 
     def add(self, row: FindingRow) -> None:
         self.count += 1
@@ -149,12 +234,41 @@ class _Bucket:
             self.unknown += 1
         else:
             self.known.append(row.suggested_confidence)
+        if _spoken(row):
+            self.words[row.words] = self.words.get(row.words, 0) + 1
+        else:
+            self.wordless += 1
 
     def confidence(self) -> dict[str, object]:
         return {
             "min": min(self.known) if self.known else None,
             "max": max(self.known) if self.known else None,
             "unknown": self.unknown,
+        }
+
+    def heard(self) -> dict[str, Any]:
+        """Что аудитор сказал на этих записях — дословно, с числом повторов.
+
+        Ради этого поля и заводилась T194: требование владельца звучало про
+        ФРАЗУ («ГРЯЗЬ НА ПОЛКЕ В ГОРЯЧЕМ ЦЕХЕ, ЭТО ЧИСТОТА»), а инструмент до
+        сих пор называл только строку карты, которую эта фраза задела. Строка
+        при этом остаётся: управляющей компании надо понять, какую строку
+        править, аудитору — увидеть, что именно он сказал; одно не заменяет
+        другое.
+        """
+        порядок = sorted(self.words.items(), key=lambda пара: (-пара[1], пара[0]))
+        названные = порядок[:PHRASES_PER_MISS]
+        остальные = len(порядок) - len(названные)
+        return {
+            "phrases": [{"phrase": фраза, "count": счёт} for фраза, счёт in названные],
+            "other_phrases": остальные,
+            "without_words": self.wordless,
+            "note": _heard_note(
+                spoken=self.count - self.wordless,
+                total=self.count,
+                wordless=self.wordless,
+                other=остальные,
+            ),
         }
 
 
@@ -180,6 +294,7 @@ def _code_misses(
     строки: list[dict[str, Any]] = []
     for (предложено, записано), копилка in _order(buckets.items()):
         подходящие = [row for row in cues if предложено in row.codes]
+        услышано = копилка.heard()
         строки.append(
             {
                 "suggested_code": предложено,
@@ -187,12 +302,18 @@ def _code_misses(
                 "count": копилка.count,
                 "units": sorted(копилка.units),
                 "confidence": копилка.confidence(),
+                # Фраза аудитора и строка карты идут рядом и одна другую не
+                # заменяет (T194): по строке управляющая компания понимает, что
+                # править, по фразе аудитор узнаёт, что именно он сказал.
+                "heard": услышано,
                 "cue_rows": [
                     {"section": row.section, "phrase": row.phrase, "codes": list(row.codes)}
                     for row in подходящие
                 ],
                 "suggested_edits": [_edit(row, предложено, записано) for row in подходящие],
-                "note": _code_note(предложено, записано, len(подходящие)),
+                "note": _code_note(
+                    предложено, записано, len(подходящие), bool(услышано["phrases"])
+                ),
             }
         )
     return строки
@@ -222,16 +343,35 @@ def _edit(row: CueRow, suggested: str, recorded: str) -> dict[str, Any]:
     }
 
 
-def _code_note(suggested: str, recorded: str, rows: int) -> str:
+def _code_note(suggested: str, recorded: str, rows: int, heard: bool) -> str:
+    """Что делать с этим промахом: править строку карты или заводить новую.
+
+    Готового вызова `add_photo_cue` здесь нет намеренно, и это решение, а не
+    недоделка. Сказанное аудитором — предложение целиком («ГРЯЗЬ НА ПОЛКЕ В
+    ГОРЯЧЕМ ЦЕХЕ, ЭТО ЧИСТОТА»), а строка карты это термин; вдобавок раздел, в
+    который её класть, из слов не выводится вовсе. Собранный за человека
+    вызов подставил бы и формулировку, и раздел — то есть решил бы за
+    управляющую компанию ровно то, ради чего D077 оставляет решение ей.
+    """
     if rows == 0:
-        return (
+        основа = (
             f"There is no cue row in the word map leading to {suggested}: the code came from "
-            f"the model itself, not from the map, so there is no row here to correct. Adding "
-            f"{recorded} to the map needs a phrase, and the auditor's raw words are not stored yet."
+            f"the model itself, not from the map, so there is no row here to correct."
+        )
+        if not heard:
+            return (
+                f"{основа} Adding {recorded} to the map needs a phrase, and none of these "
+                f"records carries the auditor's words — see 'heard'."
+            )
+        return (
+            f"{основа} Adding {recorded} means a new row (add_photo_cue), and both its wording "
+            f"and its section are a human's choice: 'heard' lists what the auditor actually "
+            f"said, whole and verbatim, and a spoken sentence is not yet a cue term."
         )
     return (
-        f"{rows} cue row(s) lead to {suggested}. The proposal adds {recorded} beside it rather "
-        f"than replacing it: the map only adds and reorders candidates and never trims them."
+        f"Cue rows leading to {suggested}: {rows}. The proposal adds {recorded} beside them "
+        f"rather than replacing them: the map only adds and reorders candidates and never "
+        f"trims them."
     )
 
 
@@ -243,6 +383,7 @@ def _level_misses(buckets: dict[tuple[str, ...], _Bucket]) -> list[dict[str, Any
             "recorded_level": записано,
             "count": копилка.count,
             "confidence": копилка.confidence(),
+            "heard": копилка.heard(),
             "note": LEVEL_NOTE,
         }
         for (код, предложено, записано), копилка in _order(buckets.items())
@@ -257,6 +398,7 @@ def _zone_misses(buckets: dict[tuple[str, ...], _Bucket]) -> list[dict[str, Any]
             "count": копилка.count,
             "codes": sorted(копилка.codes),
             "confidence": копилка.confidence(),
+            "heard": копилка.heard(),
         }
         for (предложено, записано), копилка in _order(buckets.items())
     ]
@@ -309,7 +451,7 @@ def build(
     классы: dict[tuple[str, ...], _Bucket] = {}
     зоны: dict[tuple[str, ...], _Bucket] = {}
     с_предложением = без_уверенности = ниже_порога = поправлено = 0
-    без_класса = без_зоны = 0
+    без_класса = без_зоны = без_слов = 0
 
     for row in rows:
         if row.suggested_code is None:
@@ -317,6 +459,8 @@ def build(
         с_предложением += 1
         if row.suggested_confidence is None:
             без_уверенности += 1
+        if not _spoken(row):
+            без_слов += 1
         if not _passes(row, порог):
             ниже_порога += 1
             continue
@@ -351,6 +495,10 @@ def build(
             "corrected": поправлено,
             "no_level_proposed": без_класса,
             "no_zone_proposed": без_зоны,
+            # Сколько записей с предложением модели не могут назвать фразу
+            # вовсе (T194). Считается по всей выборке, как и `without_confidence`:
+            # это её граница, а не свойство отдельного промаха.
+            "without_words": без_слов,
         },
         "code_misses": промахи_кодов,
         "level_misses": промахи_классов,

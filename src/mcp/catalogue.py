@@ -900,9 +900,13 @@ TOOLS: tuple[ToolSpec, ...] = (
             "(decision D077). Applying a proposal is a separate call, and even "
             "that only stores a new methodology version beside the one in "
             "force — publishing it is a third call. "
-            "The auditor's raw words are not stored in the history yet, so a "
-            "proposal can name the cue row behind a miss but not the phrase "
-            "the auditor actually used."
+            "Every miss also quotes what the auditor actually said, whole and "
+            "verbatim, with how often each phrase came up: the cue row says "
+            "what to correct, the phrase says what was heard, and neither "
+            "replaces the other. Words are stored beside a finding only since "
+            "task T183, and a record made with no words at all — a photo read "
+            "on its own, an item picked by button — has none; those records "
+            "are counted as without_words and never shown as an empty phrase."
         ),
         input_schema={
             "type": "object",
