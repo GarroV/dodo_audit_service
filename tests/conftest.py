@@ -371,3 +371,35 @@ def db_env(pg_dsn: str, monkeypatch: pytest.MonkeyPatch) -> str:
     dsn = app_role_dsn(pg_dsn)
     monkeypatch.setenv(DATABASE_URL_VAR, dsn)
     return dsn
+
+
+#: Переменная, которой прогон объявляется ПОЛНЫМ. В таком прогоне пропуск из-за
+#: отсутствия данных — не «нечего проверять», а неполная проверка, выданная за
+#: полную, и набор обязан об этом сказать кодом возврата.
+REQUIRE_DATA_VAR = "AUDIT_REQUIRE_DATA"
+
+
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
+    """Сказать вслух, что прогон был неполным, если данных на машине не было.
+
+    Без этого отсутствие `data/` или `examples/` выглядит как обычный зелёный
+    прогон: тесты не падают, они пропускаются, и «N passed» ничем не отличается
+    от полного набора. На стройке это уже стоило блоку исчезнувшего
+    регрессионного якоря — он не заметил, что копия завелась без эталонов
+    (задача #175).
+    """
+    if not (NO_DATA or NO_EXAMPLES):
+        return
+    чего_нет = [имя for имя, нет in (("data/", NO_DATA), ("examples/", NO_EXAMPLES)) if нет]
+    пропущено = len(terminalreporter.stats.get("skipped", []))
+    terminalreporter.write_sep(
+        "=",
+        f"ПРОГОН НЕПОЛНЫЙ: нет {', '.join(чего_нет)} — пропущено тестов: {пропущено}",
+        red=True,
+        bold=True,
+    )
+    if os.environ.get(REQUIRE_DATA_VAR):
+        terminalreporter.write_line(
+            f"{REQUIRE_DATA_VAR} задана — такой прогон полным не считается.", red=True
+        )
+        pytest.exit(f"нет {', '.join(чего_нет)}: прогон объявлен полным, но им не является", 1)
