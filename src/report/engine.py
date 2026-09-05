@@ -39,6 +39,7 @@ from src.domain.engine import (
     RUNTIME_BEFORE_SCRIPT,
     RUNTIME_FATAL,
     chat_dir,
+    pause_before_retry,
     state_file,
 )
 from src.domain.errors import InspectionNotStarted
@@ -100,6 +101,7 @@ def run_report(
         output = f"{done.stderr}\n{done.stdout}"
         if RUNTIME_FATAL in output:
             _refuse_no_verdict(args, output=output, attempt=attempt, chat_id=chat_id)
+            pause_before_retry(attempt)
             continue
         message = (done.stderr or done.stdout).strip() or "движок отказал без объяснения"
         raise ReportError(message)
