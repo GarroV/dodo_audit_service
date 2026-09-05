@@ -42,6 +42,16 @@ DATABASE_ADMIN_URL_VAR = "DATABASE_ADMIN_URL"
 #: роли. Не задан — пароль не трогается вовсе: локально ходят по peer/trust.
 DATABASE_APP_PASSWORD_VAR = "DATABASE_APP_PASSWORD"  # noqa: S105 — имя переменной, не секрет
 
+#: Роль администратора истории (миграция `0010`). Вторая непривилегированная
+#: роль: снятые проверки видны только ей, и она же их снимает. Накат её
+#: заводит, а приложение под ней не ходит — у него своя.
+ADMIN_ROLE = "dodo_audit_admin"
+
+#: Пароль роли администратора истории. Отдельная переменная от пароля
+#: приложения, а не общая: одинаковый пароль у двух ролей означал бы, что
+#: разграничение держится тем, кто какую строку подключения взял.
+DATABASE_RETRACTION_PASSWORD_VAR = "DATABASE_RETRACTION_PASSWORD"  # noqa: S105 — имя переменной
+
 #: `.env` рядом с проектом, а не найденный поиском от текущего каталога:
 #: `make migrate` зовут из корня, а руками — откуда придётся, и предсказуемость
 #: здесь дороже удобства. Тот же приём и та же причина, что в
@@ -177,8 +187,8 @@ def admin_dsn(env: Mapping[str, str] | None = None) -> str | None:
     return dsn or None
 
 
-def set_app_password(dsn: str, password: str) -> None:
-    """Поставить роли приложения пароль из окружения.
+def _set_role_password(dsn: str, password: str, *, role: str, var: str) -> None:
+    """Поставить роли пароль из окружения.
 
     Пароль подставляется `sql.Literal`, а не форматированием строки: пароль
     приходит из `.env`, то есть извне кода, и склеенный руками `alter role`
@@ -190,16 +200,32 @@ def set_app_password(dsn: str, password: str) -> None:
     """
     if not password.strip():
         raise ConfigError(
-            f"{DATABASE_APP_PASSWORD_VAR} задана пустой. Либо убрать переменную "
-            f"совсем (тогда пароль роли {APP_ROLE} не трогается), либо задать "
-            f"настоящий пароль — пустой оставит роль без входа"
+            f"{var} задана пустой. Либо убрать переменную совсем (тогда пароль "
+            f"роли {role} не трогается), либо задать настоящий пароль — пустой "
+            f"оставит роль без входа"
         )
     statement = sql.SQL("alter role {} password {}").format(
-        sql.Identifier(APP_ROLE), sql.Literal(password)
+        sql.Identifier(role), sql.Literal(password)
     )
     with psycopg.connect(dsn) as conn:
         conn.execute(statement)
         conn.commit()
+
+
+def set_app_password(dsn: str, password: str) -> None:
+    """Поставить пароль роли приложения (`dodo_audit_app`)."""
+    _set_role_password(dsn, password, role=APP_ROLE, var=DATABASE_APP_PASSWORD_VAR)
+
+
+def set_admin_password(dsn: str, password: str) -> None:
+    """Поставить пароль роли администратора истории (`dodo_audit_admin`, T210).
+
+    Своя функция, а не общий вызов с ролью в аргументе на месте употребления:
+    роль здесь — не параметр операции, а часть её смысла, и перепутанная
+    местами пара «роль, пароль» поставила бы администратору пароль приложения,
+    не сказав ни слова.
+    """
+    _set_role_password(dsn, password, role=ADMIN_ROLE, var=DATABASE_RETRACTION_PASSWORD_VAR)
 
 
 def role_bypasses_rls(dsn: str) -> bool:
@@ -249,6 +275,14 @@ def main() -> None:  # pragma: no cover — тонкая обёртка CLI, ч�
     if password:
         set_app_password(dsn, password)
         print(f"Пароль роли приложения {APP_ROLE} обновлён из {DATABASE_APP_PASSWORD_VAR}")
+
+    admin_password = (os.environ.get(DATABASE_RETRACTION_PASSWORD_VAR) or "").strip()
+    if admin_password:
+        set_admin_password(dsn, admin_password)
+        print(
+            f"Пароль роли администратора истории {ADMIN_ROLE} обновлён из "
+            f"{DATABASE_RETRACTION_PASSWORD_VAR}"
+        )
 
     _warn_if_app_role_bypasses_rls(app_url)
 

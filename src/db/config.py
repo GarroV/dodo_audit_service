@@ -18,6 +18,16 @@ from .storage import StorageSettings
 
 DATABASE_URL_VAR = "DATABASE_URL"
 
+#: Подключение АДМИНИСТРАТОРА ИСТОРИИ — роли `dodo_audit_admin` (миграция
+#: `0010`). Единственной роли, которой видны снятые проверки и которой
+#: позволено снимать: обычная роль приложения снятой проверки не видит вовсе,
+#: и держит это построчная политика, а не фильтр в запросе.
+#:
+#: Не путать с `DATABASE_ADMIN_URL` (`src/db/migrate.py`): та про НАКАТ СХЕМЫ и
+#: обычно привилегированная, а привилегированная роль обходит политики всегда —
+#: подставленная сюда, она отдала бы «администраторский» ответ кому угодно.
+DATABASE_RETRACTION_URL_VAR = "DATABASE_RETRACTION_URL"
+
 # Хранилище кадров. Имена переменных S3-совместимые, а не «супабейзовые»:
 # поставщик обязан меняться правкой значений, а не имён (D004, D054, D061).
 S3_BUCKET_VAR = "S3_BUCKET"
@@ -60,6 +70,26 @@ def check_environment(env: Mapping[str, str] | None = None) -> Settings:
     одного и всё равно ловить ту же ошибку подключения на реальном вызове.
     """
     return load_settings(env)
+
+
+def load_retraction_settings(env: Mapping[str, str] | None = None) -> Settings:
+    """Прочитать подключение администратора истории. Отказ — `ConfigError`.
+
+    Отдельная переменная, а не роль, выбранная по ходу: право видеть снятые
+    проверки живёт в базе (миграция `0010`), а не в коде, и получить его можно
+    только придя под другой ролью. Подставить сюда `DATABASE_URL` нельзя —
+    роль приложения снятого не увидит и вернёт пустоту вместо отказа, то есть
+    «таких проверок нет» вместо «вам их не видно».
+    """
+    src = os.environ if env is None else env
+    dsn = (src.get(DATABASE_RETRACTION_URL_VAR) or "").strip()
+    if not dsn:
+        raise ConfigError(
+            f"Не задана переменная окружения {DATABASE_RETRACTION_URL_VAR}. Снятые "
+            f"проверки видны только администратору истории (роль dodo_audit_admin), "
+            f"и приходит он отдельным подключением — пример значения в .env.example"
+        )
+    return Settings(dsn=dsn)
 
 
 def load_storage_settings(env: Mapping[str, str] | None = None) -> StorageSettings:
