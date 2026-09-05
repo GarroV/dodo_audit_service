@@ -69,7 +69,7 @@ FIELDS: tuple[InfoField, ...] = (
 )
 
 
-def question(field: InfoField, lang: str) -> str | None:
+def question(field: InfoField, lang: str, *, chat_id: int) -> str | None:
     """Вопрос пункта словами — или ничего, если пункта в методике нет.
 
     Отсутствие пункта не отказ и не молчание: состав информационной части
@@ -79,16 +79,21 @@ def question(field: InfoField, lang: str) -> str | None:
     пропущенный, а не в отказ в руках аудитора.
     """
     try:
-        return domain.get_item(field.code).question(lang)
+        return domain.get_item(field.code, chat_id=chat_id).question(lang)
     except DomainError:
         return None
 
 
-def fields_to_ask(lang: str) -> tuple[tuple[InfoField, str], ...]:
-    """Поля, которые есть в этой методике, вместе с их вопросами."""
+def fields_to_ask(lang: str, *, chat_id: int) -> tuple[tuple[InfoField, str], ...]:
+    """Поля, которые есть в этой методике, вместе с их вопросами.
+
+    Методика здесь — издание ТОЙ проверки (T169, T225): состав информационной
+    части задаёт управляющая компания, и переиздание посреди выезда меняло бы
+    набор вопросов на середине.
+    """
     asked = []
     for field in FIELDS:
-        text = question(field, lang)
+        text = question(field, lang, chat_id=chat_id)
         if text:
             asked.append((field, text))
     return tuple(asked)

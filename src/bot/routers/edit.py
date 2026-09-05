@@ -45,6 +45,7 @@ from ..keyboards import (
 )
 from ..lang import chat_ui_lang
 from ..shown import remember as remember_shown
+from ..shown import tell_refusal
 from ..states import EditFlow
 from ..texts import t
 
@@ -66,7 +67,7 @@ async def show_changed(message: Message, chat_id: int, n: int, lang: str) -> Non
     # D072), а `score` — подпроцесс на 26 мс (замер T101). Пересчёт от этого не
     # пропадает: он живёт в движке и виден в итоге при завершении.
     sent = await message.answer(
-        view.changed_line(finding, lang),
+        view.changed_line(finding, lang, chat_id=chat_id),
         reply_markup=edit_keyboard(n, lang),
     )
     # Правка кнопкой — тоже показ записи, и отвечать аудитор будет на последнее
@@ -112,10 +113,9 @@ def build_edit_router() -> Router:
                 lang=lang,
                 exc=exc,
             )
-            await message.answer(
-                told.text,
-                reply_markup=edit_keyboard(told.clash.n, lang) if told.clash is not None else None,
-            )
+            # Тот же отказ и то же правило, что при фиксации (T227): он назвал
+            # запись, значит ответом на него правят её.
+            await tell_refusal(message, chat_id, told, lang)
             return
         if "zone" in fields:
             # Аудитор назвал зону руками — она и становится догадкой для
@@ -172,7 +172,7 @@ def build_edit_router() -> Router:
             await drop(message, chat_id, n, lang)
             return
         if what == EDIT_ZONE:
-            zones = [(zone.code, zone.title(lang)) for zone in domain.list_zones()]
+            zones = [(zone.code, zone.title(lang)) for zone in domain.list_zones(chat_id=chat_id)]
             await message.answer(
                 t("edit.ask_zone", lang, n=n),
                 reply_markup=zones_keyboard(f"{EDIT_ZONE_PREFIX}{n}:", zones),
@@ -181,7 +181,7 @@ def build_edit_router() -> Router:
         if what == EDIT_LEVEL:
             # Классы приходят из методики по коду пункта: предлагать аудитору
             # то, что движок всё равно отвергнет, — это лишний круг на точке.
-            levels = domain.allowed_levels(finding.code)
+            levels = domain.allowed_levels(finding.code, chat_id=chat_id)
             await message.answer(
                 t("edit.ask_level", lang, n=n),
                 reply_markup=levels_keyboard(f"{EDIT_LEVEL_PREFIX}{n}:", levels),

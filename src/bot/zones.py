@@ -68,15 +68,24 @@ def _names(code: str, title: str) -> list[str]:
     return [part.strip() for part in _SPLIT.split(title) if part.strip()]
 
 
-def phrases() -> dict[str, tuple[frozenset[str], ...]]:
+def phrases(*, chat_id: int | None) -> dict[str, tuple[frozenset[str], ...]]:
     """Основы слов каждого имени зоны: код зоны → набор произносимых строк.
+
+    `chat_id` называется всегда и умолчания не имеет (T225): имена берутся из
+    издания ТОЙ проверки (T169), иначе зона, переименованная переизданием,
+    переставала бы узнаваться в словах аудитора посреди его же выезда.
+
+    Пустой чат — не умолчание, а отдельный законный ответ «проверки нет»: так
+    зовёт замер по боевым выгрузкам (`tools/fastpath_measure.py`), которому
+    читать нечего, кроме действующей методики. Разница между «нет проверки» и
+    «забыли передать» и есть причина, по которой умолчания здесь нет.
 
     Методика читается на каждом обращении, а не кешируется: её подкладывают
     томом снаружи, и кеш означал бы работу по старым названиям до перезапуска
     (тем же живёт `recognize.cues.load_cues`).
     """
     out: dict[str, tuple[frozenset[str], ...]] = {}
-    for zone in domain.list_zones():
+    for zone in domain.list_zones(chat_id=chat_id):
         names = [name for lang in UI_LANGS for name in _names(zone.code, zone.title(lang))]
         names.extend(SPOKEN.get(zone.code, ()))
         found = {frozenset(s) for name in names if (s := stems(name))}
@@ -84,7 +93,7 @@ def phrases() -> dict[str, tuple[frozenset[str], ...]]:
     return out
 
 
-def zone_from_words(note: str) -> str | None:
+def zone_from_words(note: str, *, chat_id: int | None) -> str | None:
     """Код зоны, названной в этих словах. Не названа или названы две — `None`.
 
     `None` — обычный ответ, а не отказ: он означает «зону подставит память»
@@ -96,7 +105,7 @@ def zone_from_words(note: str) -> str | None:
     # Длина совпавшего имени — мера того, насколько это имя произнесли, а не
     # задели одним словом: имя из двух основ весомее имени из одной.
     best: dict[str, int] = {}
-    for code, names in phrases().items():
+    for code, names in phrases(chat_id=chat_id).items():
         for name in names:
             if name <= words:
                 best[code] = max(best.get(code, 0), len(name))

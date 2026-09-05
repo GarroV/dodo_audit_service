@@ -82,6 +82,10 @@ sys.path.insert(0, str(ROOT))
 # `pyproject.toml`) этим не задет — он описывает пакет `src`, а `tools/` это
 # инструменты ПОВЕРХ продукта, не его ярус.
 from src.bot.zones import zone_from_words  # noqa: E402
+
+#: Замер идёт по выгрузкам `examples/`, а не по живой проверке: издания, по
+#: которому её вели, здесь нет, и справочники читаются действующие (T225).
+NO_CHAT = None
 from src.domain import get_item  # noqa: E402
 from src.domain.errors import ConfigError  # noqa: E402
 from src.recognize import language  # noqa: E402
@@ -187,7 +191,7 @@ def hints_spoken(records: Sequence[Record]) -> tuple[Hint, ...]:
     """Только слова комментария, без памяти: пол замера."""
     out: list[Hint] = []
     for record in records:
-        spoken = zone_from_words(record.note)
+        spoken = zone_from_words(record.note, chat_id=NO_CHAT)
         out.append(Hint(zone=spoken, source=FROM_WORDS if spoken else FROM_NOWHERE))
     return tuple(out)
 
@@ -205,7 +209,7 @@ def hints_bot(records: Sequence[Record]) -> tuple[Hint, ...]:
     for record in records:
         if record.source != inspection:
             inspection, memory = record.source, None
-        spoken = zone_from_words(record.note)
+        spoken = zone_from_words(record.note, chat_id=NO_CHAT)
         if spoken:
             out.append(Hint(zone=spoken, source=FROM_WORDS))
         elif memory:

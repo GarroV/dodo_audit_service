@@ -81,7 +81,7 @@ def начата() -> None:
     ],
 )
 def test_зона_читается_из_слов_аудитора(domain_env: Path, слова: str, зона: str) -> None:
-    assert zones.zone_from_words(слова) == зона
+    assert zones.zone_from_words(слова, chat_id=CHAT_ID) == зона
 
 
 @pytest.mark.parametrize(
@@ -95,13 +95,13 @@ def test_зона_читается_из_слов_аудитора(domain_env: Pa
 )
 def test_слова_без_зоны_зоны_не_дают(domain_env: Path, слова: str) -> None:
     """Молчание лучше догадки: зону в этом случае подставит память (D048)."""
-    assert zones.zone_from_words(слова) is None
+    assert zones.zone_from_words(слова, chat_id=CHAT_ID) is None
 
 
 def test_две_названные_зоны_не_выбираются_за_аудитора(domain_env: Path) -> None:
     """Названы обе — выбирать между ними системе нечем, и она не выбирает."""
     слова = "тепловой участок, холодный участок: открытый продукт носят между ними"
-    assert zones.zone_from_words(слова) is None
+    assert zones.zone_from_words(слова, chat_id=CHAT_ID) is None
 
 
 def test_длинное_название_зоны_сильнее_короткого(domain_env: Path) -> None:
@@ -112,8 +112,10 @@ def test_длинное_название_зоны_сильнее_коротко�
     чужую зону. Здесь «зал» задевает гостевой зал одной основой, а тепловой
     участок назван двумя, — выигрывает участок.
     """
-    assert zones.zone_from_words("зал, тепловой участок") == "hot_kitchen"
-    assert zones.zone_from_words("течь под мойкой, тепловой участок") == "hot_kitchen"
+    assert zones.zone_from_words("зал, тепловой участок", chat_id=CHAT_ID) == "hot_kitchen"
+    assert (
+        zones.zone_from_words("течь под мойкой, тепловой участок", chat_id=CHAT_ID) == "hot_kitchen"
+    )
 
 
 def test_зоны_берутся_из_методики_а_не_из_списка_в_коде(domain_env: Path) -> None:
@@ -122,7 +124,7 @@ def test_зоны_берутся_из_методики_а_не_из_списка
 
     известные = {z.code for z in list_zones()}
     for слова in ("в зале лужа", "посудный участок в налёте", "внешний контур в подтёках"):
-        assert zones.zone_from_words(слова) in известные
+        assert zones.zone_from_words(слова, chat_id=CHAT_ID) in известные
 
 
 # --- разговор: слова сильнее памяти -----------------------------------------

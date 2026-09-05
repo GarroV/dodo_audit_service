@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import pytest
 from bot_harness import (
@@ -53,6 +54,48 @@ def dispatcher_with(caught: Caught, album_window: float = 5.0) -> object:
     return build_dispatcher(SETTINGS, on_material=caught, album_window=album_window)
 
 
+#: Кадр, которым тест закрывает альбом СОБЫТИЕМ. Кадр чужой группы закрывает
+#: предыдущий альбом немедленно (`AlbumBuffer.close_other`), и своим материалом
+#: не становится — подписи у него нет, он остаётся ждать комментария.
+CLOSING_FRAME = "closing-frame"
+
+#: Окно ожидания в единственном тесте, где предмет проверки — сам таймер.
+#: Не 10 мс: между двумя кадрами альбома проходит время, и на таком окне таймер
+#: успевает закрыть альбом посередине. Воспроизведено задержкой в 20 мс между
+#: кадрами — рвались все четыре теста, которые ждали таймер (T228).
+TIMER_WINDOW = 0.5
+
+#: Потолок ожидания ответа бота. Не время теста, а признак поломки: обычно
+#: ожидание кончается на окне альбома, то есть много раньше.
+WAIT_LIMIT = 5.0
+
+
+async def close_by_event(dp: Any, bot: Any) -> None:
+    """Закрыть открытый альбом кадром чужой группы, а не окном ожидания.
+
+    Не придирка к стилю: с окном в 10 мс таймер срабатывает между кадрами и
+    отдаёт альбом из двух кадров вместо трёх — тест проверяет не то, что
+    написано в его имени, и краснеет не на том. Комментарий в закрывающие не
+    годится: на альбоме без подписи он сам по себе способ связывания, то есть
+    предмет соседних тестов.
+    """
+    await feed(dp, bot, photo_message(CLOSING_FRAME))
+
+
+async def wait_for_reply(session: Any, *, after: int) -> None:
+    """Дождаться нового ответа бота, а не поспать наугад.
+
+    Слепой `sleep` короче окна краснеет на загруженной машине, а длиннее —
+    отнимает секунды у каждого прогона. Ожидание по наблюдаемому признаку не
+    врёт ни в ту, ни в другую сторону.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + WAIT_LIMIT
+    while len(session.texts) <= after:
+        assert loop.time() < deadline, "бот не ответил на альбом за отведённое время"
+        await asyncio.sleep(0.01)
+
+
 async def test_album_of_three_without_caption_becomes_one_material(domain_env: object) -> None:
     """Три кадра без подписи — один материал с тремя кадрами, а не три материала."""
     start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
@@ -80,13 +123,13 @@ async def test_caption_on_first_frame_of_album_links_without_extra_comment(
     start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
-    dp = dispatcher_with(caught, album_window=0.01)
+    dp = dispatcher_with(caught)
 
     group_id = "album-caption-first"
     await feed(dp, bot, photo_message("cap-1", media_group_id=group_id, caption="пол грязный"))
     await feed(dp, bot, photo_message("cap-2", media_group_id=group_id))
     await feed(dp, bot, photo_message("cap-3", media_group_id=group_id))
-    await asyncio.sleep(0.1)
+    await close_by_event(dp, bot)
 
     assert len(caught.materials) == 1
     assert caught.last.photo_file_ids == ("cap-1", "cap-2", "cap-3")
@@ -98,13 +141,13 @@ async def test_caption_on_second_frame_still_becomes_the_comment(domain_env: obj
     start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, _ = make_bot()
-    dp = dispatcher_with(caught, album_window=0.01)
+    dp = dispatcher_with(caught)
 
     group_id = "album-caption-second"
     await feed(dp, bot, photo_message("b1", media_group_id=group_id))
     await feed(dp, bot, photo_message("b2", media_group_id=group_id, caption="скол на бортике"))
     await feed(dp, bot, photo_message("b3", media_group_id=group_id))
-    await asyncio.sleep(0.1)
+    await close_by_event(dp, bot)
 
     assert len(caught.materials) == 1
     assert caught.last.photo_file_ids == ("b1", "b2", "b3")
@@ -181,19 +224,26 @@ async def test_two_albums_in_a_row_get_comments_in_order_without_mixing(
 
 
 async def test_album_closes_by_timer_when_nothing_else_arrives(domain_env: object) -> None:
-    """Ничего не пришло следом — альбом закрывается сам по истечении окна."""
+    """Ничего не пришло следом — альбом закрывается сам по истечении окна.
+
+    Единственный тест файла, который ждёт таймер: таймер здесь и есть предмет.
+    Остальные закрывают альбом событием (`close_by_event`) — иначе они
+    проверяют не то, что описывают.
+    """
     start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, session = make_bot()
-    dp = dispatcher_with(caught, album_window=0.01)
+    dp = dispatcher_with(caught, album_window=TIMER_WINDOW)
 
     group_id = "album-timer"
+    mark = len(session.texts)
     await feed(dp, bot, photo_message("t1", media_group_id=group_id))
     await feed(dp, bot, photo_message("t2", media_group_id=group_id))
     await feed(dp, bot, photo_message("t3", media_group_id=group_id))
-    await asyncio.sleep(0.1)
+    await wait_for_reply(session, after=mark)
 
     assert caught.materials == []
+    # Три, а не два: разорванный таймером альбом отбился бы неполным.
     assert "3" in session.last_text
 
 
@@ -251,14 +301,17 @@ async def test_album_without_inspection_replies_once_not_per_frame(domain_env: o
     """Проверка не начата — на весь альбом один ответ, а не по одному на каждый кадр."""
     caught = Caught()
     bot, session = make_bot()
-    dp = dispatcher_with(caught, album_window=0.01)
+    dp = dispatcher_with(caught)
 
     group_id = "album-no-inspection"
     await feed(dp, bot, photo_message("n1", media_group_id=group_id))
     await feed(dp, bot, photo_message("n2", media_group_id=group_id))
     await feed(dp, bot, photo_message("n3", media_group_id=group_id))
-    await asyncio.sleep(0.1)
+    await close_by_event(dp, bot)
 
     assert caught.materials == []
     replies = [text for text in session.texts if "проверка не начата" in text.lower()]
-    assert len(replies) == 1
+    # Два отказа: один на альбом целиком, второй на закрывающий кадр — он тоже
+    # кадр в чате без проверки. Ответ на каждый кадр альбома дал бы четыре,
+    # ровно это здесь и ловится.
+    assert len(replies) == 2

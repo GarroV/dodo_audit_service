@@ -58,7 +58,7 @@ def test_item_title_на_неизвестном_коде_возвращает_к
 ) -> None:
     """Кода нет в методике — придумывать вопрос нельзя, честнее показать сам код."""
     with caplog.at_level("WARNING"):
-        title = refusal.item_title("XX99", "ru")
+        title = refusal.item_title("XX99", "ru", chat_id=CHAT_ID)
 
     assert title == "XX99"
     assert "XX99" in caplog.text, "предупреждение о ненайденном пункте не попало в журнал"
@@ -69,7 +69,9 @@ def test_item_title_на_настоящем_коде_возвращает_воп
     domain_env: Path, lang: str
 ) -> None:
     """Известный код — тот же вопрос, что и напрямую у методики, на обоих языках."""
-    assert refusal.item_title("CLN05", lang) == domain.get_item("CLN05").question(lang)
+    assert refusal.item_title("CLN05", lang, chat_id=CHAT_ID) == domain.get_item(
+        "CLN05", chat_id=CHAT_ID
+    ).question(lang)
 
 
 # --- occupied_by ---------------------------------------------------------------
@@ -122,7 +124,7 @@ def test_not_recorded_на_свободной_паре_собирает_текс
     )
 
     item = domain.get_item("CLN05").question("ru")
-    место = zone_title("hot_kitchen", "ru")
+    место = zone_title("hot_kitchen", "ru", chat_id=CHAT_ID)
     assert итог.clash is None
     assert итог.text == t("record.failed", "ru", item=item, zone=место)
 
@@ -143,7 +145,7 @@ def test_not_changed_на_свободной_паре_собирает_текс�
     )
 
     item = domain.get_item("CLN05").question("ru")
-    место = zone_title("hot_kitchen", "ru")
+    место = zone_title("hot_kitchen", "ru", chat_id=CHAT_ID)
     assert итог.clash is None
     assert итог.text == t("edit.failed", "ru", n=3, item=item, zone=место)
 

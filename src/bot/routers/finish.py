@@ -427,7 +427,7 @@ def build_finish_router() -> Router:
             await message.answer(t("edit.gone", lang, n=raw))
             return
         await message.answer(
-            view.record_lines([finding], lang),
+            view.record_lines([finding], lang, chat_id=chat_id),
             reply_markup=edit_keyboard(finding.n, lang),
         )
 
