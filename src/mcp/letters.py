@@ -260,12 +260,43 @@ def state_json(detail: InspectionDetail, *, lang: str) -> str:
     )
 
 
-def _methodology(version: str, papers: Papers) -> tuple[Path, str]:
+def pinned(version: str, papers: Papers) -> tuple[Path, str] | None:
     """Каталог методики ТОЙ версии, которой помечена проверка, и откуда он взят.
 
     Порядок именно такой: снимок версии первым. Боевая методика годится только
-    тогда, когда она и есть эта версия, — иначе письмо собралось бы по другой
+    тогда, когда она И ЕСТЬ эта версия, — иначе документ собрался бы по другой
     методике, и отличить его от честного можно было бы лишь по одной цифре.
+    Правило одно и для письма, и для карточки проверки: сегодняшняя методика
+    под прежней датой — это другая бумага (D033, D049).
+
+    Ничего — значит, этой версии на машине нет вовсе. Что с этим делать, решает
+    вызывающий, и решает по-разному: письмо без методики не собрать (его пишет
+    движок), а карточке проверки нечем подписать поля — она читается и без
+    единого файла методики.
+
+    Имя версии приезжает из базы и подставляется в путь каталога, поэтому
+    сторож имени стоит здесь, а не у вызывающего: забытый у второго потребителя,
+    он открыл бы `..` в идентификаторе версии дорогу к чужому каталогу.
+    """
+    try:
+        хотим = _check_version(version)
+    except ChecklistError:
+        return None
+    if papers.store is not None:
+        снимок = papers.store / VERSIONS_DIR / хотим
+        if снимок.is_dir():
+            return снимок, FROM_SNAPSHOT
+    if papers.live is not None and papers.live.is_dir() and version_of(papers.live) == хотим:
+        return papers.live, FROM_LIVE
+    return None
+
+
+def _methodology(version: str, papers: Papers) -> tuple[Path, str]:
+    """Каталог методики для ПИСЬМА — или отказ, объясняющий, чего не хватило.
+
+    Поиск общий с карточкой проверки (`pinned`), а отказ свой: письмо без
+    методики собрать нечем, и молчаливая выдача письма «как получилось» здесь
+    невозможна по определению.
     """
     try:
         хотим = _check_version(version)
@@ -275,10 +306,9 @@ def _methodology(version: str, papers: Papers) -> tuple[Path, str]:
         # ИНСТРУМЕНТА проверок: `ChecklistError` означает «движок не принял
         # правку», а никакой правки тут нет.
         raise ToolError(str(отказ)) from None
-    if papers.store is not None:
-        снимок = papers.store / VERSIONS_DIR / хотим
-        if снимок.is_dir():
-            return снимок, FROM_SNAPSHOT
+    найдено = pinned(хотим, papers)
+    if найдено is not None:
+        return найдено
     if papers.live is None:
         raise ToolError(
             f"Не задан {DATA_DIR_VAR} — каталог методики, по которой считается оценка. "
@@ -291,8 +321,6 @@ def _methodology(version: str, papers: Papers) -> tuple[Path, str]:
             f"он остаётся на машине"
         )
     живая = version_of(papers.live)
-    if живая == хотим:
-        return papers.live, FROM_LIVE
     raise ToolError(
         f"Проверка посчитана по версии методики {хотим}, а её снимка нет: в хранилище "
         f"({STORE_VAR}) такой версии не лежит, боевая методика сейчас {живая}. Собрать письмо "
