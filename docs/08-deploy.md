@@ -67,7 +67,11 @@
 
 ## 3. Площадка
 
-Сервер — домашний Windows, доступ `ssh muspelheim`, дефолтный шелл `cmd`,
+> `<HOST>` здесь и ниже — плейсхолдер: репозиторий публичный, поэтому имя
+> машины в него не пишется. Реальное значение — в приватном репозитории инфраструктуры
+> и в `~/.ssh/config` на ноутбуке.
+
+Сервер — домашний Windows, доступ `ssh <HOST>`, дефолтный шелл `cmd`,
 поэтому команды заворачиваются в `powershell -NoProfile -Command "..."`.
 
 Проверено 04.09.2026: Docker Server **29.6.1** отвечает, каталога
@@ -116,7 +120,7 @@ New-Item -ItemType Directory -Force C:\projects\dodo_audit_service
 git clone <url> C:\projects\dodo_audit_service
 
 # методика — копированием с ноутбука, НЕ из git
-#   scp -r data muspelheim:C:/projects/dodo_audit_service/data
+#   scp -r data <HOST>:C:/projects/dodo_audit_service/data
 
 # секреты
 Copy-Item .env.example .env    # и заполнить руками
