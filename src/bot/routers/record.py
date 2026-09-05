@@ -71,7 +71,7 @@ from src.recognize.manual import manual_candidates
 from src.recognize.models import UNKNOWN_ZONE
 from src.recognize.transcribe import transcribe
 
-from .. import refusal, sidecar, view
+from .. import refusal, sealed, sidecar, view
 from ..inspection import read_inspection
 from ..keyboards import (
     ANALYZE_PREFIX,
@@ -509,6 +509,12 @@ async def _save(
     и тем, чем запись стала в итоге, — перезапиши мы предложение правкой, промах
     перестал бы существовать ровно в том случае, ради которого сигнал и собирают.
     """
+    if sealed.is_sealed(chat_id):
+        # Последний рубеж запрета (T201, D080): сюда приходят и нажатия под
+        # старыми предложениями, показанными ДО сдачи отчёта. Проверка стоит у
+        # самой записи, а не только на входах, потому что вход у неё не один.
+        await sealed.refuse(message, lang)
+        return False
     # Движок вызывается подпроцессом, и это 27 мс на вызов. В цикле событий
     # такой вызов останавливает бота ЦЕЛИКОМ — он не обслуживает ни других
     # аудиторов, ни таймеры альбомов (замер T101: подтверждение записи стоило

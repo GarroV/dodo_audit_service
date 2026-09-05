@@ -30,7 +30,7 @@ from collections.abc import Awaitable, Callable
 from aiogram import F, Router
 from aiogram.types import Message
 
-from .. import sidecar
+from .. import sealed, sidecar
 from ..albums import ALBUM_WINDOW_SECONDS, AlbumBuffer, Frame
 from ..inspection import read_inspection
 from ..lang import chat_ui_lang
@@ -90,6 +90,13 @@ def build_material_router(
         lang = chat_ui_lang(group.chat_id)
         if read_inspection(group.chat_id) is None:
             await message.answer(t("material.no_inspection", lang))
+            return
+        if sealed.is_sealed(group.chat_id):
+            # Кадр — главный вход в проверку, и запрет без него был бы только
+            # видимостью запрета (T201, D080). Кадр при этом не запоминается:
+            # в сданной проверке он не станет записью никогда, а список кадров
+            # без записи собирается ради завершения, которое уже позади.
+            await sealed.refuse(message, lang)
             return
         # Кадры запоминаются до всякого разбора и независимо от подписи: список
         # присланного нужен целиком, чтобы в конце показать не попавшее в записи.
@@ -164,6 +171,9 @@ def build_material_router(
         lang = chat_ui_lang(chat_id)
         if read_inspection(chat_id) is None:
             await message.answer(t("material.no_inspection", lang))
+            return
+        if sealed.is_sealed(chat_id):
+            await sealed.refuse(message, lang)
             return
 
         comment = (

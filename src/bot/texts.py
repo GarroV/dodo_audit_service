@@ -193,8 +193,9 @@ TEXTS: dict[str, dict[str, str]] = {
             "Дата: {date}\n"
             "Проверяющий: {auditor}\n"
             "Записей: {findings}\n\n"
-            "Продолжить её — можно дописать и собрать отчёт заново. "
-            "Новая начнётся с чистого листа."
+            "Дописать в неё нельзя: отчёт уже у получателя и в истории точки, "
+            "а дописанное в него не попадёт. Начните новую проверку — или "
+            "уберите эту из чата, если она тут больше не нужна."
         ),
         "en": (
             "The inspection in this chat is already handed over: its report was built "
@@ -203,9 +204,50 @@ TEXTS: dict[str, dict[str, str]] = {
             "Date: {date}\n"
             "Auditor: {auditor}\n"
             "Records: {findings}\n\n"
-            "Continue it — you can add more and rebuild the report. "
-            "A new one starts from a clean slate."
+            "It can no longer be added to: the report is already with its recipient "
+            "and in the unit’s history, and anything added now would not reach it. "
+            "Start a new inspection — or remove this one from the chat if you no "
+            "longer need it here."
         ),
+    },
+    # Отказ на любую попытку изменить сданную проверку (T201, D080). Один текст
+    # на все входы: аудитор упирается в запрет то кадром, то кнопкой, и разные
+    # слова об одном и том же читались бы как разные запреты.
+    "sealed.blocked": {
+        "ru": (
+            "Эта проверка сдана — отчёт по ней собран, отправлен и уехал в историю точки. "
+            "Дописывать и править её нельзя: у получателя на руках другой документ, "
+            "и та же проверка встала бы в историю второй строкой.\n\n"
+            "Начните новую проверку — или уберите сданную из чата."
+        ),
+        "en": (
+            "This inspection is handed over — its report was built, sent and archived in "
+            "the unit’s history. It can be neither extended nor edited: the recipient "
+            "holds a different document, and the same inspection would land in the "
+            "history a second time.\n\n"
+            "Start a new inspection — or remove the handed-over one from the chat."
+        ),
+    },
+    # Проверка убрана из чата. Говорится ровно то, что произошло: убрана копия
+    # в чате, а не отчёт и не строка в истории — их бот удалять не умеет, и
+    # промолчать об этом значило бы дать понять, что удалено всё.
+    "sealed.dropped": {
+        "ru": (
+            "Убрал сданную проверку из чата. Отданный отчёт и её строка в истории точки "
+            "остаются — их бот не удаляет; если нужно убрать и оттуда, скажите "
+            "администратору.\n\n"
+            "Чат свободен: можно начинать новую проверку."
+        ),
+        "en": (
+            "The handed-over inspection is removed from this chat. The delivered report "
+            "and its row in the unit’s history stay — the bot does not delete those; if "
+            "they must go too, tell the administrator.\n\n"
+            "The chat is free: you can start a new inspection."
+        ),
+    },
+    "sealed.drop_gone": {
+        "ru": "Убирать нечего: проверки в этом чате уже нет. Можно начинать новую.",
+        "en": "Nothing to remove: this chat has no inspection any more. You can start a new one.",
     },
     "start.resumed": {
         "ru": "Продолжаем: {unit}, {date}. Записей: {findings}.",
@@ -989,6 +1031,7 @@ TEXTS: dict[str, dict[str, str]] = {
     # единственные, которые язык стенда не мог перекрасить.
     "btn.new_inspection": {"ru": "Новая проверка", "en": "New inspection"},
     "btn.resume_continue": {"ru": "Продолжить", "en": "Continue"},
+    "btn.sealed_drop": {"ru": "Убрать из чата", "en": "Remove from chat"},
     "btn.resume_new": {"ru": "Начать новую", "en": "Start a new one"},
     "btn.back": {"ru": "Назад", "en": "Back"},
     "btn.zone": {"ru": "Зона", "en": "Zone"},

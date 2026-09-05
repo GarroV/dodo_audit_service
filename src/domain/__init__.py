@@ -30,7 +30,7 @@ from .models import (
     ZoneScore,
 )
 from .scoring import score
-from .state import get_state, start_inspection, sync_checklist_version
+from .state import drop_inspection, get_state, start_inspection, sync_checklist_version
 
 __all__ = [
     "INSPECTION_KINDS",
@@ -50,6 +50,7 @@ __all__ = [
     "check_environment",
     "checklist_version",
     "drop_finding",
+    "drop_inspection",
     "edit_finding",
     "get_item",
     "get_state",

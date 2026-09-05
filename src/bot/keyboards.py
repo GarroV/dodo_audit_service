@@ -56,6 +56,10 @@ KIND_PREFIX = "start:kind:"
 LANG_PREFIX = "start:lang:"
 RESUME_CONTINUE_CALLBACK = "start:resume:continue"
 RESUME_NEW_CALLBACK = "start:resume:new"
+#: «Убрать сданную проверку из чата» (T201, D080). Своё нажатие, а не «Начать
+#: новую»: новая проверка затирает старую заодно, а здесь аудитор просит именно
+#: убрать — и вправе не начинать взамен ничего.
+SEALED_DROP_CALLBACK = "start:sealed:drop"
 
 
 def kind_title(code: str, lang: str) -> str:
@@ -118,6 +122,22 @@ def resume_keyboard(lang: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=t("btn.resume_continue", lang), callback_data=RESUME_CONTINUE_CALLBACK)
     builder.button(text=t("btn.resume_new", lang), callback_data=RESUME_NEW_CALLBACK)
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def sealed_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Двери сданной проверки: начать новую или убрать эту из чата (T201, D080).
+
+    Кнопки «Продолжить» здесь нет и быть не может — в этом вся задача. Обе
+    оставшиеся названы владельцем: «мы можем только удалить его, или завести
+    новый». Показывается эта клавиатура и на `/start`, и рядом с каждым отказом:
+    аудитор упирается в запрет посреди работы, кадром или нажатием, и оставлять
+    его в этот момент без выхода — то же самое, что промолчать.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t("btn.resume_new", lang), callback_data=RESUME_NEW_CALLBACK)
+    builder.button(text=t("btn.sealed_drop", lang), callback_data=SEALED_DROP_CALLBACK)
     builder.adjust(1)
     return builder.as_markup()
 

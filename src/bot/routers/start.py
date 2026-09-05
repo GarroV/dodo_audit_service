@@ -23,7 +23,7 @@ from aiogram.types import CallbackQuery, Message
 from src import domain
 from src.domain.errors import DomainError
 
-from .. import sidecar
+from .. import sealed, sidecar
 from ..auditor import auditor_name, auditor_name_was_shortened
 from ..config import BotSettings
 from ..inspection import read_inspection
@@ -35,11 +35,13 @@ from ..keyboards import (
     NEW_INSPECTION_CALLBACK,
     RESUME_CONTINUE_CALLBACK,
     RESUME_NEW_CALLBACK,
+    SEALED_DROP_CALLBACK,
     kind_keyboard,
     kind_title,
     lang_keyboard,
     new_inspection_keyboard,
     resume_keyboard,
+    sealed_keyboard,
 )
 from ..lang import chat_ui_lang
 from ..pending import PendingStore
@@ -71,31 +73,33 @@ UNIT_NAME_BYTE_LIMIT = 120
 
 
 async def _offer_resume(message: Message, inspection: domain.Inspection, lang: str) -> None:
-    """Показать оставшуюся в чате проверку и дать выбор — продолжить или начать новую.
+    """Показать оставшуюся в чате проверку и дать выбор, какой у неё есть.
 
-    Фраз две, и разница между ними не косметическая (T153). Проверке в работе
-    правда, что она незавершённая и что новая её сотрёт. Проверке, по которой
-    отчёт уже собран и отдан, — неправда и то и другое, а звучала эта неправда
-    в начале каждой второй проверки за день.
+    Развилок две, и разница между ними не косметическая (T153, T201). Проверке
+    в работе правда, что она незавершённая и что новая её сотрёт. Проверке, по
+    которой отчёт уже собран и отдан, — неправда и то и другое.
+
+    У сданной проверки выбор другой и меньше: дописать в неё нельзя вовсе
+    (решение владельца D080, `src/bot/sealed.py`), поэтому кнопки «Продолжить»
+    здесь нет. Остаются двери, названные владельцем: начать новую или убрать
+    сданную из чата. До T201 бот сам предлагал «Продолжить её — можно дописать
+    и собрать отчёт заново» — из-за этого тот же обход и вставал в историю
+    точки второй строкой.
 
     Признака «завершена» у движка нет, и бот его не выдумывает: он опирается на
     то, что сделал сам, — отдал ли он по этой проверке отчёт (`sidecar`).
     """
-    ключ = (
-        "start.resume_handed_over"
-        if sidecar.handed_over(message.chat.id, len(inspection.findings))
-        else "start.resume_found"
-    )
+    сдана = sealed.is_sealed(message.chat.id)
     await message.answer(
         t(
-            ключ,
+            "start.resume_handed_over" if сдана else "start.resume_found",
             lang,
             unit=inspection.unit,
             date=inspection.date,
             auditor=inspection.auditor or "—",
             findings=len(inspection.findings),
         ),
-        reply_markup=resume_keyboard(lang),
+        reply_markup=sealed_keyboard(lang) if сдана else resume_keyboard(lang),
     )
 
 
@@ -171,6 +175,11 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         if inspection is None:
             await message.answer(t("start.resume_gone", lang))
             return
+        if sealed.is_sealed(message.chat.id):
+            # Кнопка из вчерашней переписки живёт вечно, а сдать проверку
+            # аудитор мог уже после того, как её увидел (T201).
+            await sealed.refuse(message, lang)
+            return
         # Правило фотофиксации повторяется и здесь (T160, D078): к прерванной
         # проверке аудитор возвращается через день и другой сессией, и первого
         # сообщения — того, где правило прозвучало заранее, — он мог не читать.
@@ -200,6 +209,46 @@ def build_start_router(settings: BotSettings, pending: PendingStore | None = Non
         if not isinstance(message, Message):
             return
         await _ask_unit(message, state, chat_ui_lang(message.chat.id))
+
+    @router.callback_query(F.data == SEALED_DROP_CALLBACK)
+    async def on_sealed_drop(callback: CallbackQuery, state: FSMContext) -> None:
+        """«Убрать из чата»: сданная проверка мешает начать следующую (T201, D080).
+
+        Убирается копия в чате — и только она. Отданный отчёт и строка проверки
+        в истории точки остаются: запечатанное не правится и не удаляется, а
+        доступа к истории у бота и нет. Сказать об этом обязан прямо: молчание
+        здесь читается как «удалено всё».
+
+        Проверка перед удалением — та же, что и на всех остальных входах: не
+        сданную проверку эта кнопка удалить не может, даже если аудитор дошёл до
+        неё по старой переписке. Потерять незавершённый обход одним нажатием —
+        ровно то молчаливое затирание, от которого защищает T052.
+        """
+        await callback.answer()
+        message = callback.message
+        if not isinstance(message, Message):
+            return
+        chat_id = message.chat.id
+        lang = chat_ui_lang(chat_id)
+        await state.clear()
+        if not sealed.is_sealed(chat_id):
+            await message.answer(t("sealed.drop_gone", lang))
+            return
+        try:
+            убрана = await asyncio.to_thread(domain.drop_inspection, chat_id)
+        except DomainError:
+            logger.exception("проверка чата %s не убралась", chat_id)
+            await message.answer(t("start.failed", lang))
+            return
+        if not убрана:
+            await message.answer(t("sealed.drop_gone", lang))
+            return
+        # Заметки уходят вместе с проверкой: список кадров, последняя зона и
+        # карта сообщений относятся к ней, а не к чату.
+        sidecar.reset(chat_id)
+        if pending is not None:
+            pending.forget(chat_id)
+        await message.answer(t("sealed.dropped", lang), reply_markup=new_inspection_keyboard(lang))
 
     @router.message(StateFilter(StartFlow.waiting_unit), F.text)
     async def on_unit(message: Message, state: FSMContext) -> None:

@@ -29,7 +29,7 @@ from aiogram.types import CallbackQuery, Message
 from src import domain
 from src.domain.errors import DomainError
 
-from .. import refusal, sidecar, view
+from .. import refusal, sealed, sidecar, view
 from ..inspection import read_inspection
 from ..keyboards import (
     EDIT_DROP,
@@ -92,6 +92,12 @@ def build_edit_router() -> Router:
         return message, chat_id, chat_ui_lang(chat_id)
 
     async def apply(message: Message, chat_id: int, n: int, lang: str, **fields: str) -> None:
+        if sealed.is_sealed(chat_id):
+            # Правка записанного — тоже правка отчёта, а он уже у получателя
+            # (T201, D080). Кнопки под записями остаются в переписке навсегда,
+            # поэтому запрет стоит здесь, а не только на входе в проверку.
+            await sealed.refuse(message, lang)
+            return
         try:
             await asyncio.to_thread(domain.edit_finding, chat_id, n, **fields)
         except DomainError as exc:
@@ -132,6 +138,9 @@ def build_edit_router() -> Router:
         await drop(message, chat_id, max(f.n for f in inspection.findings), lang)
 
     async def drop(message: Message, chat_id: int, n: int, lang: str) -> None:
+        if sealed.is_sealed(chat_id):
+            await sealed.refuse(message, lang)
+            return
         try:
             await asyncio.to_thread(domain.drop_finding, chat_id, n)
         except DomainError:

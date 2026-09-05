@@ -1,10 +1,14 @@
 """Правка записи ОТВЕТОМ на сообщение бота (задача T204, решение D081).
 
 Владелец, дословно: «Если комментарий надо поправить - ОТВЕТОМ на сообщение
-бота пользователь вносит корректировку… условно: распознала система грязную
-линию начинения - но написала в отбивке что это стол в холодном цехе. значит
-пользователь на это собщение пишет: горячий цех, линия начинения. система берет
+бота пользователь вносит корректировку… условно: распознала система грязный
+<объект> - но написала в отбивке что это стол в холодном цехе. значит
+пользователь на это собщение пишет: горячий цех, <объект>. система берет
 уже этот комментарий и ищет нужный пункт в чеклисте».
+
+Название объекта здесь заменено: это строка методики управляющей компании, а
+репозиторий публичный (сторож — `tests/test_methodology_leak.py`). Дословная
+формулировка владельца целиком лежит в `docs/forge/decisions.md`, D081.
 
 Три правила, из которых собран этот модуль.
 
@@ -39,7 +43,7 @@ from aiogram.types import Message
 
 from src import domain
 
-from .. import sidecar
+from .. import sealed, sidecar
 from ..inspection import read_inspection
 from ..lang import chat_ui_lang
 from ..pending import PendingStore
@@ -77,6 +81,11 @@ def build_correct_router(*, pending: PendingStore) -> Router:
         inspection = read_inspection(chat_id)
         if inspection is None:
             await message.answer(t("material.no_inspection", lang))
+            return
+        if sealed.is_sealed(chat_id):
+            # Запрет T201 действует и здесь: правка ответом — та же правка
+            # отчёта, только другой дверью.
+            await sealed.refuse(message, lang)
             return
         if inspection.finding(n) is None:
             # Сообщения о снятых записях остаются в переписке навсегда, и
