@@ -48,12 +48,14 @@ from bot_harness import (
 )
 from bot_harness import callback_query as callback
 
+from src import domain
 from src.bot import sidecar
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.keyboards import EDIT_DROP, EDIT_PREFIX, PICK_PREFIX
 from src.bot.texts import t
 from src.domain import Finding, get_state, start_inspection
+from src.recognize.errors import RecognizeError
 
 pytestmark = pytest.mark.asyncio
 
@@ -219,6 +221,71 @@ async def test_голосовой_ответ_правит_запись(
     await feed(dp, bot, voice_message("voice-1", reply_to=bot_message(said)))
 
     assert [(f.code, f.zone) for f in findings()] == [("CLN02", "dishwashing")]
+
+
+async def test_пустой_ответ_на_запись_не_молчит(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ответ из одних пробелов: поправить нечем, и сказать об этом обязательно.
+
+    Молчание здесь читается как «принято»: аудитор идёт дальше, а запись
+    осталась прежней и уедет в отчёт партнёру такой же.
+    """
+    started()
+    asked = stub_classify(monkeypatch, suggestion())
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+    said = await make_record(dp, bot, session)
+    session.clear()
+
+    await feed(dp, bot, text_message("   ", reply_to=bot_message(said)))
+
+    assert session.last_text == t("correct.empty", "ru", n=1)
+    assert asked == [], "пустой ответ ушёл в модель"
+    assert [(f.code, f.zone) for f in findings()] == [("CLN05", "hot_kitchen")]
+
+
+async def test_нерасслышанное_голосовое_записи_не_трогает(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Расшифровка не удалась — запись остаётся прежней, а отказ уже сказан.
+
+    Отказ произносит сама расшифровка (`hear_voice`), поэтому здесь проверяется
+    не текст, а то, что правка на этом остановилась: догадываться, чего хотел
+    аудитор, по несостоявшейся расшифровке нельзя.
+    """
+    started()
+    asked = stub_classify(monkeypatch, suggestion())
+    stub_transcribe(monkeypatch, RecognizeError("расшифровка недоступна"))
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+    said = await make_record(dp, bot, session)
+
+    await feed(dp, bot, voice_message("voice-bad", reply_to=bot_message(said)))
+
+    assert asked == [], "модель звали по нерасслышанному голосовому"
+    assert [(f.code, f.zone) for f in findings()] == [("CLN05", "hot_kitchen")]
+
+
+async def test_ответ_на_запись_снесённой_проверки_не_падает(
+    domain_env: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Проверки в чате уже нет, а сообщение о её записи есть — обычный случай.
+
+    Так выглядит чат после «Начать новую» или после того, как сданную убрали:
+    старая переписка на месте, и ответить на неё аудитор может.
+    """
+    started()
+    stub_classify(monkeypatch, suggestion())
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+    said = await make_record(dp, bot, session)
+    domain.drop_inspection(CHAT_ID)
+    session.clear()
+
+    await feed(dp, bot, text_message(SINK_REPLY, reply_to=bot_message(said)))
+
+    assert session.last_text == t("material.no_inspection", "ru")
 
 
 async def test_ответ_не_на_запись_связывает_комментарий_как_раньше(
