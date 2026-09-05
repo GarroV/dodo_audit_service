@@ -98,7 +98,7 @@ from ..material import Comment, Material, MaterialStore, PhotoGroup
 from ..pending import Offer, PendingStore, Proposal
 from ..photos import fetch_bytes
 from ..shown import remember as remember_shown
-from ..shown import remember_origin
+from ..shown import remember_origin, tell_refusal
 from ..texts import t
 from ..zones import zone_from_words
 
@@ -698,10 +698,9 @@ async def _save(
             if correcting is not None
             else refusal.not_recorded(chat_id, code=code, zone=zone, lang=lang, exc=exc)
         )
-        await message.answer(
-            told.text,
-            reply_markup=edit_keyboard(told.clash.n, lang) if told.clash is not None else None,
-        )
+        # Отказ, назвавший запись, — её показ: ответ словами на него правит её,
+        # а не заводит новую из чужого ждущего кадра (T227).
+        await tell_refusal(message, chat_id, told, lang)
         return None
     for file_id in file_ids:
         try:

@@ -45,6 +45,7 @@ from ..keyboards import (
 )
 from ..lang import chat_ui_lang
 from ..shown import remember as remember_shown
+from ..shown import tell_refusal
 from ..states import EditFlow
 from ..texts import t
 
@@ -112,10 +113,9 @@ def build_edit_router() -> Router:
                 lang=lang,
                 exc=exc,
             )
-            await message.answer(
-                told.text,
-                reply_markup=edit_keyboard(told.clash.n, lang) if told.clash is not None else None,
-            )
+            # Тот же отказ и то же правило, что при фиксации (T227): он назвал
+            # запись, значит ответом на него правят её.
+            await tell_refusal(message, chat_id, told, lang)
             return
         if "zone" in fields:
             # Аудитор назвал зону руками — она и становится догадкой для
