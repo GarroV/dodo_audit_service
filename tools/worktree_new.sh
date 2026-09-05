@@ -13,21 +13,21 @@
 # копии, и блок меряет чужой код.
 set -euo pipefail
 
-блок=${1:?нужно имя блока, например bot17}
-ветка=${2:?нужно имя ветки, например feat/bot17}
-корень=$(git rev-parse --show-toplevel)
-копии=${WORKTREE_HOME:-$HOME/Documents/workbench/worktrees}
-цель="$копии/$(basename "$корень")-$блок"
+block=${1:?нужно имя блока, например bot17}
+branch=${2:?нужно имя ветки, например feat/bot17}
+root=$(git rev-parse --show-toplevel)
+home=${WORKTREE_HOME:-$HOME/Documents/workbench/worktrees}
+target="$home/$(basename "$root")-$block"
 
-[ -e "$цель" ] && { echo "уже есть: $цель" >&2; exit 1; }
+[ -e "$target" ] && { echo "уже есть: $target" >&2; exit 1; }
 
-git -C "$корень" worktree add -q "$цель" -b "$ветка" main
-cp -R "$корень/data" "$цель/data"
-cp -R "$корень/examples" "$цель/examples"
-ln -sfn "$корень/.venv" "$цель/.venv"
+git -C "$root" worktree add -q "$target" -b "$branch" main
+cp -R "$root/data" "$target/data"
+cp -R "$root/examples" "$target/examples"
+ln -sfn "$root/.venv" "$target/.venv"
 
 # Секреты в копию не уезжают: имена переменных нужны, значения нет.
-sed 's/=.*/=подставь-своё/' "$корень/.env" > "$цель/.env"
+sed 's/=.*/=подставь-своё/' "$root/.env" > "$target/.env"
 
-echo "копия: $цель"
+echo "копия: $target"
 echo "данные и эталоны — реальные копии, .env с заглушками, .venv общий"
