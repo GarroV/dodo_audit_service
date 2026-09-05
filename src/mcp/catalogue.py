@@ -300,10 +300,19 @@ TOOLS: tuple[ToolSpec, ...] = (
         description=(
             "Read one recorded inspection of the caller's tenant in full: its "
             "header, the score breakdown (percentage, letter grade, "
-            "deductions, per-check counts, per-zone breakdown), and every "
-            "recorded finding — exactly as the audit engine stored them when "
-            "the inspection was completed, with nothing recalculated here. "
-            "Returns found: false, with no error, when the id does not match "
+            "deductions, per-check counts, per-zone breakdown), every "
+            "recorded finding, and the information part — the answers the "
+            "auditor gave at the end of the walk, among them the action plan "
+            "deadline the partner was given. All of it exactly as the audit "
+            "engine stored it when the inspection was completed, with nothing "
+            "recalculated here. Each information field carries its checklist "
+            "code and the wording of that item in the methodology version the "
+            "inspection was scored by; 'title' is null when that version is "
+            "not on this machine — wording from another version would be a "
+            "different question under the same date. Read 'status' before "
+            "concluding anything from an empty information part: it says "
+            "whether these answers were recorded at all. Returns "
+            "found: false, with no error, when the id does not match "
             "any inspection of this tenant (including one that belongs to "
             "another tenant)."
         ),
@@ -311,6 +320,19 @@ TOOLS: tuple[ToolSpec, ...] = (
             "type": "object",
             "properties": {
                 "id": _INSPECTION_ID_PROPERTY,
+                "lang": {
+                    "type": "string",
+                    "description": (
+                        "Language of the information field titles, as a "
+                        "two-letter code (for example 'ru' or 'en'). Omit to "
+                        "use the language the report was issued in. Titles "
+                        "only: the auditor's own answers and the findings are "
+                        "returned word for word and are never translated. A "
+                        "language the methodology does not carry is rejected "
+                        "with an explicit error rather than quietly answered "
+                        "in another language."
+                    ),
+                },
             },
             "required": ["id"],
             "additionalProperties": False,
