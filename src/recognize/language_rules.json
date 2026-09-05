@@ -1,6 +1,6 @@
 {
   "ru": {
-    "about": "Русский. Стоп-слова и окончания перенесены из src/recognize/cues.py, слова колонок — из src/recognize/fastpath.py, дословно и без добавлений: они собраны по заголовкам колонок карты и формулировкам боевых проверок. Слов, которые переворачиваются отрицанием («убран», «протёрт»), здесь нет намеренно — совпадение идёт по основам и частицу «не» не видит. Направление частиц: «не», «без», «ни» относятся к тому, что стоит ПОСЛЕ них («не смешаны», «без нагара»), а «нет» — к обеим сторонам сразу, потому что по-русски говорят и «нет нагара», и «нагара нет».",
+    "about": "Русский. Стоп-слова и окончания перенесены из src/recognize/cues.py, слова колонок — из src/recognize/fastpath.py, дословно и без добавлений: они собраны по заголовкам колонок карты и формулировкам боевых проверок. Слов, которые переворачиваются отрицанием («убран», «протёрт»), здесь нет намеренно — совпадение идёт по основам и частицу «не» не видит. Направление частиц: «не», «без», «ни» относятся к тому, что стоит ПОСЛЕ них («не смешаны», «без нагара»), а «нет» — к обеим сторонам сразу, потому что по-русски говорят и «нет нагара», и «нагара нет». Связка указания процесса — «это»: слово из формулировки владельца (D077). Тире и дефис связками намеренно не объявлены — они стоят в обычных комментариях сплошь и рядом («нагар — жирные потёки»), и признак на них превратился бы в шум.",
     "stopwords": [
       "без",
       "более",
@@ -83,6 +83,9 @@
       "нет": "both",
       "ни": "forward"
     },
+    "connectives": [
+      "это"
+    ],
     "column_words": {
       "грязь": [
         "грязь",
@@ -126,7 +129,7 @@
     }
   },
   "en": {
-    "about": "English. Stop words mirror the Russian list role for role: articles, auxiliaries, prepositions and the map's own boilerplate ('what you see'). Negations are deliberately NOT stop words here: a cue phrase that says 'without' must not be covered by a comment that says the opposite. Every English particle points forward ('no soot', 'without a label') — there is no counterpart of the Russian trailing 'нет', so nothing here is declared 'both'. Suffixes are plural and past-tense endings only — verb '-ing' stacks with '-s' ('ceiling' vs 'ceilings') and costs more matches than it buys. Column words come from the column headers themselves plus forms that do not flip under negation; the management company adds its own in the map.",
+    "about": "English. Stop words mirror the Russian list role for role: articles, auxiliaries, prepositions and the map's own boilerplate ('what you see'). Negations are deliberately NOT stop words here: a cue phrase that says 'without' must not be covered by a comment that says the opposite. Every English particle points forward ('no soot', 'without a label') — there is no counterpart of the Russian trailing 'нет', so nothing here is declared 'both'. Suffixes are plural and past-tense endings only — verb '-ing' stacks with '-s' ('ceiling' vs 'ceilings') and costs more matches than it buys. Column words come from the column headers themselves plus forms that do not flip under negation; the management company adds its own in the map. The process-hint connective is 'is'. It is far more frequent than the Russian 'это', and the only thing that holds the hint back is the tail rule: what follows must be EXACTLY a process name and nothing else. Measured on the management company's own English wordings (136 checklist questions, 31 of which contain 'is'): zero hits.",
     "stopwords": [
       "all",
       "and",
@@ -193,6 +196,9 @@
       "not": "forward",
       "without": "forward"
     },
+    "connectives": [
+      "is"
+    ],
     "column_words": {
       "dirt": [
         "cobweb",

@@ -34,6 +34,7 @@ from pathlib import Path
 
 import pytest
 
+from src.recognize import process_hint as process_hint_module
 from src.recognize.cues import CUES_FILE, class_thresholds, column_words, load_cues, stems
 from src.recognize.errors import RecognizeConfigError
 from src.recognize.fastpath import NO_COLUMN, NO_CUE, fast_path
@@ -149,6 +150,7 @@ def test_третий_язык_добавляется_словарём_а_не_�
                     "stopwords": ["qux"],
                     "suffixes": ["zzz"],
                     "negations": {"nix": "forward"},
+                    "connectives": ["ovo"],
                     "column_words": {"prljavo": ["blato"]},
                     "sections": {
                         "thresholds": "## Pragovi",
@@ -456,6 +458,7 @@ def test_одна_частица_в_разных_языках_не_может_с
         "about": "оснастка теста: языка такого в продукте нет",
         "stopwords": ["qux"],
         "suffixes": ["zzz"],
+        "connectives": ["ovo"],
         "column_words": {"prljavo": ["blato"]},
         "sections": {THRESHOLDS: "## Pragovi", COLUMN_WORDS: "## Reci"},
     }
@@ -477,3 +480,22 @@ def test_одна_частица_в_разных_языках_не_может_с
         negations(правила)
 
     assert "nix" in str(отказ.value), str(отказ.value)
+
+
+def test_связка_указания_процесса_объявлена_для_обоих_языков(domain_env: Path) -> None:
+    """Связка — параметр языка, а не русская константа (T196, #161).
+
+    Пока связка была задана русским выражением, аудитор, ведущий проверку
+    по-английски, не мог указать процесс вовсе. Молчал признак бесшумно: он и
+    так имеет право не срабатывать, и «указаний не было» выглядело так же, как
+    «указать было нечем».
+    """
+    for код in ЯЗЫКИ_ПРОДУКТА:
+        assert RULES[код].connectives, f"у языка {код} не объявлено ни одной связки"
+
+    выражение = process_hint_module.CONNECTIVE
+    for код in ЯЗЫКИ_ПРОДУКТА:
+        for связка in RULES[код].connectives:
+            assert выражение.search(f"что-то, {связка} процесс"), (
+                f"связка «{связка}» языка {код} не попала в выражение признака"
+            )

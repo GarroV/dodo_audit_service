@@ -31,6 +31,7 @@ from src.recognize.language import COLUMN_WORDS, THRESHOLDS, load_rules, section
     "stopwords": ["and"],
     "suffixes": ["ing"],
     "negations": {"not": "forward"},
+    "connectives": ["is"],
     "column_words": {"dirt": ["stain"]},
     "sections": {
         THRESHOLDS: "## Thresholds",
@@ -232,3 +233,33 @@ def test_частицы_списком_без_направления_это_от
         load_rules(файл)
 
     assert "частиц отрицания" in str(отказ.value), str(отказ.value)
+
+
+def test_связка_строкой_вместо_списка_это_отказ(tmp_path: Path) -> None:
+    """Связка указания процесса — список слов, а не одно слово строкой (T196).
+
+    Строка разошлась бы по буквам там, где ждут слова, и признак «<описание>,
+    это <процесс>» стал бы искать связку «э», «т», «о». Молчаливо: он и так
+    имеет право не срабатывать, и отличить сломанное правило от отсутствия
+    указаний было бы нечем.
+    """
+    язык = copy.deepcopy(ВАЛИДНЫЙ_ЯЗЫК)
+    язык["connectives"] = "is"
+    файл = _записать(tmp_path, язык)
+
+    with pytest.raises(RecognizeConfigError) as отказ:
+        load_rules(файл)
+
+    assert "connectives" in str(отказ.value), str(отказ.value)
+
+
+def test_пустой_список_связок_это_отказ(tmp_path: Path) -> None:
+    """Язык без связки — язык, на котором указать процесс нельзя вовсе."""
+    язык = copy.deepcopy(ВАЛИДНЫЙ_ЯЗЫК)
+    язык["connectives"] = []
+    файл = _записать(tmp_path, язык)
+
+    with pytest.raises(RecognizeConfigError) as отказ:
+        load_rules(файл)
+
+    assert "connectives" in str(отказ.value), str(отказ.value)

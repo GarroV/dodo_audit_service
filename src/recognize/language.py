@@ -55,7 +55,15 @@ _SECTIONS = (THRESHOLDS, COLUMN_WORDS)
 
 #: Поля, которые обязан объявить каждый язык. Пропущенное — это язык, который
 #: разбирается наполовину: слова режутся, а колонка не выбирается никогда.
-_FIELDS = ("about", "stopwords", "suffixes", "negations", "column_words", "sections")
+_FIELDS = (
+    "about",
+    "stopwords",
+    "suffixes",
+    "negations",
+    "connectives",
+    "column_words",
+    "sections",
+)
 
 #: Куда частица отрицания смотрит — часть правил языка, а не кода (T195).
 #: По-русски «не», «без», «ни» относятся к тому, что стоит ПОСЛЕ них, а «нет» —
@@ -80,6 +88,8 @@ class LanguageRules:
     suffixes: tuple[str, ...]
     #: Частица, переворачивающая смысл («без нагара»), → куда она смотрит.
     negations: Mapping[str, str]
+    #: Связки указания процесса: «<описание>, ЭТО <процесс>» (T166, T196).
+    connectives: tuple[str, ...]
     #: Заголовок колонки карты → слова, которыми аудитор эту колонку называет.
     column_words: Mapping[str, tuple[str, ...]]
     #: Разделы карты кадров: `THRESHOLDS` и `COLUMN_WORDS` → начало заголовка.
@@ -147,6 +157,7 @@ def _one(raw: Mapping[str, object], code: str) -> LanguageRules:
         stopwords=frozenset(_words(raw["stopwords"], f"{code}/stopwords")),
         suffixes=_words(raw["suffixes"], f"{code}/suffixes"),
         negations=_negations(raw["negations"], code),
+        connectives=_words(raw["connectives"], f"{code}/connectives"),
         column_words={
             _words([header], f"{code}/column_words")[0]: _words(words, f"{code}/{header}")
             for header, words in columns.items()
@@ -205,6 +216,21 @@ def negations(rules: Mapping[str, LanguageRules] = RULES) -> Mapping[str, str]:
                     f"(«{merged[word]}» и «{direction}»)"
                 )
     return merged
+
+
+def connectives(rules: Mapping[str, LanguageRules] = RULES) -> tuple[str, ...]:
+    """Связки указания процесса всех языков разом, в устойчивом порядке.
+
+    Складываются по той же причине, что стоп-слова и частицы (T192): языков в
+    разборе одновременно три и совпадать они не обязаны. Выбор связки по `lang`
+    означал бы, что русское указание перестаёт узнаваться, как только аудитор
+    попросил английский отчёт, — молча и без единого отказа.
+
+    Порядок отсортирован, а не взят из файла: из этих слов собирается регулярное
+    выражение, и чередование, зависящее от порядка языков в файле, давало бы
+    разный разбор одного и того же текста после добавления третьего языка.
+    """
+    return tuple(sorted({word for r in rules.values() for word in r.connectives}))
 
 
 def column_words(rules: Mapping[str, LanguageRules] = RULES) -> dict[str, tuple[str, ...]]:
