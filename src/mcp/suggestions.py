@@ -281,7 +281,7 @@ def _status(*, findings: int, with_suggestion: int, corrected: int, misses: int)
         )
     return (
         f"{corrected} of {with_suggestion} findings with a model suggestion were corrected "
-        f"by the auditor; they group into {misses} recurring code miss patterns. {NOT_APPLIED}"
+        f"by the auditor; recurring code miss patterns: {misses}. {NOT_APPLIED}"
     )
 
 
