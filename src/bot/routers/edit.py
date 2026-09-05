@@ -44,6 +44,7 @@ from ..keyboards import (
     zones_keyboard,
 )
 from ..lang import chat_ui_lang
+from ..shown import remember as remember_shown
 from ..states import EditFlow
 from ..texts import t
 
@@ -64,10 +65,14 @@ async def show_changed(message: Message, chat_id: int, n: int, lang: str) -> Non
     # Оценка здесь не считается: процент по ходу обхода не показывается (T162,
     # D072), а `score` — подпроцесс на 26 мс (замер T101). Пересчёт от этого не
     # пропадает: он живёт в движке и виден в итоге при завершении.
-    await message.answer(
+    sent = await message.answer(
         view.changed_line(finding, lang),
         reply_markup=edit_keyboard(n, lang),
     )
+    # Правка кнопкой — тоже показ записи, и отвечать аудитор будет на последнее
+    # сообщение о ней, а не искать первое (T204). Не запомнить его значило бы
+    # сделать правку ответом доступной ровно до первого нажатия кнопки.
+    remember_shown(chat_id, sent, n)
 
 
 def _finding(chat_id: int, n: int) -> domain.Finding | None:

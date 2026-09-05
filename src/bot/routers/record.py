@@ -97,6 +97,7 @@ from ..lang import chat_langs
 from ..material import Comment, Material, MaterialStore, PhotoGroup
 from ..pending import Offer, PendingStore, Proposal
 from ..photos import fetch_bytes
+from ..shown import remember as remember_shown
 from ..texts import t
 from ..zones import zone_from_words
 
@@ -146,8 +147,14 @@ async def _drop_question(message: Message, chat_id: int, offer: Offer) -> None:
         logger.warning("не удалось снять кнопку «Разобрать» в чате %s", chat_id, exc_info=True)
 
 
-async def _hear_voice(message: Message, file_id: str, lang: str) -> str | None:
-    """Голосовое в текст. Не вышло — сказать и попросить текстом, не роняя проверку."""
+async def hear_voice(message: Message, file_id: str, lang: str) -> str | None:
+    """Голосовое в текст. Не вышло — сказать и попросить текстом, не роняя проверку.
+
+    Общая на весь блок, а не своя у каждого роутера: голосом аудитор и заводит
+    запись, и правит её ответом (T204), и это одно и то же действие продукта.
+    Вторая копия разошлась бы с первой на тексте отказа — то есть ровно там, где
+    человек остаётся без подсказки, что делать дальше.
+    """
     bot = message.bot
     raw = None if bot is None else await fetch_bytes(bot, file_id)
     if raw is None:
@@ -171,17 +178,23 @@ async def _show_candidates(message: Message, proposal: Proposal, lang: str) -> N
     остальных: нажатие даёт второй отказ подряд по поводу, о котором бот только
     что сказал сам.
     """
-    text = t(
-        "record.candidates",
-        lang,
-        count=len(proposal.file_ids),
-        lines=view.candidate_lines(
-            proposal.candidates, lang, refusal.occupied_pairs(message.chat.id)
-        ),
+    lines = view.candidate_lines(proposal.candidates, lang, refusal.occupied_pairs(message.chat.id))
+    # Под правкой (T204) спрашивается другое: не «что записать», а «чем
+    # поправить запись №N». Число кадров там ни при чём — кадры остались у
+    # записи, и «Кадров: 0» читалось бы как потеря материала.
+    text = (
+        t("record.candidates_correcting", lang, n=proposal.correcting, lines=lines)
+        if proposal.correcting is not None
+        else t("record.candidates", lang, count=len(proposal.file_ids), lines=lines)
     )
     if proposal.question:
         text = t("record.question", lang, question=proposal.question) + "\n\n" + text
-    await message.answer(text, reply_markup=candidates_keyboard(len(proposal.candidates), lang))
+    await message.answer(
+        text,
+        reply_markup=candidates_keyboard(
+            len(proposal.candidates), lang, correcting=proposal.correcting is not None
+        ),
+    )
 
 
 async def _show_manual_page(message: Message, proposal: Proposal, page: int, lang: str) -> None:
@@ -211,10 +224,18 @@ async def _show_manual_page(message: Message, proposal: Proposal, page: int, lan
         lang,
         refusal.occupied_pairs(message.chat.id),
     )
-    await message.answer(
-        t("record.manual_page", lang, page=page + 1, pages=pages) + taken,
-        reply_markup=manual_keyboard(titles, page, pages, lang),
+    header = (
+        t(
+            "record.manual_page_correcting",
+            lang,
+            n=proposal.correcting,
+            page=page + 1,
+            pages=pages,
+        )
+        if proposal.correcting is not None
+        else t("record.manual_page", lang, page=page + 1, pages=pages)
     )
+    await message.answer(header + taken, reply_markup=manual_keyboard(titles, page, pages, lang))
 
 
 async def _ask_zone(message: Message, prefix: str, lang: str) -> None:
@@ -332,6 +353,9 @@ async def _try_fast(
         # ноль вместо неё был бы ложью: «система ни в чём не уверена» это
         # осмысленное утверждение, и по нему ставят порог отбора.
         suggested=domain.Suggestion(code=item.code, level=item.level, zone=item.zone),
+        # Правка ответом (T204) идёт этой же дорогой: сверка ищет пункт по
+        # словам аудитора одинаково, заводит он запись или поправляет.
+        correcting=base.correcting,
     )
     if not saved:
         return False
@@ -339,7 +363,7 @@ async def _try_fast(
     return True
 
 
-async def _analyze(
+async def analyze(
     message: Message,
     chat_id: int,
     *,
@@ -348,6 +372,7 @@ async def _analyze(
     source: str,
     pending: PendingStore,
     fast: bool = True,
+    correcting: int | None = None,
 ) -> None:
     """Сверить со списком нарушений, а если не сошлось — спросить разбор.
 
@@ -359,6 +384,11 @@ async def _analyze(
 
     `fast=False` приходит с кнопки «Разобрать моделью»: второй заход обязан
     дойти до модели, иначе кнопка возвращала бы тот же быстрый ответ по кругу.
+
+    `correcting` — номер записи, которую этот разбор ПРАВИТ (T204). Путь тот же
+    самый и намеренно: аудитор поправляет запись теми же словами, какими её
+    заводил, и вторая дорога для тех же слов разошлась бы с первой — сверка
+    отвечала бы на правку не так, как на первичный материал.
     """
     lang, report_lang = chat_langs(chat_id)
     # Слова текущего комментария — первыми, память — только если о зоне в них
@@ -372,6 +402,7 @@ async def _analyze(
         note=note,
         zone_hint=zone_hint,
         zone_spoken=spoken is not None,
+        correcting=correcting,
     )
 
     if fast and note and await _try_fast(message, chat_id, base, pending, lang):
@@ -430,8 +461,9 @@ async def _save(
     auto: FastItem | None = None,
     zone_guessed: bool = False,
     suggested: domain.Suggestion | None = None,
+    correcting: int | None = None,
 ) -> bool:
-    """Зафиксировать запись и показать её (T055, T121).
+    """Зафиксировать запись и показать её (T055, T121), а с T204 — и поправить.
 
     Возвращает, получилось ли. Отказ движка — не редкость и не ошибка бота: тот
     же пункт в той же зоне аудитор снимает дважды за обход. Поэтому предложение
@@ -465,28 +497,56 @@ async def _save(
     терялся бы целиком, как терялся до этой задачи. Пусто — предложения не было
     (ручной перечень); домен запишет это как «система не предлагала ничего», и
     в базе такая запись не выглядит попаданием модели.
+
+    `correcting` — номер записи, которую надо ПОПРАВИТЬ вместо того, чтобы
+    заводить новую (T204, D081). Аудитор ответил на сообщение бота словами
+    «система поняла не так», и вторая запись о том же нарушении — ровно то,
+    чего он этим ответом избегает: в отчёт партнёру уехали бы обе.
+
+    Ни слова аудитора, ни предложение системы правка не переписывает, и это не
+    упущение: `domain.edit_finding` их полей не знает вовсе. Сигнал о промахе
+    (T183, T181) держится на разнице между тем, что система предложила сначала,
+    и тем, чем запись стала в итоге, — перезапиши мы предложение правкой, промах
+    перестал бы существовать ровно в том случае, ради которого сигнал и собирают.
     """
     # Движок вызывается подпроцессом, и это 27 мс на вызов. В цикле событий
     # такой вызов останавливает бота ЦЕЛИКОМ — он не обслуживает ни других
     # аудиторов, ни таймеры альбомов (замер T101: подтверждение записи стоило
     # 47 мс, и очередь росла линейно — двадцать аудиторов, секунда последнему).
     try:
-        finding = await asyncio.to_thread(
-            domain.add_finding,
-            chat_id,
-            code,
-            level,
-            zone,
-            text,
-            source=source,
-            words=words,
-            suggested=suggested,
-        )
+        if correcting is not None:
+            finding = await asyncio.to_thread(
+                domain.edit_finding,
+                chat_id,
+                correcting,
+                code=code,
+                level=level,
+                zone=zone,
+                text=text,
+            )
+        else:
+            finding = await asyncio.to_thread(
+                domain.add_finding,
+                chat_id,
+                code,
+                level,
+                zone,
+                text,
+                source=source,
+                words=words,
+                suggested=suggested,
+            )
     except DomainError as exc:
         # Отказ движка разбирается, а не пересказывается (T127): пункт и зона
         # называются по-человечески, а занятая пара «пункт + зона» — частый
-        # случай — приводит к кнопкам той записи, которая её заняла.
-        told = refusal.not_recorded(chat_id, code=code, zone=zone, lang=lang, exc=exc)
+        # случай — приводит к кнопкам той записи, которая её заняла. У правки
+        # разбор свой: он знает номер правимой записи и потому не отправит
+        # аудитора к кнопкам той самой записи, которую тот и правит.
+        told = (
+            refusal.not_changed(chat_id, correcting, code=code, zone=zone, lang=lang, exc=exc)
+            if correcting is not None
+            else refusal.not_recorded(chat_id, code=code, zone=zone, lang=lang, exc=exc)
+        )
         await message.answer(
             told.text,
             reply_markup=edit_keyboard(told.clash.n, lang) if told.clash is not None else None,
@@ -509,12 +569,27 @@ async def _save(
     saved = read_inspection(chat_id)
     current = None if saved is None else saved.finding(finding.n)
     shown = current or finding
-    if auto is None:
+    if correcting is not None:
+        # Правка ответом (T204): показ собран из тех же частей, но заголовком
+        # говорит, что записи не прибавилось. Кнопки — те же, что были под
+        # записью: правка не отменяет ни зоны, ни класса, ни удаления, а после
+        # сверки оставляет и выход к модели.
+        sent = await message.answer(
+            view.corrected_block(
+                shown,
+                lang,
+                title=refusal.item_title(shown.code, lang),
+                cue="" if auto is None else auto.cue,
+                zone_guessed=zone_guessed,
+            ),
+            reply_markup=(edit_keyboard if auto is None else fixed_keyboard)(finding.n, lang),
+        )
+    elif auto is None:
         # Подтверждённая запись показывается не строкой, а блоком (T135): к
         # строке добавлены вопрос пункта словами и то, что уйдёт в отчёт
         # партнёру. Код в строке глазами не проверяется, а формулировка —
         # проверяется, и прочитать её надо ДО того, как документ уедет.
-        await message.answer(
+        sent = await message.answer(
             view.confirmed_block(
                 shown,
                 lang,
@@ -524,12 +599,17 @@ async def _save(
             reply_markup=edit_keyboard(finding.n, lang),
         )
     else:
-        await message.answer(
+        sent = await message.answer(
             view.fixed_block(
                 shown, lang, title=auto.title, cue=auto.cue, zone_guessed=zone_guessed
             ),
             reply_markup=fixed_keyboard(finding.n, lang),
         )
+    # Этим сообщением аудитор и правит запись — ответом на него (T204). Карта
+    # ведётся здесь, а не в роутере правки: показ записи собирается в этом
+    # месте, и любой другой был бы вторым списком мест, который однажды отстал
+    # бы от первого на один показ.
+    remember_shown(chat_id, sent, finding.n)
     return True
 
 
@@ -567,7 +647,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
         # кадр, по которому разбор уже идёт.
         store.queue(chat_id).resolve_reply(offer.anchor_id, Comment(text=""))
         await _drop_question(message, chat_id, offer)
-        await _analyze(
+        await analyze(
             message,
             chat_id,
             note="",
@@ -601,7 +681,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
         if proposal is None or proposal.fast is None:
             await stale(message, lang)
             return
-        await _analyze(
+        await analyze(
             message,
             chat_id,
             note=proposal.note,
@@ -653,6 +733,11 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
                 and candidate.zone == proposal.zone_hint
             ),
             suggested=_model_suggestion(proposal),
+            # Нажатие под правкой означает «поправить на этот пункт», а не
+            # «завести ещё один»: адресат назван ответом аудитора и с тех пор
+            # не меняется, сколько бы кадров он ни прислал между показом
+            # кандидатов и кнопкой.
+            correcting=proposal.correcting,
         ):
             pending.take_proposal(chat_id)
 
@@ -684,6 +769,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             # модели — `UNKNOWN`. Подставить сюда выбранную зону значило бы
             # спрятать её отказ и превратить промах в попадание.
             suggested=_model_suggestion(proposal),
+            correcting=proposal.correcting,
         ):
             pending.take_proposal(chat_id)
 
@@ -773,6 +859,7 @@ def build_record_router(*, store: MaterialStore, pending: PendingStore) -> Route
             # выборке для управляющей компании: ручных записей на порядок
             # больше, и все они выглядели бы попаданием модели (D077).
             suggested=None,
+            correcting=proposal.correcting,
         ):
             pending.take_proposal(chat_id)
 
@@ -842,12 +929,12 @@ def make_material_handler(
 
         note = (material.comment.text or "").strip()
         if material.comment.voice_file_id is not None:
-            heard = await _hear_voice(message, material.comment.voice_file_id, lang)
+            heard = await hear_voice(message, material.comment.voice_file_id, lang)
             if heard is None:
                 return
             note = heard.strip()
 
-        await _analyze(
+        await analyze(
             message,
             chat_id,
             note=note,

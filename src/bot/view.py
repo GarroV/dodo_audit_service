@@ -248,6 +248,41 @@ def fixed_block(
     )
 
 
+def corrected_block(
+    finding: domain.Finding,
+    lang: str,
+    *,
+    title: str,
+    cue: str = "",
+    zone_guessed: bool = False,
+) -> str:
+    """Запись после правки ответом на сообщение бота (T204, D081).
+
+    Собран из тех же частей, что и показ записи по словам: строка записи, вопрос
+    пункта, текст для отчёта. Причина та же и та же, что в T135 — **код глазами
+    не читается**, а правка меняет как раз код и зону: без вопроса пункта
+    аудитор не увидит, что система поняла его ответ иначе, чем он сказал.
+
+    От `changed_line` (правка кнопками) отличается намеренно. Там пункт не
+    менялся вовсе — менялись зона, класс или формулировка, и строки хватало.
+    Здесь система заново ИСКАЛА пункт по словам человека, то есть сделала ровно
+    то, на чём она и промахивается.
+
+    `cue` — сработавшая строка карты нарушений, когда пункт нашла сверка. У
+    ответа модели её нет, и тогда её нет и в показе.
+    """
+    return t(
+        "record.corrected",
+        lang,
+        n=finding.n,
+        line=confirm_line(finding, lang),
+        guess=t("record.fixed_zone_guess", lang) if zone_guessed else "",
+        title=title,
+        note=shorten(finding.text, FAST_NOTE_LIMIT),
+        cue=t("record.corrected_cue", lang, cue=cue) if cue else "",
+    )
+
+
 def changed_line(finding: domain.Finding, lang: str) -> str:
     """Та же строка после правки (T056).
 

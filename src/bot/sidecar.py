@@ -7,7 +7,10 @@
 * последняя названная зона (решение D048) — подставляется догадкой к
   следующему кадру;
 * сколько записей было в проверке, когда бот отдал по ней отчёт (задача
-  T153) — по этому и видно, что проверка сдана.
+  T153) — по этому и видно, что проверка сдана;
+* каким сообщением бот показал каждую запись (задача T204) — аудитор правит
+  запись ОТВЕТОМ на это сообщение, и без карты «сообщение → запись» ответ
+  адресовал бы последнюю запись вместо той, о которой человек говорит.
 
 Источник записи (решение D044) здесь когда-то тоже лежал и уехал отсюда
 задачей T108: он оказался нужен не одному боту, а всем — в базу источник
@@ -55,10 +58,13 @@ from src.domain.state import state_lock
 from .errors import BotNotesError
 
 NOTES_FILE_NAME = "bot.json"
-#: Второе издание формата: добавлен `handed_over_findings` (T153). Заметки
-#: первого издания читаются как прежде — отсутствующий ключ означает «отчёт по
-#: этой проверке не отдавался», что для них и есть правда.
-SCHEMA = 2
+#: Третье издание формата: добавлен `records` — карта «сообщение бота → запись»
+#: (T204). Заметки прежних изданий читаются как прежде: отсутствующий ключ
+#: `handed_over_findings` означает «отчёт по этой проверке не отдавался», а
+#: отсутствующий `records` — «правку ответом на сообщение адресовать нечем».
+#: Второе означает ровно то, что происходило с проверками, начатыми до задачи:
+#: ответ на их сообщения работает как раньше, связыванием комментария с кадром.
+SCHEMA = 3
 
 #: «Отчёт по этой проверке не отдавался». Не `0`: ноль записей — законная
 #: сданная проверка (чистая точка), и спутать эти два состояния значило бы
@@ -75,6 +81,20 @@ class SeenFrame:
 
 
 @dataclass(frozen=True)
+class RecordMessage:
+    """Сообщение бота, которым показана запись, и её номер (T204).
+
+    Связаны они номерами, а не текстом: формулировка записи правится и
+    переводится, номер сообщения — нет. Одна запись живёт в нескольких
+    сообщениях (фиксация, потом каждая правка), и это не дубль, а норма:
+    аудитор отвечает на то, которое видит перед собой.
+    """
+
+    message_id: int
+    n: int
+
+
+@dataclass(frozen=True)
 class Notes:
     """Заметки одной проверки: все присланные кадры и последняя названная зона."""
 
@@ -82,6 +102,8 @@ class Notes:
     frames: tuple[SeenFrame, ...]
     #: Последняя названная зона; пустая строка — её не было или её забыли.
     zone: str
+    #: Сообщения бота, которыми показаны записи (T204), в порядке отправки.
+    records: tuple[RecordMessage, ...] = ()
     #: Сколько записей было в проверке, когда бот отдал аудитору отчёт.
     #: `NEVER_HANDED_OVER` — отчёт не отдавался.
     #:
@@ -107,6 +129,25 @@ def _frames_from_raw(raw: Any, path: Path) -> tuple[SeenFrame, ...]:
         )
     except (TypeError, KeyError, ValueError) as exc:
         raise BotNotesError(f"Список кадров в заметках {path} не похож на список кадров") from exc
+
+
+def _records_from_raw(raw: Any, path: Path) -> tuple[RecordMessage, ...]:
+    """Карта «сообщение → запись» из файла. Непонятная форма — отказ.
+
+    По тому же правилу, что и список кадров: молчаливое «начнём с пустой»
+    отняло бы у аудитора правку ответом на все записи проверки разом, а узнал
+    бы он об этом ровно в тот момент, когда правка понадобилась.
+    """
+    if raw is None:
+        return ()
+    try:
+        return tuple(
+            RecordMessage(message_id=int(item["message_id"]), n=int(item["n"])) for item in raw
+        )
+    except (TypeError, KeyError, ValueError) as exc:
+        raise BotNotesError(
+            f"Карта сообщений о записях в заметках {path} не похожа на карту"
+        ) from exc
 
 
 def _handed_over_from_raw(raw: Any, path: Path) -> int:
@@ -142,6 +183,7 @@ def _parse(raw: dict[str, Any], path: Path) -> Notes:
     return Notes(
         frames=_frames_from_raw(raw.get("frames"), path),
         zone=str(raw.get("zone") or ""),
+        records=_records_from_raw(raw.get("records"), path),
         handed_over_findings=_handed_over_from_raw(raw.get("handed_over_findings"), path),
     )
 
@@ -176,6 +218,7 @@ def _write(chat_id: int, notes: Notes) -> None:
         "schema": SCHEMA,
         "zone": notes.zone,
         "frames": [{"message_id": f.message_id, "file_id": f.file_id} for f in notes.frames],
+        "records": [{"message_id": r.message_id, "n": r.n} for r in notes.records],
         "handed_over_findings": notes.handed_over_findings,
     }
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".bot-notes-", suffix=".tmp")
@@ -253,6 +296,39 @@ def remember_frames(chat_id: int, frames: Iterable[SeenFrame]) -> None:
 def remember_zone(chat_id: int, zone: str) -> None:
     """Запомнить последнюю названную зону. Пустая строка стирает память о ней."""
     _change(chat_id, lambda notes: replace(notes, zone=zone))
+
+
+def remember_record(chat_id: int, message_id: int, n: int) -> None:
+    """Запомнить, каким сообщением показана запись (T204).
+
+    Повтор того же сообщения не дублируется: показ пересобирается при каждой
+    правке, и одна и та же пара пришла бы сюда столько раз, сколько аудитор
+    правил запись.
+    """
+
+    def дополнить(notes: Notes) -> Notes | None:
+        добавляемое = RecordMessage(message_id=message_id, n=n)
+        if добавляемое in notes.records:
+            return None
+        return replace(notes, records=(*notes.records, добавляемое))
+
+    _change(chat_id, дополнить)
+
+
+def record_of(chat_id: int, message_id: int) -> int | None:
+    """Запись, о которой говорит это сообщение бота, — или ничего.
+
+    «Ничего» — обычный ответ, а не отказ: аудитор отвечает и на кадры, и на
+    служебные сообщения бота, и такой ответ обязан работать как раньше.
+
+    Ищется ПОСЛЕДНЯЯ пара: номер сообщения телеграм не переиспользует, поэтому
+    пара здесь ровно одна, — но порядок задан явно, чтобы поведение не зависело
+    от порядка записи в файл.
+    """
+    for record in reversed(read(chat_id).records):
+        if record.message_id == message_id:
+            return record.n
+    return None
 
 
 def mark_handed_over(chat_id: int, findings: int) -> None:
