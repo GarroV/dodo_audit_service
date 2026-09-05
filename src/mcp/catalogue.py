@@ -372,13 +372,16 @@ TOOLS: tuple[ToolSpec, ...] = (
             "would silently restate the partner's grade. The score the engine "
             "computes is checked against the one recorded in the inspection: "
             "a mismatch is refused, not returned. 'lang' picks the language "
-            "of the letter (the auditor's own wording of each finding is "
-            "never translated); omit it for the language the report was "
-            "issued in. Read 'ready_to_send' and 'not_restored' before "
-            "passing the text on: fields the read layer cannot return leave "
-            "gaps that the engine fills with a blank line. Returns "
-            "found: false, with no error, when the id does not match any "
-            "inspection of this tenant."
+            "of the letter; omit it for the language the report was issued "
+            "in. The auditor's own wording of each finding is never "
+            "translated, so a letter asked for in another language comes out "
+            "mixed: header and zone names translated, findings as recorded. "
+            "Read 'ready_to_send' and 'not_restored' before passing the text "
+            "on: fields the read layer cannot return leave gaps that the "
+            "engine fills with a blank line, and findings recorded in another "
+            "language are listed there too, with both languages named in "
+            "'status'. Returns found: false, with no error, when the id does "
+            "not match any inspection of this tenant."
         ),
         input_schema={
             "type": "object",
