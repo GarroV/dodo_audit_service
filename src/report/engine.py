@@ -43,6 +43,7 @@ from src.domain.engine import (
     state_file,
 )
 from src.domain.errors import InspectionNotStarted
+from src.domain.state import settings_for
 
 from .errors import ReportError
 
@@ -159,6 +160,13 @@ def _refuse_no_verdict(args: Sequence[str], *, output: str, attempt: int, chat_i
     )
 
 
-def settings() -> Settings:
-    """Разобранное и проверенное окружение. Отказ — `ConfigError` блока `domain`."""
-    return check_environment()
+def settings(chat_id: int | None = None) -> Settings:
+    """Разобранное и проверенное окружение. Отказ — `ConfigError` блока `domain`.
+
+    Назван чат — методика ТОЙ проверки, а не действующая (T169). Это
+    обязательно, а не удобно: `report.py` считает оценку заново
+    (`compute(...)`), и собранный по действующей методике отчёт показал бы
+    партнёру другой процент, чем вернул `domain.score`, а у записи по снятому
+    пункту напечатал бы пустую формулировку и срок «немедленно».
+    """
+    return check_environment() if chat_id is None else settings_for(chat_id)

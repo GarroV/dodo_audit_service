@@ -13,10 +13,24 @@ import csv
 import re
 from pathlib import Path
 
-from . import route, version
+from . import edition, route, version
 from .config import DATA_FILES, Settings, check_environment
 from .errors import ValidationError
 from .models import ChecklistItem, Zone
+
+
+def _settings(chat_id: int | None) -> Settings:
+    """Окружение чтения: методика ТОЙ проверки, если названа, иначе действующая.
+
+    Проверка идёт по изданию, при котором её начали (T169), и список пунктов
+    обязан быть тем же самым: предложи аудитору пункт, которого в его издании
+    нет, — и запись по нему движок не примет, а починить это с точки нельзя.
+
+    Чат не назван — действующая методика. Так читают там, где проверки нет
+    вовсе: справочники до её начала, инструменты методики, замеры.
+    """
+    settings = check_environment()
+    return settings if chat_id is None else edition.pin(chat_id, settings)
 
 
 def _text(row: dict[str, str | None], key: str) -> str:
@@ -66,14 +80,18 @@ def _all_items(settings: Settings) -> list[ChecklistItem]:
     )
 
 
-def list_items(zone: str | None = None, kind: str | None = None) -> list[ChecklistItem]:
+def list_items(
+    zone: str | None = None, kind: str | None = None, *, chat_id: int | None = None
+) -> list[ChecklistItem]:
     """Пункты чек-листа. `zone` — только применимые к зоне, `kind` — только этого вида.
 
     Служебные пункты (`aggregate`, `info`) не отфильтрованы намеренно: отсеивать
     их — работа разбора (`docs/03-recording-rules.md`, правило 8), а блоку
     методики не положено решать, что аудитору показывать.
+
+    `chat_id` — читать издание ТОЙ проверки (T169), а не действующую методику.
     """
-    settings = check_environment()
+    settings = _settings(chat_id)
     items = _all_items(settings)
     if zone is not None:
         known = {z.code for z in _zones(settings)}
@@ -99,14 +117,20 @@ def _zones(settings: Settings) -> list[Zone]:
     return route.arrange(zones, route.load(settings.data_dir).zones, lambda z: z.code, what="зоны")
 
 
-def list_zones() -> list[Zone]:
-    """Справочник зон с долями. Доли считает движок, здесь они справочно."""
-    return _zones(check_environment())
+def list_zones(*, chat_id: int | None = None) -> list[Zone]:
+    """Справочник зон с долями. Доли считает движок, здесь они справочно.
+
+    `chat_id` — зоны ТОГО издания, по которому идёт проверка (T169).
+    """
+    return _zones(_settings(chat_id))
 
 
-def get_item(code: str) -> ChecklistItem:
-    """Пункт по коду. Неизвестный код — отказ: подобрать похожий блок не вправе."""
-    settings = check_environment()
+def get_item(code: str, *, chat_id: int | None = None) -> ChecklistItem:
+    """Пункт по коду. Неизвестный код — отказ: подобрать похожий блок не вправе.
+
+    `chat_id` — пункт ТОГО издания, по которому идёт проверка (T169).
+    """
+    settings = _settings(chat_id)
     wanted = code.strip().upper()
     for item in _all_items(settings):
         if item.code == wanted:
@@ -114,9 +138,12 @@ def get_item(code: str) -> ChecklistItem:
     raise ValidationError(f"Нет пункта «{code}» в чек-листе {settings.data_dir / 'checklist.csv'}")
 
 
-def allowed_levels(code: str) -> list[str]:
-    """Классы, допустимые для пункта. Список берётся из методики, не из кода."""
-    return list(get_item(code).levels)
+def allowed_levels(code: str, *, chat_id: int | None = None) -> list[str]:
+    """Классы, допустимые для пункта. Список берётся из методики, не из кода.
+
+    `chat_id` — классы ТОГО издания, по которому идёт проверка (T169).
+    """
+    return list(get_item(code, chat_id=chat_id).levels)
 
 
 def checklist_version() -> str:
