@@ -52,7 +52,7 @@ from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.keyboards import EDIT_PREFIX, MODEL_CALLBACK, PICK_PREFIX
 from src.bot.texts import t
-from src.bot.view import zone_title
+from src.bot.view import stored_headline, zone_title
 from src.domain import SOURCE_COMMENT, Finding, get_item, get_state, start_inspection
 from src.recognize.fastpath import (
     NO_COLUMN,
@@ -168,6 +168,8 @@ async def test_показ_записи_называет_пункт_словам�
     assert session.last_text == t(
         "record.fixed",
         "ru",
+        # Отбивка о сохранении — одна на все пути добавления записи (T230, D090).
+        stored=stored_headline("ru"),
         # Зону аудитор в этих словах не называл — она из памяти (D048), и
         # оговорка про это стоит в показе (T124).
         guess=t("record.fixed_zone_guess", "ru"),

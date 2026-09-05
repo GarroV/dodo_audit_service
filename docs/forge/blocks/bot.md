@@ -136,6 +136,11 @@ candidate_lines(candidates, lang, taken=None, *, chat_id) / counts_line(counts)
 corrected_block(finding, lang, *, title, chat_id, cue="", zone_guessed=False)  # правка ответом (T204)
 # Процента в строках записи и правки больше нет (T162, D072): по ходу обхода
 # оценка не показывается, `pct` из их сигнатур убран вместе с показом
+stored_headline(lang)                            # отбивка о сохранении, одна на все пути (T230)
+# Пути добавления записи три — сверка по словам, кнопка кандидата, ручной
+# перечень, — и о сохранении они говорят одними и теми же словами (D090).
+# Правка записи (`corrected_block`) этой отбивки не несёт: записи там не
+# прибавилось. Вычета в отбивке нет — оценка по ходу обхода не показывается (D072)
 fixed_block(finding, lang, *, title, cue, chat_id, zone_guessed=False)  # запись без подтверждения (T121)
 confirmed_block(finding, lang, *, title, chat_id, zone_guessed=False)   # запись по кнопке (T135, T156)
 # `zone_guessed` теперь у обоих показов и тем же текстом (T156): зона из памяти

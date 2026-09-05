@@ -226,6 +226,23 @@ def confirm_line(finding: domain.Finding, lang: str, *, chat_id: int) -> str:
     return line + zone_unusual_mark(finding, lang)
 
 
+def stored_headline(lang: str) -> str:
+    """Отбивка о сохранении — одна на ВСЕ пути добавления записи (T230, D090).
+
+    Пути три: сверка со списком нарушений (`fixed_block`), кнопка кандидата и
+    ручной перечень (оба — `confirmed_block`). До задачи «сохранено» говорил
+    только первый, и говорил своими словами, а два других не говорили вовсе:
+    аудитор читал строку записи и догадывался, что она уже в отчёте. Разные
+    слова об одном событии читаются как разные события — отсюда один ключ и
+    одна функция вместо трёх формулировок.
+
+    Правки записи здесь нет намеренно (`corrected_block`, T231): там записи не
+    прибавилось, и «сохранено» вместо «поправил» отправило бы аудитора искать в
+    переписке вторую запись.
+    """
+    return t("record.stored", lang)
+
+
 def confirmed_block(
     finding: domain.Finding, lang: str, *, title: str, chat_id: int, zone_guessed: bool = False
 ) -> str:
@@ -247,6 +264,10 @@ def confirmed_block(
     Совпали текст записи и вопрос пункта — показывается одно: так ложится ручной
     выбор пункта по кадру без комментария, и повтор выдал бы за две вещи одну.
 
+    Отбивку о сохранении блок несёт с T230 (D090) — ту же, что и `fixed_block`:
+    до задачи путь с подтверждением о сохранении не говорил вовсе, и аудитор
+    решал по строке записи, уехало это в отчёт или ещё нет.
+
     `zone_guessed` — та же оговорка и тем же текстом, что у `fixed_block` (T156).
     Правило про зону из памяти одно на все пути записи, а стояло оно только на
     быстром: подсказка уходила в модель, модель возвращала зону как свою, и
@@ -257,9 +278,12 @@ def confirmed_block(
     line = confirm_line(finding, lang, chat_id=chat_id)
     guess = t("record.fixed_zone_guess", lang) if zone_guessed else ""
     note = shorten(finding.text, FAST_NOTE_LIMIT)
+    stored = stored_headline(lang)
     if note.strip() == title.strip():
-        return t("record.confirmed_plain", lang, line=line, guess=guess, title=title)
-    return t("record.confirmed", lang, line=line, guess=guess, title=title, note=note)
+        return t("record.confirmed_plain", lang, stored=stored, line=line, guess=guess, title=title)
+    return t(
+        "record.confirmed", lang, stored=stored, line=line, guess=guess, title=title, note=note
+    )
 
 
 def fixed_block(
@@ -284,6 +308,10 @@ def fixed_block(
     надо то, что легло в отчёт, а не то, что собирались положить. Потолок длины
     телеграмный (`FAST_NOTE_LIMIT`) и живым словам не мешает.
 
+    Отбивка о сохранении здесь та же, что на путях с подтверждением (T230,
+    D090): своя формулировка на этом пути и молчание на остальных читались как
+    разные события.
+
     `zone_guessed` — зона взята из памяти о прошлой записи (D048), а не из этих
     слов (T124). Тогда «по вашим словам» про зону неправда, и оговорка стоит
     прямо под строкой записи: сама зона в ней видна, но не видно, откуда она
@@ -292,6 +320,7 @@ def fixed_block(
     return t(
         "record.fixed",
         lang,
+        stored=stored_headline(lang),
         line=confirm_line(finding, lang, chat_id=chat_id),
         guess=t("record.fixed_zone_guess", lang) if zone_guessed else "",
         title=title,
