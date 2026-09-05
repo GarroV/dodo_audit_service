@@ -26,7 +26,16 @@ import csv
 from pathlib import Path
 
 import pytest
-from bot_harness import AUDITOR_ID, CHAT_ID, feed, make_bot
+from bot_harness import (
+    AUDITOR_ID,
+    CHAT_ID,
+    candidate,
+    feed,
+    make_bot,
+    photo_message,
+    stub_classify,
+    suggestion,
+)
 from bot_harness import callback_query as callback
 
 from src import domain
@@ -187,3 +196,28 @@ async def test_информационная_часть_спрашивает_по
     снова = [поле.code for поле, _ in info.fields_to_ask("ru", chat_id=CHAT_ID)]
 
     assert снова == спрошены, "набор вопросов изменился переизданием посреди проверки"
+
+
+async def test_кнопки_зон_при_фиксации_остаются_изданием_проверки(
+    методика: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Второй вход к тем же кнопкам: зону спрашивают и на самой фиксации.
+
+    Дорога длиннее (кадр без слов, разбор, «Выбрать пункт»), и написан этот
+    случай отдельно не для симметрии: снятие чата ИМЕННО здесь не краснило
+    ничего во всём наборе — проверено порчей.
+    """
+    _, зона, _ = начать()
+    прежнее = переиздать_зону(методика, зона)
+    stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen")))
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    кадр = photo_message("кадр-без-слов")
+    await feed(dp, bot, кадр)
+    await feed(dp, bot, callback(f"rec:analyze:{кадр.message_id}"))
+    await feed(dp, bot, callback("rec:manual"))
+
+    надписи = session.keyboard_texts()
+    assert прежнее in надписи, f"при фиксации предложены зоны действующей методики: {надписи}"
+    assert not [n for n in надписи if n.startswith(НОВОЕ_ИМЯ)], "в перечень попало переиздание"
