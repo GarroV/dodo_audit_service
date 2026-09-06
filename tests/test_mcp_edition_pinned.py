@@ -260,3 +260,35 @@ def test_переизданная_боевая_методика_лога_не_п
     assert letters.pinned(издание, letters.Papers(live=tmp_path / "живая", store=None)) is None
 
     assert capsys.readouterr().err == ""
+
+
+def test_самозванец_назван_в_логе_даже_когда_выручила_соседняя_полка(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Удачный ответ не отменяет того, что хранилище сломано.
+
+    Самое неприятное расположение: в хранилище версий лежит каталог с
+    правильным именем и чужим содержимым, а издание проверки при этом честно
+    лежит на полке бота. Ответ выходит верным, и потому дефект был бы виден
+    ровно ничем: сломанное хранилище продолжало бы стоять, пока в один день
+    полка не окажется убрана.
+    """
+    издание = _издание(tmp_path / "выезд", ПУНКТ_СНИМКА, day="2026-09-04")
+    полка = tmp_path / "state" / "methodology" / издание
+    shutil.copytree(tmp_path / "выезд", полка)
+
+    самозванец = tmp_path / "store" / VERSIONS_DIR / издание
+    build_edition(самозванец, day="2026-09-04")
+    _дописать(самозванец, ПУНКТ_ПОДМЕНЫ)
+    capsys.readouterr()
+
+    бумаги = letters.Papers(
+        live=None, store=tmp_path / "store", shelf=tmp_path / "state" / "methodology"
+    )
+
+    найдено = letters.pinned(издание, бумаги)
+
+    assert найдено == (полка, letters.FROM_SHELF), "ответ обязан остаться верным"
+    assert str(самозванец) in capsys.readouterr().err, (
+        "самозванец за спиной удачного ответа остался незамеченным"
+    )
