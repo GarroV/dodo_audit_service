@@ -164,9 +164,7 @@ def _parse_mcp_owner_id(raw: str, allowed_ids: frozenset[int]) -> int | None:
     if not piece:
         return None
     if not piece.lstrip("-").isdigit():
-        raise BotConfigError(
-            f"{MCP_OWNER_ID_VAR}: «{piece}» — не Telegram ID. Нужно одно число"
-        )
+        raise BotConfigError(f"{MCP_OWNER_ID_VAR}: «{piece}» — не Telegram ID. Нужно одно число")
     owner = int(piece)
     if owner not in allowed_ids:
         raise BotConfigError(

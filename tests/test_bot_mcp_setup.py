@@ -170,9 +170,7 @@ async def test_повторный_вызов_гасит_прежний_токе�
 
 
 @requires_db
-async def test_при_первой_выдаче_про_отзыв_не_говорится(
-    domain_env: object, db_env: str
-) -> None:
+async def test_при_первой_выдаче_про_отзыв_не_говорится(domain_env: object, db_env: str) -> None:
     """Отзывать было нечего.
 
     Лишняя строка про «прежний больше не работает» отправила бы человека искать
@@ -235,9 +233,7 @@ async def test_личный_токен_в_журнал_не_попадает(
 
 
 @requires_db
-async def test_токен_печатается_ровно_в_одном_сообщении(
-    domain_env: object, db_env: str
-) -> None:
+async def test_токен_печатается_ровно_в_одном_сообщении(domain_env: object, db_env: str) -> None:
     """Сообщение в телеграме копируется целиком одним движением.
 
     Поэтому объяснение и команда идут врозь (иначе объяснение уехало бы в
@@ -260,9 +256,7 @@ async def test_токен_печатается_ровно_в_одном_сооб
 
 
 @requires_db
-async def test_чужой_человек_позвать_настройку_не_может(
-    domain_env: object, db_env: str
-) -> None:
+async def test_чужой_человек_позвать_настройку_не_может(domain_env: object, db_env: str) -> None:
     """D099: пункт для избранного круга, и заслон стоит НЕ в меню.
 
     Меню — витрина: команду можно набрать руками, не заглядывая в него. Поэтому
@@ -280,18 +274,14 @@ async def test_чужой_человек_позвать_настройку_не_
 
 
 @requires_db
-async def test_команда_чужого_не_уезжает_в_записи_проверки(
-    domain_env: object, db_env: str
-) -> None:
+async def test_команда_чужого_не_уезжает_в_записи_проверки(domain_env: object, db_env: str) -> None:
     """Отказ отвечается словами, а не молчанием, и вот почему.
 
     Проглоченная команда пошла бы дальше по цепочке роутеров — в приём
     материала, — и «/mcp» стало бы комментарием к ждущему кадру, то есть
     попало бы в отчёт партнёру. Молчание здесь дороже отказа.
     """
-    start_inspection(
-        OUTSIDER_ID, "Белград 2", "planned", "ru", date="2026-09-06", auditor="Гарро"
-    )
+    start_inspection(OUTSIDER_ID, "Белград 2", "planned", "ru", date="2026-09-06", auditor="Гарро")
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
 
@@ -590,9 +580,7 @@ async def test_снятия_сданной_проверки_в_меню_нет()
 
 
 @requires_db
-async def test_привод_без_аргумента_объясняет_как_звать(
-    domain_env: object, db_env: str
-) -> None:
+async def test_привод_без_аргумента_объясняет_как_звать(domain_env: object, db_env: str) -> None:
     """Голая команда — самый частый способ ею воспользоваться в первый раз."""
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -603,9 +591,7 @@ async def test_привод_без_аргумента_объясняет_как_
 
 
 @requires_db
-async def test_отзыв_без_аргумента_объясняет_как_звать(
-    domain_env: object, db_env: str
-) -> None:
+async def test_отзыв_без_аргумента_объясняет_как_звать(domain_env: object, db_env: str) -> None:
     """То же и у отзыва: молчание здесь читалось бы как «отозвал у всех»."""
     bot, session = make_bot()
     dp = build_dispatcher(SETTINGS)
@@ -672,8 +658,12 @@ async def test_отзыв_у_того_кого_и_не_было_не_отказ(
 
 @pytest.mark.parametrize(
     "команда",
-    [COMMAND, f"/{MCP_ADD_COMMAND} {SECOND_ID}", f"/{MCP_REVOKE_COMMAND} {SECOND_ID}",
-     f"/{MCP_WHO_COMMAND}"],
+    [
+        COMMAND,
+        f"/{MCP_ADD_COMMAND} {SECOND_ID}",
+        f"/{MCP_REVOKE_COMMAND} {SECOND_ID}",
+        f"/{MCP_WHO_COMMAND}",
+    ],
 )
 async def test_недоступная_база_отвечает_словами_а_не_молчанием(
     domain_env: object, команда: str, caplog: pytest.LogCaptureFixture
@@ -861,9 +851,7 @@ async def test_отказ_чужому_тоже_на_языке_стенда(
 
 
 @requires_db
-async def test_работает_и_до_начала_проверки_и_во_время(
-    domain_env: object, db_env: str
-) -> None:
+async def test_работает_и_до_начала_проверки_и_во_время(domain_env: object, db_env: str) -> None:
     """Установка — не шаг обхода: она не спрашивает проверку и не мешает ей.
 
     До начала проверки бот на обычный текст отвечает «проверка не начата», и

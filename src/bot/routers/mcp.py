@@ -316,9 +316,7 @@ def build_mcp_router(settings: BotSettings) -> Router:
         for запись in круг:
             if запись.is_live:
                 кем = (
-                    t("mcp.who_founder", lang)
-                    if запись.added_by is None
-                    else str(запись.added_by)
+                    t("mcp.who_founder", lang) if запись.added_by is None else str(запись.added_by)
                 )
                 токен = t(
                     "mcp.who_has_token" if запись.has_live_token else "mcp.who_no_token", lang
