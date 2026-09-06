@@ -28,16 +28,17 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 СМОУК = ROOT / "scripts" / "smoke.sh"
 
-#: Ответы здорового стенда: два здоровых сервиса, поднятый туннель,
-#: зарегистрированное соединение и адрес туннеля в строке настройки.
+#: Ответы здорового стенда: два здоровых сервиса, живое звено до сервера,
+#: общий вход площадки, отдающий его порт, и внешний адрес в строке настройки.
 ЗДОРОВЫЙ = {
-    "docker compose ps": "bot|Up 2 hours (healthy)\nmcp|Up 2 hours (healthy)\ntunnel|Up 2 hours",
+    "docker compose ps": "bot|Up 2 hours (healthy)\nmcp|Up 2 hours (healthy)",
     "git log -1": "abc1234",
     "printenv BUILD_SHA": "abc1234",
     "logs --tail=60 bot": "",
     "mcp_healthcheck.py": "rc=0",
-    "logs --tail=80 tunnel": "INF Registered tunnel connection connIndex=0",
-    "printenv BOT_MCP_URL": "https://audit-mcp.example.com/",
+    "name=dodo-mcp-proxy": "Up 2 hours",
+    "tailscale funnel status": "https://stand.example.ts.net:10000/\n|-- proxy http://127.0.0.1:8266",
+    "printenv BOT_MCP_URL": "https://stand.example.ts.net:10000/",
 }
 
 
@@ -120,34 +121,24 @@ def test_сервер_не_отвечает_на_петле_это_провал(
     assert "ПРОВАЛ" in строка(r.stdout, "MCP-сервер отвечает на петле")
 
 
-def test_туннель_не_поднят_это_провал_с_названной_причиной(площадка: Path) -> None:
-    """Забытый COMPOSE_PROFILES выглядит как здоровый стенд без доступа снаружи."""
-    r = прогон(
-        площадка,
-        **{"docker compose ps": "bot|Up 2 hours (healthy)\nmcp|Up 2 hours (healthy)"},
-    )
+def test_звено_не_поднято_это_провал_с_названной_причиной(площадка: Path) -> None:
+    """Пересоздали сервер, забыли звено — стенд здоров, снаружи недоступен."""
+    r = прогон(площадка, **{"name=dodo-mcp-proxy": ""})
     assert "СМОУК КРАСНЫЙ" in r.stdout
-    assert "COMPOSE_PROFILES" in строка(r.stdout, "туннель наружу")
+    assert "dodo-mcp-proxy" in строка(r.stdout, "звено до сервера")
 
 
-def test_туннель_перезапускается_это_провал_с_названной_причиной(площадка: Path) -> None:
-    r = прогон(
-        площадка,
-        **{
-            "docker compose ps": (
-                "bot|Up 2 hours (healthy)\nmcp|Up 2 hours (healthy)\ntunnel|Restarting (255)"
-            )
-        },
-    )
+def test_звено_перезапускается_это_провал(площадка: Path) -> None:
+    r = прогон(площадка, **{"name=dodo-mcp-proxy": "Restarting (1)"})
     assert "СМОУК КРАСНЫЙ" in r.stdout
-    assert "CLOUDFLARE_TUNNEL_TOKEN" in строка(r.stdout, "туннель наружу")
+    assert "ПРОВАЛ" in строка(r.stdout, "звено до сервера")
 
 
-def test_туннель_поднят_но_не_соединился_это_провал(площадка: Path) -> None:
-    """Туннель без связи с Cloudflare выглядит как «Up» и не работает."""
-    r = прогон(площадка, **{"logs --tail=80 tunnel": ""})
+def test_общий_вход_не_отдаёт_сервер_это_провал(площадка: Path) -> None:
+    """Funnel, не проксирующий наш порт, выглядит так же, как выключенный."""
+    r = прогон(площадка, **{"tailscale funnel status": "no serve config"})
     assert "СМОУК КРАСНЫЙ" in r.stdout
-    assert "ПРОВАЛ" in строка(r.stdout, "туннель зарегистрирован")
+    assert "ПРОВАЛ" in строка(r.stdout, "общий вход отдаёт сервер")
 
 
 @pytest.mark.parametrize(

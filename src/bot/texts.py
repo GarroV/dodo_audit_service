@@ -1170,8 +1170,8 @@ TEXTS: dict[str, dict[str, str]] = {
     "mcp.setup": {
         "ru": (
             "Подключение к проверкам из Claude. Следующим сообщением придёт готовая "
-            "команда с вашим личным токеном — выполните её в терминале той машины, где "
-            "стоит Claude, заменив ЗАГЛАВНЫЕ слова своими значениями.\n\n"
+            "команда с вашим личным токеном — скопируйте её целиком и выполните в "
+            "терминале той машины, где стоит Claude. Менять в ней нечего.\n\n"
             "Токен показан один раз. Бот его не хранит и повторить не сможет: если "
             "команда потеряется, вызовите пункт заново — придёт новый токен, а прежний "
             "перестанет работать, и настройку придётся сделать заново.\n\n"
@@ -1180,8 +1180,8 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "en": (
             "Connecting Claude to the inspections. The next message is the ready command "
-            "with your personal token — run it in the terminal of the machine where Claude "
-            "is installed, replacing the UPPERCASE words with your own values.\n\n"
+            "with your personal token — copy it whole and run it in the terminal of the "
+            "machine where Claude is installed. Nothing in it needs changing.\n\n"
             "The token is shown once. The bot does not store it and cannot repeat it: if "
             "the command gets lost, call this item again — a new token will arrive and the "
             "previous one will stop working, so the setup will have to be redone.\n\n"
@@ -1193,14 +1193,25 @@ TEXTS: dict[str, dict[str, str]] = {
     # движением (долгое нажатие → «Копировать»), а команда, склеенная с
     # объяснением, копировалась бы вместе с ним. С T253 в строке стоит НАСТОЯЩИЙ
     # токен, поэтому лишнего текста рядом не должно быть тем более.
+    # Команда работает КАК ЕСТЬ: скопировал, выполнил, подключился. Подставлять
+    # в неё нечего, и это не удобство, а условие — человек, которому дали
+    # доступ, не обязан иметь наш репозиторий, знать, где он лежит, и понимать,
+    # что такое мост. Прежняя редакция заканчивалась заглушкой
+    # «ПУТЬ_К_КОПИИ_РЕПОЗИТОРИЯ», и владелец справедливо спросил, почему он
+    # должен что-то дописывать.
+    #
+    # Мост здесь больше не нужен: Claude умеет ходить в MCP по HTTP сам, а наш
+    # сервер именно так и говорит. Проверено подключением — `claude mcp list`
+    # отвечает `Connected`. Мост остаётся в репозитории для случаев, где HTTP
+    # недоступен, но человеку он не показывается.
     "mcp.command": {
         "ru": (
-            "claude mcp add dodo-audit -e DODO_MCP_URL={url} "
-            "-e DODO_MCP_TOKEN={token} -- ПУТЬ_К_КОПИИ_РЕПОЗИТОРИЯ/tools/mcp_bridge.sh"
+            'claude mcp add --transport http dodo-audit {url} '
+            '--header "Authorization: Bearer {token}"'
         ),
         "en": (
-            "claude mcp add dodo-audit -e DODO_MCP_URL={url} "
-            "-e DODO_MCP_TOKEN={token} -- PATH_TO_REPO_CHECKOUT/tools/mcp_bridge.sh"
+            'claude mcp add --transport http dodo-audit {url} '
+            '--header "Authorization: Bearer {token}"'
         ),
     },
     # Сказано отдельным сообщением ПОСЛЕ команды, а не внутри объяснения до
