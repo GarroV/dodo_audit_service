@@ -114,7 +114,11 @@ def address_results(url: str, *, self_test: bool) -> list[Result]:
         результаты.append(
             Result(
                 "адрес ведёт наружу",
-                OK if self_test else FAIL,
+                # В самопроверке это не «хорошо», а «допущено ради проверки
+                # самого инструмента»: строка обязана читаться как оговорка, а
+                # не как подтверждение, иначе зелёный вывод однажды предъявят
+                # вместо настоящей проверки.
+                WARN if self_test else FAIL,
                 "петля: этот адрес указывает на машину того, кто выполняет строку",
             )
         )
@@ -140,7 +144,7 @@ def address_results(url: str, *, self_test: bool) -> list[Result]:
         результаты.append(
             Result(
                 "TLS",
-                OK if self_test else FAIL,
+                WARN if self_test else FAIL,
                 f"схема {parts.scheme or 'не названа'}: токен уехал бы открытым текстом",
             )
         )
