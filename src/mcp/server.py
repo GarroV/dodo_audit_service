@@ -26,7 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from .checklist import Store
-from .config import Settings, resolve_tenant
+from .config import Settings, resolve_access
 from .errors import AuthError
 from .rpc import CODE_PARSE_ERROR, handle
 
@@ -204,7 +204,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _post(self) -> None:
         try:
-            tenant = resolve_tenant(self._settings, self.headers.get("Authorization"))
+            доступ = resolve_access(self._settings, self.headers.get("Authorization"))
         except AuthError as отказ:
             # Ни имени арендатора, ни токена: по отказу нельзя перечислить,
             # какие партнёры вообще заведены на этом сервере.
@@ -245,7 +245,12 @@ class _Handler(BaseHTTPRequestHandler):
             )
             return
 
-        answer = handle(message, tenant=tenant, checklist=_checklist_for(self._settings, tenant))
+        answer = handle(
+            message,
+            tenant=доступ.tenant,
+            checklist=_checklist_for(self._settings, доступ.tenant),
+            may_retract=доступ.may_retract,
+        )
         if answer is None:
             self._send(_ACCEPTED)
             return

@@ -23,7 +23,7 @@ import pytest
 from mcp_checklist_harness import build_methodology
 from test_mcp_no_paths import ГОДНЫЕ
 
-from src.mcp.catalogue import TOOLS
+from src.mcp.catalogue import KIND_RETRACTION, TOOLS
 from src.mcp.checklist import Store
 from src.mcp.rpc import handle
 
@@ -34,9 +34,24 @@ from src.mcp.rpc import handle
 ЧИТАЮЩИЕ = [spec for spec in TOOLS if spec.history]
 
 
+#: Какую переменную обязан назвать отказ этого инструмента. У снятия она СВОЯ
+#: (T211): снятые проверки видит только администратор истории, и приходит он
+#: отдельным подключением. Отказ, назвавший вместо неё DATABASE_URL, отправил бы
+#: человека проверять связь, которая в порядке.
+def _переменная(spec: Any) -> str:
+    return "DATABASE_RETRACTION_URL" if spec.kind == KIND_RETRACTION else "DATABASE_URL"
+
+
 @pytest.fixture(autouse=True)
 def без_базы(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Стенд без базы — значит без ОБЕИХ связей.
+
+    Второе подключение снимается тоже: оставленное в оболочке, оно увело бы
+    инструмент снятия в настоящую базу, и общее утверждение про стенд без базы
+    проверяло бы на одном инструменте не то, что на остальных.
+    """
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_RETRACTION_URL", raising=False)
 
 
 @pytest.fixture
@@ -56,6 +71,10 @@ def _вызов(имя: str, аргументы: dict[str, Any], хранили�
         },
         tenant="укашка",
         checklist=хранилище,
+        # Право на снятие выдано намеренно: без него инструмент отвечал бы
+        # отказом ДОСТУПА, и перебор проверял бы не то, ради чего написан, —
+        # ровно как хранилище методики парой строк выше.
+        may_retract=True,
     )
     assert ответ is not None
     return ответ["result"]
@@ -79,8 +98,11 @@ def test_отказ_называет_переменную_и_говорит_чт
     """Человеку надо понять, что чинить нечего: базу тут не поднимали."""
     for spec in ЧИТАЮЩИЕ:
         текст = _вызов(spec.name, ГОДНЫЕ[spec.name], хранилище)["content"][0]["text"]
-        assert "DATABASE_URL" in текст, spec.name
-        assert "история" in текст.lower(), spec.name
+        assert _переменная(spec) in текст, spec.name
+        # Корень слова, а не слово целиком: у снятия отказ говорит про
+        # администратора ИСТОРИИ, и требовать именительный падеж значило бы
+        # диктовать формулировку вместо смысла.
+        assert "истори" in текст.lower(), spec.name
 
 
 def test_отказ_не_выглядит_поломкой_продукта(хранилище: Store) -> None:

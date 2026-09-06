@@ -28,7 +28,7 @@ from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 
-from .errors import ConfigError
+from .errors import ConfigError, DomainError
 
 #: Имя набора и дата публикации от управляющей компании. Файл необязательный.
 VERSION_FILE = "checklist_version.txt"
@@ -120,3 +120,33 @@ def compose(data_dir: Path, names: Sequence[str]) -> str:
         return f"{LOCAL_NAME}-{mark}"
     name, day = issue
     return f"{name}-{day}-{mark}"
+
+
+def edition_of(data_dir: Path, names: Sequence[str]) -> str | None:
+    """Издание, которым ЭТОТ каталог является на самом деле. Не издание — `None`.
+
+    Вопрос «тот ли это каталог издания X» задают в двух местах и по разным
+    поводам: полка снимков домена ищет издание идущей проверки
+    (`domain.edition`), хранилище версий MCP — издание записанной
+    (`mcp.letters.pinned`). Ответ на него обязан быть один, поэтому он живёт
+    здесь, рядом с формулой, которой издание штампуется в проверку.
+
+    Свести пришлось на дефекте (T236): полка домена отпечаток сверяла, а
+    хранилище MCP довольствовалось именем каталога — и каталог с правильным
+    именем и чужим содержимым подписывал бы ответы аудитора формулировками
+    другой методики молча. Имя каталога доказательством не является: каталоги
+    кладёт не один и тот же код.
+
+    `None`, а не отказ, и на все три беды сразу — каталога нет, файлы не
+    читаются, `checklist_version.txt` испорчен: каждая из них означает ровно
+    «этим изданием каталог не является», а что делать дальше, решает
+    спрашивающий. Полнота каталога отдельно не проверяется намеренно —
+    пропавший файл методики в отпечаток не входит (`fingerprint` его
+    пропускает), и отпечаток неполного каталога с изданием не сойдётся.
+    """
+    if not data_dir.is_dir():
+        return None
+    try:
+        return compose(data_dir, names)
+    except (DomainError, OSError):
+        return None

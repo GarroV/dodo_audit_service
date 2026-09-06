@@ -22,8 +22,16 @@ from __future__ import annotations
 import inspect
 
 from src.mcp import checklist_tools
+from src.mcp import retraction as retraction_module
 from src.mcp import tools as tools_module
-from src.mcp.catalogue import KIND_CHECKLIST, KIND_INSPECTIONS, TOOLS, as_list, find
+from src.mcp.catalogue import (
+    KIND_CHECKLIST,
+    KIND_INSPECTIONS,
+    KIND_RETRACTION,
+    TOOLS,
+    as_list,
+    find,
+)
 
 ИМЕНА_ИНСТРУМЕНТОВ_ПРОВЕРОК = {
     "list_inspections",
@@ -52,7 +60,16 @@ from src.mcp.catalogue import KIND_CHECKLIST, KIND_INSPECTIONS, TOOLS, as_list, 
     "photo_cue_suggestions",
 }
 
-ИМЕНА_ИНСТРУМЕНТОВ = ИМЕНА_ИНСТРУМЕНТОВ_ПРОВЕРОК | ИМЕНА_ИНСТРУМЕНТОВ_МЕТОДИКИ
+#: Снятие проверки из истории (T211, D086/D089). Своя группа из одного имени,
+#: и это не педантизм: снятие — единственное, что меняет уже выданный документ,
+#: право на него личное (по токену, а не по арендатору), и стоит оно своего
+#: вида. Группа, в которую однажды тихо добавится второе имя, — это второй
+#: инструмент, меняющий проверки, мимо всякого разбора.
+ИМЕНА_ИНСТРУМЕНТОВ_СНЯТИЯ = {"retract_inspection"}
+
+ИМЕНА_ИНСТРУМЕНТОВ = (
+    ИМЕНА_ИНСТРУМЕНТОВ_ПРОВЕРОК | ИМЕНА_ИНСТРУМЕНТОВ_МЕТОДИКИ | ИМЕНА_ИНСТРУМЕНТОВ_СНЯТИЯ
+)
 
 #: Кто ходит в базу проверок. Инструменты проверок — все, и с ними один
 #: инструмент методики: предложения для управляющей компании собираются из
@@ -60,13 +77,15 @@ from src.mcp.catalogue import KIND_CHECKLIST, KIND_INSPECTIONS, TOOLS, as_list, 
 #: инструмента это не выводится, а снятый флаг выключил бы заслон «пусто ≠
 #: читать неоткуда» молча — перебор в `tests/test_mcp_no_history.py` просто
 #: перестал бы этот инструмент видеть, не покраснев.
-ИМЕНА_ЧИТАЮЩИХ_ИСТОРИЮ = ИМЕНА_ИНСТРУМЕНТОВ_ПРОВЕРОК | {"photo_cue_suggestions"}
+ИМЕНА_ЧИТАЮЩИХ_ИСТОРИЮ = (
+    ИМЕНА_ИНСТРУМЕНТОВ_ПРОВЕРОК | ИМЕНА_ИНСТРУМЕНТОВ_СНЯТИЯ | {"photo_cue_suggestions"}
+)
 
 
-def test_каталог_содержит_ровно_двадцать_один_инструмент_с_ожидаемыми_именами() -> None:
+def test_каталог_содержит_ровно_двадцать_два_инструмента_с_ожидаемыми_именами() -> None:
     """Лишний инструмент в каталоге — не описанный обработчик, снятый —
     инструмент, к которому агент внезапно теряет доступ."""
-    assert len(TOOLS) == 21
+    assert len(TOOLS) == 22
     assert {spec.name for spec in TOOLS} == ИМЕНА_ИНСТРУМЕНТОВ
 
 
@@ -134,6 +153,8 @@ def test_вид_инструмента_соответствует_его_гру�
     for spec in TOOLS:
         if spec.name in ИМЕНА_ИНСТРУМЕНТОВ_МЕТОДИКИ:
             assert spec.kind == KIND_CHECKLIST, spec.name
+        elif spec.name in ИМЕНА_ИНСТРУМЕНТОВ_СНЯТИЯ:
+            assert spec.kind == KIND_RETRACTION, spec.name
         else:
             assert spec.kind == KIND_INSPECTIONS, spec.name
 
@@ -163,6 +184,8 @@ def test_обработчик_взят_из_правильного_модуля(
     for spec in TOOLS:
         if spec.name in ИМЕНА_ИНСТРУМЕНТОВ_МЕТОДИКИ:
             assert spec.handler.__module__ == checklist_tools.__name__, spec.name
+        elif spec.name in ИМЕНА_ИНСТРУМЕНТОВ_СНЯТИЯ:
+            assert spec.handler.__module__ == retraction_module.__name__, spec.name
         else:
             assert spec.handler.__module__ == tools_module.__name__, spec.name
 
@@ -184,7 +207,7 @@ def test_as_list_отдаёт_ровно_три_нужных_ключа_на_з�
     """Протокол MCP `tools/list` ждёт camelCase `inputSchema` — лишний ключ
     или `input_schema` вместо него не разберёт клиент на другой стороне."""
     перечень = as_list()
-    assert len(перечень) == 21
+    assert len(перечень) == 22
     for запись in перечень:
         assert set(запись) == {"name", "description", "inputSchema"}
 
