@@ -59,11 +59,18 @@ _FIELDS = (
     "about",
     "stopwords",
     "suffixes",
+    "fleeting",
     "negations",
     "connectives",
     "column_words",
     "sections",
 )
+
+#: Сколько букв обязано остаться в основе. Совпадает с порогом, по которому
+#: `cues.stems` отбрасывает слишком короткие основы: основа, которая до этого
+#: порога не дотягивает, всё равно никуда не пойдёт, а правило, режущее ниже
+#: него, только сталкивало бы разные слова в один ключ.
+MIN_STEM = 3
 
 #: Куда частица отрицания смотрит — часть правил языка, а не кода (T195).
 #: По-русски «не», «без», «ни» относятся к тому, что стоит ПОСЛЕ них, а «нет» —
@@ -86,6 +93,10 @@ class LanguageRules:
     stopwords: frozenset[str]
     #: Окончания, которые отсекаются при сведении слова к основе.
     suffixes: tuple[str, ...]
+    #: Окончания с БЕГЛОЙ гласной: пара «гласная + согласная», в которой
+    #: гласная есть только в исходной форме слова и пропадает во всех
+    #: остальных («участок» → «участка», «перчаток» → «перчатки»).
+    fleeting: tuple[str, ...]
     #: Частица, переворачивающая смысл («без нагара»), → куда она смотрит.
     negations: Mapping[str, str]
     #: Связки указания процесса: «<описание>, ЭТО <процесс>» (T166, T196).
@@ -113,6 +124,29 @@ def _words(raw: object, where: str) -> tuple[str, ...]:
     if upper:
         raise _fail(f"{where} содержит слова не в нижнем регистре: {upper}")
     return tuple(dict.fromkeys(words))
+
+
+def _fleeting(raw: object, code: str) -> tuple[str, ...]:
+    """Окончания с беглой гласной. Пустой список — законное «в этом языке их нет».
+
+    Пара из двух букв, и это не формальность: правило снимает ПЕРВУЮ букву
+    пары, оставляя вторую, и тройка вроде «ок?» означала бы уже не беглую
+    гласную, а произвольную резку основы.
+
+    Пустота здесь разрешена в отличие от стоп-слов и окончаний: язык без беглых
+    гласных — обычное дело (английский), а объявить поле он всё равно обязан,
+    иначе «беглых гласных нет» и «про них забыли» неразличимы.
+    """
+    if not isinstance(raw, list) or not all(isinstance(w, str) for w in raw):
+        raise _fail(f"{code}/fleeting — не список строк")
+    pairs = _words(raw, f"{code}/fleeting") if raw else ()
+    wrong = [pair for pair in pairs if len(pair) != 2]
+    if wrong:
+        raise _fail(
+            f"у языка «{code}» беглая гласная объявлена не парой букв: {wrong}. "
+            f"Правило снимает первую букву пары и оставляет вторую"
+        )
+    return pairs
 
 
 def _negations(raw: object, code: str) -> Mapping[str, str]:
@@ -156,6 +190,7 @@ def _one(raw: Mapping[str, object], code: str) -> LanguageRules:
     return LanguageRules(
         stopwords=frozenset(_words(raw["stopwords"], f"{code}/stopwords")),
         suffixes=_words(raw["suffixes"], f"{code}/suffixes"),
+        fleeting=_fleeting(raw["fleeting"], code),
         negations=_negations(raw["negations"], code),
         connectives=_words(raw["connectives"], f"{code}/connectives"),
         column_words={
@@ -197,6 +232,22 @@ def suffixes(rules: Mapping[str, LanguageRules] = RULES) -> tuple[str, ...]:
     """
     merged = dict.fromkeys(suffix for r in rules.values() for suffix in r.suffixes)
     return tuple(sorted(merged, key=lambda s: -len(s)))
+
+
+def fleeting(rules: Mapping[str, LanguageRules] = RULES) -> tuple[str, ...]:
+    """Окончания с беглой гласной всех языков разом, в устойчивом порядке.
+
+    Складываются по той же причине, что стоп-слова и окончания (T192): языков в
+    разборе одновременно три, и выбор правил по `lang` означал бы, что русская
+    карта перестаёт совпадать, как только аудитор попросил английский отчёт.
+    Столкновения между языками здесь не бывает: пара из двух букв совпадает
+    только сама с собой, а к слову применяется не более одной пары — той, на
+    которую слово кончается.
+
+    Порядок отсортирован, а не взят из файла: разбор одного и того же текста не
+    имеет права зависеть от порядка языков в файле правил.
+    """
+    return tuple(sorted({pair for r in rules.values() for pair in r.fleeting}))
 
 
 def negations(rules: Mapping[str, LanguageRules] = RULES) -> Mapping[str, str]:

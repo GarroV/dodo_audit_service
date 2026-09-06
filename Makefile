@@ -1,4 +1,4 @@
-.PHONY: check test test-honest regress demo demo-down loadcheck loadcheck-live fastpath processhint lint types dead bounds fmt migrate db-up db-down storage-up storage-down mcp cov-engine
+.PHONY: check test test-honest regress demo demo-down loadcheck loadcheck-live fastpath processhint zonewords lint types dead bounds fmt migrate db-up db-down storage-up storage-down mcp cov-engine
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -92,6 +92,16 @@ fastpath:
 # проверок: пока он пуст, замер говорит это прямо. Без сети и без денег.
 processhint:
 	$(VENV)/python tools/process_hint_measure.py
+
+# Замер T242: узнаётся ли зона, названная НЕ в именительном падеже — так, как
+# её называют на точке («на тепловом участке»). Имена берутся из ДЕЙСТВУЮЩЕЙ
+# методики, формы порождаются правилами падежа и печатаются целиком: проверять
+# их глазами — часть замера. Без сети и без денег.
+#
+# Вывод несёт боевые названия зон — в репозиторий его не класть (репозиторий
+# публичный, `tests/test_methodology_leak.py`).
+zonewords:
+	STATE_DIR=$${STATE_DIR:-/tmp/zonewords-state} $(VENV)/python tools/zone_words_measure.py
 
 demo-down:
 	docker compose --profile demo rm -sf demo demo-seed

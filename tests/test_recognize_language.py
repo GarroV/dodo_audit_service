@@ -40,12 +40,14 @@ from src.recognize.cues import CUES_FILE, class_thresholds, column_words, load_c
 from src.recognize.errors import RecognizeConfigError
 from src.recognize.fastpath import NO_COLUMN, NO_CUE, fast_path
 from src.recognize.language import (
+    _FIELDS,
     BACKWARD,
     BOTH,
     COLUMN_WORDS,
     FORWARD,
     RULES,
     THRESHOLDS,
+    fleeting,
     load_rules,
     negations,
     section_headings,
@@ -150,6 +152,7 @@ def test_третий_язык_добавляется_словарём_а_не_�
                     "about": "выдуманный язык оснастки",
                     "stopwords": ["qux"],
                     "suffixes": ["zzz"],
+                    "fleeting": ["ak"],
                     "negations": {"nix": "forward"},
                     "connectives": ["ovo"],
                     "column_words": {"prljavo": ["blato"]},
@@ -169,6 +172,7 @@ def test_третий_язык_добавляется_словарём_а_не_�
     assert set(правила) == {"xx"}
     assert "qux" in stopwords(правила)
     assert "zzz" in suffixes(правила)
+    assert fleeting(правила) == ("ak",)
     assert negations(правила)["nix"] == "forward"
     assert builtin_column_words(правила)["prljavo"] == ("blato",)
     assert section_headings(THRESHOLDS, правила) == ("## Pragovi",)
@@ -201,6 +205,57 @@ def test_сломанные_правила_это_отказ_с_именем_я�
 
     assert "xx" in str(отказ.value), "в отказе не назван язык, из-за которого он случился"
     assert "stopwords" in str(отказ.value), "в отказе не названо недостающее поле"
+
+
+#: Поля, которые обязан объявить каждый язык. Список выписан здесь ДОСЛОВНО, а
+#: не взят из `_FIELDS`: перебор по самому коду проверял бы код им же — поле,
+#: снятое из `_FIELDS`, просто перестало бы перебираться, и тест молча
+#: уменьшился бы на один случай вместо того, чтобы покраснеть (поймано порчей
+#: при T242).
+ОБЯЗАТЕЛЬНЫЕ_ПОЛЯ = (
+    "about",
+    "stopwords",
+    "suffixes",
+    "fleeting",
+    "negations",
+    "connectives",
+    "column_words",
+    "sections",
+)
+
+
+def test_перечень_обязательных_полей_не_поредел() -> None:
+    """Сторож самого перебора ниже: список полей в тесте и в коде — один."""
+    assert _FIELDS == ОБЯЗАТЕЛЬНЫЕ_ПОЛЯ
+
+
+@pytest.mark.parametrize("поле", ОБЯЗАТЕЛЬНЫЕ_ПОЛЯ)
+def test_пропуск_любого_поля_правил_это_отказ(tmp_path: Path, поле: str) -> None:
+    """Каждое поле обязательно поимённо, а не только первое по счёту.
+
+    Тест выше снимает ВСЕ поля разом и потому упирается в первое из них: пока
+    он был единственным, поле, добавленное в `_FIELDS` последним, можно было
+    оттуда снять, не покрасив ни одного теста (поймано порчей при T242). Язык
+    без такого поля разбирается наполовину — молча.
+    """
+    язык = {
+        "about": "оснастка теста: языка такого в продукте нет",
+        "stopwords": ["qux"],
+        "suffixes": ["zzz"],
+        "fleeting": ["ak"],
+        "negations": {"nix": "forward"},
+        "connectives": ["ovo"],
+        "column_words": {"prljavo": ["blato"]},
+        "sections": {THRESHOLDS: "## Pragovi", COLUMN_WORDS: "## Reci"},
+    }
+    язык.pop(поле)
+    файл = tmp_path / "language_rules.json"
+    файл.write_text(json.dumps({"xx": язык}, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(RecognizeConfigError) as отказ:
+        load_rules(файл)
+
+    assert поле in str(отказ.value), f"отказ не назвал недостающее поле «{поле}»"
 
 
 def test_стоп_слова_языков_не_пересекаются() -> None:
@@ -279,6 +334,56 @@ def test_русские_формы_слова_сводятся_к_одной_о�
 def test_русские_стоп_слова_остались_стоп_словами() -> None:
     """Тот же сторож с другой стороны: список русских слов не поредел."""
     assert stems("это и то, что видно рядом") == set()
+
+
+# --- беглая гласная (T242, задача #198) -------------------------------------
+
+
+def test_беглая_гласная_не_разводит_формы_одного_слова() -> None:
+    """T242: «участок» и «участке» — одно слово, а были разными ключами.
+
+    Отсечкой окончаний это не лечилось: гласная стоит не на конце слова, а
+    внутри основы. Цена дефекта — не пропуск строки карты, а зона: имя зоны
+    записано в методике в именительном падеже, а на точке место называют
+    предложным («на тепловом участке»), и незнакомая зона молча подставлялась
+    памятью о ПРОШЛОЙ записи (D048) — то есть вычет уезжал в чужую зону отчёта.
+    """
+    assert stems("участок") == stems("участке") == stems("участка")
+    assert stems("потолок") == stems("потолке")
+    assert stems("барашек") == stems("барашка")
+    # Родительный падеж множественного числа вставляет ту же беглую гласную:
+    # карта слов пишет «шапочек», аудитор говорит «шапочки».
+    assert stems("шапочек") == stems("шапочки")
+    assert stems("перчаток") == stems("перчатки")
+
+
+def test_беглая_гласная_не_срезает_основу_ниже_порога() -> None:
+    """Короткое слово правило не трогает: от него не осталось бы основы.
+
+    Порог тот же, по которому `stems` отбрасывает короткие основы. Без него
+    «чек» превратился бы в «чк» — ключ из двух букв, который сталкивает
+    разные слова молча.
+    """
+    assert stems("чек") == {"чек"}
+    assert stems("сок") == {"сок"}
+
+
+def test_беглая_гласная_объявлена_данными_а_не_вшита_в_код() -> None:
+    """Правило — параметр языка (T192): у английского пар нет, и это объявлено.
+
+    Пустой список у английского — не пропуск, а ответ: язык обязан объявить
+    поле, иначе «беглых гласных нет» и «про них забыли» неразличимы.
+    """
+    assert RULES["en"].fleeting == ()
+    assert RULES["ru"].fleeting
+    assert set(fleeting()) == set(RULES["ru"].fleeting)
+
+
+def test_беглая_гласная_не_тронула_английские_формы() -> None:
+    """Сложение языков не должно задеть чужой алфавит: пары русские."""
+    assert stems("crumbs") == stems("crumb")
+    assert stems("boxes") == stems("box")
+    assert stems("mop room") == {"mop", "room"}
 
 
 # --- быстрый путь на английской методике ------------------------------------
@@ -470,6 +575,7 @@ def test_одна_частица_в_разных_языках_не_может_с
         "about": "оснастка теста: языка такого в продукте нет",
         "stopwords": ["qux"],
         "suffixes": ["zzz"],
+        "fleeting": ["ak"],
         "connectives": ["ovo"],
         "column_words": {"prljavo": ["blato"]},
         "sections": {THRESHOLDS: "## Pragovi", COLUMN_WORDS: "## Reci"},
