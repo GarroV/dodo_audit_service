@@ -203,8 +203,14 @@ def new_token() -> str:
 
 
 @contextmanager
-def _writing(что: str) -> Iterator[psycopg.Connection[Any]]:
-    """Подключение на время правки; отказ базы — `AccessError`, а не тишина.
+def _connected(зачем: str) -> Iterator[psycopg.Connection[Any]]:
+    """Подключение на время одного действия; отказ базы — `AccessError`, а не тишина.
+
+    Одно на чтение и на правку намеренно: здесь и то и другое ходит под одной
+    ролью приложения и отказывает одинаково, а две одинаковые обёртки разошлись
+    бы при первой же правке. `зачем` — то, что не удалось, и попадает оно в
+    текст отказа: «не удалось сверить токен доступа» чинится не там, где «не
+    удалось отозвать доступ».
 
     Наружу уходит ТИП исключения драйвера, а не его текст: в тексте psycopg
     может оказаться строка подключения целиком. Тот же приём и та же причина,
@@ -215,7 +221,7 @@ def _writing(что: str) -> Iterator[psycopg.Connection[Any]]:
         with psycopg.connect(settings.dsn) as conn:
             yield conn
     except psycopg.Error as exc:
-        raise AccessError(f"Не удалось {что} ({type(exc).__name__})") from exc
+        raise AccessError(f"Не удалось {зачем} ({type(exc).__name__})") from exc
 
 
 def is_admin(telegram_id: int) -> bool:
@@ -226,14 +232,14 @@ def is_admin(telegram_id: int) -> bool:
     однажды в память, — это ровно тот способ, которым «немедленно» превращается
     в «после следующего подъёма бота».
     """
-    with _writing("проверить круг доступа") as conn, conn.cursor() as cur:
+    with _connected("проверить круг доступа") as conn, conn.cursor() as cur:
         cur.execute(_SELECT_LIVE_ADMIN_SQL, (telegram_id,))
         return cur.fetchone() is not None
 
 
 def list_admins() -> list[AdminRow]:
     """Круг целиком со следом: кто кого привёл, у кого живой токен, кто отозван."""
-    with _writing("прочитать круг доступа") as conn, conn.cursor() as cur:
+    with _connected("прочитать круг доступа") as conn, conn.cursor() as cur:
         cur.execute(_SELECT_ADMINS_SQL)
         rows = cur.fetchall()
     return [
@@ -260,7 +266,7 @@ def add_admin(telegram_id: int, *, by: int | None) -> bool:
     приведённого не ошибка, и переписывать при этом, кто и когда его привёл,
     нельзя, иначе след теряет первого приводившего.
     """
-    with _writing("привести человека в круг доступа") as conn, conn.cursor() as cur:
+    with _connected("привести человека в круг доступа") as conn, conn.cursor() as cur:
         cur.execute(_ADD_ADMIN_SQL, {"who": telegram_id, "by": by})
         return cur.rowcount > 0
 
@@ -279,7 +285,7 @@ def revoke_access(telegram_id: int, *, by: int) -> Revocation:
     бот, и сервер MCP спрашивают базу на каждое обращение, а перезапуск не
     участвует ни в одной из двух проверок.
     """
-    with _writing("отозвать доступ") as conn, conn.cursor() as cur:
+    with _connected("отозвать доступ") as conn, conn.cursor() as cur:
         cur.execute(_REVOKE_ADMIN_SQL, {"who": telegram_id, "by": by})
         was_admin = cur.rowcount > 0
         cur.execute(_REVOKE_TOKENS_SQL, {"who": telegram_id, "by": by})
@@ -304,7 +310,7 @@ def issue_token(telegram_id: int, *, tenant: str) -> IssuedToken:
     обязан работать, а не отказывать.
     """
     token = new_token()
-    with _writing("выпустить токен доступа") as conn, conn.cursor() as cur:
+    with _connected("выпустить токен доступа") as conn, conn.cursor() as cur:
         cur.execute(_SELECT_LIVE_ADMIN_SQL, (telegram_id,))
         if cur.fetchone() is None:
             raise AccessError(
@@ -342,7 +348,7 @@ def resolve_token(token: str) -> TokenOwner | None:
     «мы не смогли посмотреть», и выдать второе за первое — это тихо закрыть
     доступ всем и объяснить это каждому неверным словом.
     """
-    with _writing("сверить токен доступа") as conn, conn.cursor() as cur:
+    with _connected("сверить токен доступа") as conn, conn.cursor() as cur:
         cur.execute(_RESOLVE_FINGERPRINT_SQL, (token_fingerprint(token),))
         row = cur.fetchone()
     if row is None:
