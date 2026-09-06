@@ -245,3 +245,53 @@ def test_кадры_чужой_проверки_уборка_не_трогает
     оставшиеся = _ключи_в_хранилище(читатель)
     assert len(оставшиеся) == 1
     assert all(соседняя in ключ for ключ in оставшиеся)
+
+
+def test_отказ_поставщика_при_уборке_переводится_на_границе_драйвера(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Уборка обязана переводить чужие исключения там же, где их переводит выгрузка.
+
+    Иначе снятие пришлось бы ловить исключения boto3 — то есть знать про
+    конкретного поставщика, и смена хранилища перестала бы быть правкой
+    конфига (D004, D054, D061). Корзины нет намеренно: это самый дешёвый
+    настоящий отказ S3.
+    """
+    monkeypatch.setenv("MOTO_S3_CUSTOM_ENDPOINTS", АДРЕС_ХРАНИЛИЩА)
+    with moto.mock_aws():
+        склад = S3PhotoStorage(
+            StorageSettings(
+                bucket="no-such-bucket",
+                access_key_id="ключ-теста",
+                secret_access_key="секрет-теста",  # выдуманный, не настоящий
+                endpoint_url=АДРЕС_ХРАНИЛИЩА,
+            )
+        )
+        with pytest.raises(StorageError, match="no-such-bucket"):
+            склад.delete("inspections/x/y.jpg")
+
+
+def test_без_подмены_склад_собирается_из_окружения(
+    domain_env: Path,
+    retraction_env: str,
+    monkeypatch: pytest.MonkeyPatch,
+    настоящий_s3: tuple[S3PhotoStorage, Any],
+) -> None:
+    """Продукт хранилище не получает аргументом — он собирает его из `S3_*`.
+
+    Проверки везде выше подсовывают склад параметром, и на этом пути ни одна из
+    них не бывает. А ходит по нему как раз продукт: путь, пройденный только
+    двойником, — не проверенный путь.
+    """
+    склад, читатель = настоящий_s3
+    monkeypatch.setenv("S3_BUCKET", КОРЗИНА)
+    monkeypatch.setenv("S3_ACCESS_KEY_ID", "ключ-теста")
+    monkeypatch.setenv("S3_SECRET_ACCESS_KEY", "секрет-теста")
+    monkeypatch.setenv("S3_ENDPOINT_URL", АДРЕС_ХРАНИЛИЩА)
+    ident = _проверка_с_кадрами(508, кадры=("tg-file-101",))
+    upload_photos(ident, fetch=_кадр, storage=склад)
+
+    снятие = retract_inspection(ident, tenant="default", reason=ПРИЧИНА)
+
+    assert снятие.photos_purged == 1
+    assert _ключи_в_хранилище(читатель) == set()
