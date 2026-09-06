@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -39,6 +40,11 @@ REFRESH = ROOT / "tools" / "demo_refresh.sh"
 
 DEMO_SERVICES = ("demo", "demo-seed")
 
+#: Состав обычного `docker compose up -d` — без профилей. MCP-сервер здесь не
+#: для полноты: до задачи T255 его в стенде не было вовсе, он поднимался руками
+#: и жил до конца сессии запустившего (#210).
+STAND_SERVICES = ("bot", "mcp")
+
 #: Имя проекта — своё, как требует правило параллельных копий: без него вызов
 #: разговаривал бы с контейнерами соседа. Здесь ничего не поднимается, только
 #: читается конфигурация, но привычку ломать нельзя.
@@ -51,12 +57,18 @@ requires_docker = pytest.mark.skipif(
 
 
 def compose(*args: str) -> subprocess.CompletedProcess[str]:
+    # COMPOSE_PROFILES гасится намеренно. Compose читает эту переменную из `.env`
+    # рабочей копии, а на площадке в ней стоит `tunnel` (T256): унаследованная,
+    # она включала бы профиль сама, и проверка «обычный `up -d` поднимает ровно
+    # эти сервисы» отвечала бы на вопрос про чужую настройку, а не про файл.
+    окружение = {**os.environ, "COMPOSE_PROFILES": ""}
     return subprocess.run(  # noqa: S603 — аргументы собираем сами, ввода извне нет
         ["docker", "compose", "-p", PROJECT, *args],  # noqa: S607 — docker из PATH
         cwd=str(ROOT),
         capture_output=True,
         text=True,
         check=False,
+        env=окружение,
     )
 
 
@@ -82,9 +94,9 @@ def mounts(service: dict) -> dict[str, str]:
 def test_production_stand_does_not_pull_in_demo() -> None:
     r = compose("config", "--services")
     assert r.returncode == 0, r.stderr
-    assert sorted(r.stdout.split()) == ["bot"], (
-        "обычный `docker compose up -d` тянет за собой демо-сервисы: "
-        "боевой стенд начнёт требовать демо-переменные и поднимать лишнее"
+    assert sorted(r.stdout.split()) == list(STAND_SERVICES), (
+        "обычный `docker compose up -d` поднимает не тот состав: демо и туннель "
+        "тянуться за собой не должны, а бот и MCP-сервер обязаны быть в нём оба"
     )
 
 
@@ -92,7 +104,9 @@ def test_production_stand_does_not_pull_in_demo() -> None:
 def test_demo_profile_brings_up_seed_and_bot() -> None:
     r = compose("--profile", "demo", "config", "--services")
     assert r.returncode == 0, r.stderr
-    assert sorted(r.stdout.split()) == ["bot", "demo", "demo-seed"]
+    assert sorted(r.stdout.split()) == sorted([*STAND_SERVICES, *DEMO_SERVICES]), (
+        "профиль демо меняет состав боевого стенда, а обязан только дополнять его"
+    )
 
 
 # --- один файл, один образ ---------------------------------------------------
@@ -182,3 +196,103 @@ def test_every_demo_variable_is_documented() -> None:
 def test_refresh_script_is_runnable() -> None:
     assert REFRESH.is_file(), "нет tools/demo_refresh.sh — демо нечем догонять main"
     assert REFRESH.stat().st_mode & 0o111, "tools/demo_refresh.sh не исполняемый"
+
+
+# --- MCP-сервер: сервис стенда, а не команда оператора (T255, #210) ----------
+#
+# Задача заведена по живой поломке: бот выдал человеку правильный доступ, все
+# контейнеры были зелёными, а порт сервера не слушал никто — сервер поднимали
+# руками, и жил он до конца сессии запустившего. Ниже сторожатся ровно те
+# свойства, потеря которых возвращает эту поломку.
+
+
+@requires_docker
+def test_mcp_server_is_part_of_the_stand(resolved: dict[str, dict]) -> None:
+    """Обычный `up -d` поднимает сервер сам — иначе он снова забудется."""
+    assert "mcp" in resolved, "MCP-сервера нет в стенде: его снова придётся поднимать руками"
+    assert not resolved["mcp"].get("profiles"), (
+        "MCP-сервер спрятан за профилем: обычный `docker compose up -d` его не поднимет, "
+        "и подключение снаружи снова окажется настроенным в никуда"
+    )
+
+
+@requires_docker
+def test_mcp_server_restarts_itself(resolved: dict[str, dict]) -> None:
+    assert resolved["mcp"].get("restart") == "unless-stopped", (
+        "сервер не перезапускается сам: перезагрузка машины оставит стенд без MCP"
+    )
+
+
+@requires_docker
+def test_mcp_server_publishes_no_ports(resolved: dict[str, dict]) -> None:
+    """Главный запрет блока: наружу порт не публикуется ничем.
+
+    Сервер отдаёт проверки партнёров по токену, а площадка общая — рядом живут
+    чужие проекты. Наружу ведёт только туннель.
+    """
+    for имя, сервис in resolved.items():
+        assert not сервис.get("ports"), (
+            f"сервис {имя} публикует порт на площадку: {сервис.get('ports')}. "
+            f"Проверки партнёров становятся доступны соседям по машине"
+        )
+
+
+@requires_docker
+def test_mcp_server_listens_on_the_container_loopback(resolved: dict[str, dict]) -> None:
+    """Адрес прослушивания — петля, и назван он в самом описании стенда."""
+    адрес = resolved["mcp"]["environment"].get("MCP_HOST")
+    assert адрес == "127.0.0.1", (
+        f"MCP_HOST у сервиса стенда = {адрес!r}. Сервер обязан слушать петлю контейнера: "
+        f"внешний адрес он и сам не примет (src/mcp/config.py, _parse_host)"
+    )
+
+
+@requires_docker
+def test_mcp_server_has_its_own_health_probe(resolved: dict[str, dict]) -> None:
+    """Запечённая в образ проверка ищет процесс БОТА — серверу нужна своя.
+
+    Без своего `healthcheck` контейнер сервера был бы нездоров всегда, а
+    «нездоров всегда» читается ровно так же, как «нездоров сейчас», то есть не
+    читается вовсе.
+    """
+    проба = resolved["mcp"].get("healthcheck") or {}
+    команда = " ".join(проба.get("test") or [])
+    assert "tools/mcp_healthcheck.py" in команда, (
+        f"у сервера нет своей пробы здоровья: {команда!r}. Проверка из образа ищет "
+        f"процесс бота (`python -m src.bot`) и для сервера красна всегда"
+    )
+    assert "src.bot" not in команда
+
+
+@requires_docker
+def test_mcp_server_never_writes_the_inspection_state(resolved: dict[str, dict]) -> None:
+    """Полка изданий принадлежит идущим проверкам: сервер её только читает."""
+    состояние = [v for v in resolved["mcp"]["volumes"] if v["target"] == "/app/state"]
+    assert состояние, "серверу не смонтирована полка изданий — пересборка письма откажет"
+    assert состояние[0].get("read_only") is True, (
+        "том состояния смонтирован серверу на запись: он читает полку снимков методики "
+        "и писать в состояние идущих проверок не имеет права ничем"
+    )
+
+
+@requires_docker
+def test_mcp_server_and_bot_share_one_image(resolved: dict[str, dict]) -> None:
+    """Один образ на бот и на сервер: второй Dockerfile разошёлся бы с первым."""
+    бот, сервер = resolved["bot"]["build"], resolved["mcp"]["build"]
+    assert (бот["dockerfile"], бот["context"]) == (сервер["dockerfile"], сервер["context"])
+
+
+@requires_docker
+def test_mcp_server_waits_for_the_database_without_demanding_it(resolved: dict[str, dict]) -> None:
+    """Зависимость от базы есть, но стенд без профиля `db` она не ломает.
+
+    База — источник всего, что сервер читает. При этом жить она может и снаружи
+    compose (D061), поэтому зависимость обязана быть необязательной: жёсткая
+    сделала бы обычный `docker compose up -d` невозможным.
+    """
+    зависимости = resolved["mcp"].get("depends_on") or {}
+    assert "db" in зависимости, "сервер не ждёт базу: он ответит пустотой на живой вопрос"
+    assert зависимости["db"].get("condition") == "service_healthy"
+    assert зависимости["db"].get("required") is False, (
+        "зависимость от базы жёсткая: стенд без профиля `db` перестанет подниматься целиком"
+    )
