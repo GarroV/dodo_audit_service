@@ -40,14 +40,17 @@ from .routers import (
     build_finish_router,
     build_info_router,
     build_material_router,
+    build_mcp_router,
     build_record_router,
     build_records_router,
     build_start_router,
     build_version_router,
 )
 from .routers.material import MaterialHandler
+from .routers.mcp import MCP_COMMAND
 from .routers.record import make_frame_handler, make_material_handler, make_waiting_handler
 from .routers.records import RECORDS_COMMAND
+from .routers.version import VERSION_COMMAND
 from .texts import DEFAULT_UI_LANG, default_ui_lang, t
 from .version import build_version
 
@@ -155,9 +158,16 @@ def build_dispatcher(
 
     dispatcher.include_router(build_start_router(settings, pending))
     dispatcher.include_router(build_edit_router())
-    dispatcher.include_router(build_records_router())
+    # Показ записанного и завершение получают ту же очередь ожидания, из которой
+    # собираются записи (T241): при завершении называются не только кадры без
+    # записи, но и слова, кадра не дождавшиеся.
+    dispatcher.include_router(build_records_router(store))
+    # Установка MCP (T209) и версия сборки (T246) — рядом с остальными
+    # командами: своих состояний диалога у них нет, обычного текста они не ждут,
+    # и на порядок разбора материала не влияют.
+    dispatcher.include_router(build_mcp_router())
     dispatcher.include_router(build_version_router())
-    dispatcher.include_router(build_finish_router())
+    dispatcher.include_router(build_finish_router(store))
     # Информационная часть ждёт обычный текст, голос и кадр в своём состоянии
     # диалога (T158), поэтому идёт раньше приёма материала: иначе ответ на
     # вопрос уехал бы в разбор как комментарий к кадру.
@@ -195,12 +205,21 @@ def create_bot(settings: BotSettings) -> Bot:
 #: Команды в меню телеграма: имя и ключ описания в каталоге текстов.
 #:
 #: Порядок — порядок работы аудитора, а не алфавит: начать, посмотреть
-#: записанное, снять последнее, завершить.
+#: записанное, снять последнее, завершить. Установка MCP (T209, решение D087) и
+#: версия сборки (T246) стоят последними и этот порядок не ломают: обе не шаг
+#: обхода — одна разовая настройка, вторая вопрос «что у нас крутится», — и
+#: место им за работой, а не посреди неё.
+#:
+#: Чего в меню нет намеренно: снятия сданной проверки. По решению D086 это
+#: операция управляющей компании через MCP, а не кнопка у аудитора на точке, —
+#: и входа в неё бот не получает вовсе (`src/mcp/retraction.py`).
 MENU_COMMANDS = (
     ("start", "cmd.start"),
     (RECORDS_COMMAND, "cmd.records"),
     ("undo", "cmd.undo"),
     ("finish", "cmd.finish"),
+    (MCP_COMMAND, "cmd.mcp"),
+    (VERSION_COMMAND, "cmd.version"),
 )
 
 

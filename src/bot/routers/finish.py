@@ -10,6 +10,11 @@
 и есть потеря материала, ради которой задача заведена: на точку уже не
 вернуться.
 
+И вторая половина того же — слова, кадра не дождавшиеся (задача T241). С T229
+очередь ожидания симметрична, а называлась при завершении одна её сторона:
+аудитор сказал о находке, кадр не прислал, и о потере ему не говорил никто.
+Оба списка собирает `records.show_records`, сюда они приходят вместе с ним.
+
 Оценка не считается: процент, буква и разбивка приходят из `domain.score()`,
 который зовёт движок. Отчёт и письмо собирает блок `report` — здесь только
 кадры, потому что токен телеграма есть у одного бота.
@@ -57,6 +62,7 @@ from ..keyboards import (
     without_photos_keyboard,
 )
 from ..lang import chat_ui_lang
+from ..material import MaterialStore
 from ..photos import download_all
 from ..texts import t
 from .records import show_records
@@ -64,15 +70,16 @@ from .records import show_records
 logger = logging.getLogger(__name__)
 
 
-async def show_summary(message: Message, chat_id: int, lang: str) -> None:
-    """Итог, список зафиксированного и кадры без записи — тремя сообщениями.
+async def show_summary(message: Message, chat_id: int, lang: str, *, store: MaterialStore) -> None:
+    """Итог, список зафиксированного, кадры без записи и слова без кадра.
 
-    Тремя, а не одним: список записей и список кадров по отдельности читаются, а
-    склеенные упираются в предел длины сообщения телеграма на первой же реальной
-    проверке (двадцать записей — это уже за две тысячи знаков).
+    Отдельными сообщениями, а не одним: список записей, список кадров и
+    придержанные слова по отдельности читаются, а склеенные упираются в предел
+    длины сообщения телеграма на первой же реальной проверке (двадцать записей —
+    это уже за две тысячи знаков).
 
-    Список и кадры показывает `records.show_records` — та же функция, что и
-    команда «что записано» (T139). Одна на оба пути намеренно: две копии списка
+    Список, кадры и слова показывает `records.show_records` — та же функция, что
+    и команда «что записано» (T139). Одна на оба пути намеренно: две копии списка
     разошлись бы молча, ровно как разошлась пометка нетипичной зоны в T147.
     Здесь к ней добавляется то, чего в середине обхода быть не должно, — оценка
     (T162, D072) и кнопки завершения.
@@ -107,7 +114,7 @@ async def show_summary(message: Message, chat_id: int, lang: str) -> None:
         )
     )
 
-    await show_records(message, chat_id, lang)
+    await show_records(message, chat_id, lang, store=store)
 
     await message.answer(
         t("finish.ask", lang),
@@ -335,8 +342,13 @@ async def deliver(message: Message, chat_id: int, lang: str, *, allow_missing: b
         await archive(message, chat_id, found, lang, allow_missing=allow_missing)
 
 
-def build_finish_router() -> Router:
-    """Роутер завершения: команда `/finish` и кнопки под итогом."""
+def build_finish_router(store: MaterialStore) -> Router:
+    """Роутер завершения: команда `/finish` и кнопки под итогом.
+
+    `store` — очередь ожидания: при завершении называются не только кадры без
+    записи, но и слова, кадра не дождавшиеся (T241). Живёт она в памяти
+    процесса, поэтому приходит сюда сборкой диспетчера, а не читается здесь.
+    """
     router = Router(name="finish")
 
     def chat_of(callback: CallbackQuery) -> tuple[Message, int, str] | None:
@@ -349,7 +361,7 @@ def build_finish_router() -> Router:
     @router.message(Command("finish"))
     async def on_finish(message: Message) -> None:
         chat_id = message.chat.id
-        await show_summary(message, chat_id, chat_ui_lang(chat_id))
+        await show_summary(message, chat_id, chat_ui_lang(chat_id), store=store)
 
     @router.callback_query(F.data == VERSION_SYNC_CALLBACK)
     async def on_version_sync(callback: CallbackQuery) -> None:
@@ -376,7 +388,7 @@ def build_finish_router() -> Router:
         await message.answer(t("finish.version_synced", lang, current=inspection.checklist_version))
         # Тупик кончается там же, где начался: аудитор снова видит итог и кнопки
         # завершения, а не остаётся с одним сообщением о переводе.
-        await show_summary(message, chat_id, lang)
+        await show_summary(message, chat_id, lang, store=store)
 
     @router.callback_query(F.data == VERSION_KEEP_CALLBACK)
     async def on_version_keep(callback: CallbackQuery) -> None:

@@ -33,6 +33,7 @@ from aiogram.types import Message
 from .. import sidecar, view
 from ..inspection import read_inspection
 from ..lang import chat_ui_lang
+from ..material import Comment, MaterialStore
 from ..texts import t
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,15 @@ RECORDS_COMMAND = "records"
 #: аудитор нажимал «Завершить». Остаток не замалчивается: бот называет число и
 #: говорит, как увидеть следующую пачку.
 UNCLAIMED_SHOWN_LIMIT = 10
+
+#: Сколько придержанных слов показывается за раз (T241).
+#:
+#: Своё число, а не то же самое: случай другой и цена ошибки другая. Кадры
+#: хоронят показ весом, слова — количеством: аудитор, наговоривший весь обход
+#: и не приславший ни одной фотографии, получил бы тридцать сообщений подряд
+#: вместо итога. Совпадение с пределом кадров сегодня случайно, и связывать их
+#: одной константой значило бы обещать, что оно не случайно.
+HELD_SHOWN_LIMIT = 10
 
 
 async def _show_unclaimed(
@@ -93,16 +103,69 @@ async def _show_unclaimed(
         await message.answer(t("finish.unclaimed_rest", lang, rest=rest))
 
 
-async def show_records(message: Message, chat_id: int, lang: str) -> None:
-    """Что уже записано и какие кадры остались без записи.
+async def _show_held(message: Message, comments: tuple[Comment, ...], lang: str) -> None:
+    """Вернуть в чат слова, не дождавшиеся кадра (T241, задача #197).
 
-    Двумя сообщениями, а не одним: список записей и список кадров по отдельности
-    читаются, а склеенные упираются в предел длины сообщения телеграма на первой
-    же реальной проверке (двадцать записей — это уже за две тысячи знаков).
+    Тем же способом, что и кадры без записи (T138): содержимым, а не ссылкой на
+    сообщение. Текст возвращается текстом, голосовое — самим голосовым: расшифровки
+    у придержанного голоса ещё нет — она делается в момент сборки записи, — и
+    пересказать его нечем.
+
+    Отказ телеграма на одном голосовом не отменяет остальных и не проходит
+    молча: сколько показать не удалось, сказано числом. Молчание здесь было бы
+    ровно тем дефектом, ради которого задача и заведена.
+    """
+    await message.answer(t("finish.held", lang, count=len(comments)))
+    failed = 0
+    for comment in comments[:HELD_SHOWN_LIMIT]:
+        words = (comment.text or "").strip()
+        # Ветки «ни слов, ни голоса» здесь нет намеренно: пустое придержанное
+        # отсеивает `show_records` — иначе счёт в заголовке разошёлся бы с тем,
+        # что показано. Мёртвая защита от невозможного случая только прятала бы
+        # эту связь между двумя функциями.
+        if words:
+            await message.answer(t("finish.held_words", lang, note=view.shorten(words)))
+        elif comment.voice_file_id is not None:
+            try:
+                await message.answer_voice(
+                    comment.voice_file_id, caption=t("finish.held_voice", lang)
+                )
+            except TelegramAPIError:
+                failed += 1
+                logger.warning(
+                    "голосовое %s без кадра не показалось в чате %s",
+                    comment.voice_file_id,
+                    message.chat.id,
+                )
+    if failed:
+        await message.answer(t("finish.held_failed", lang, failed=failed))
+    rest = len(comments) - HELD_SHOWN_LIMIT
+    if rest > 0:
+        await message.answer(t("finish.held_rest", lang, rest=rest))
+
+
+async def show_records(message: Message, chat_id: int, lang: str, *, store: MaterialStore) -> None:
+    """Что уже записано, какие кадры остались без записи и какие слова без кадра.
+
+    Отдельными сообщениями, а не одним: три списка по отдельности читаются, а
+    склеенные упираются в предел длины сообщения телеграма на первой же реальной
+    проверке (двадцать записей — это уже за две тысячи знаков).
 
     Кадры без записи (T068) показываются и здесь, а не только при завершении:
     посреди обхода их ещё можно разобрать или переснять, а в конце проверки
     аудитор уже уехал с точки.
+
+    **Слова без кадра показываются рядом и по той же причине** (T241). С T229
+    очередь ожидания симметрична: кадр ждёт слов, слова ждут кадра, — а
+    называлась при завершении только одна её сторона. Аудитор сказал о находке,
+    кадр не прислал, и о потере ему не говорил никто. Показ поэтому живёт здесь
+    же, а не своей копией в завершении: две копии одного списка расходятся
+    молча — ровно так, как разошлась пометка нетипичной зоны в T147.
+
+    Очередь ожидания — в памяти процесса, поэтому её приносит вызывающий
+    (`store`), а не читает эта функция: она и так знает слишком много мест, где
+    лежит состояние, а придуманное здесь второе хранилище разошлось бы с тем, из
+    которого собираются записи.
     """
     inspection = read_inspection(chat_id)
     if inspection is None:
@@ -130,14 +193,31 @@ async def show_records(message: Message, chat_id: int, lang: str) -> None:
     if orphans:
         await _show_unclaimed(message, orphans, lang)
 
+    # Пустая придержанная запись до показа не доходит намеренно: показывать в
+    # ней нечего, и назвать её потерянной находкой значило бы соврать числом —
+    # сказать «слов без кадра три», а показать два. Место в очереди связывания
+    # она при этом занимает по-прежнему, и это забота T229, а не показа.
+    held = tuple(
+        comment
+        for comment in store.queue(chat_id).held_comments()
+        if (comment.text or "").strip() or comment.voice_file_id
+    )
+    if held:
+        await _show_held(message, held, lang)
 
-def build_records_router() -> Router:
-    """Роутер показа записанного: одна команда и ничего больше."""
+
+def build_records_router(store: MaterialStore) -> Router:
+    """Роутер показа записанного: одна команда и ничего больше.
+
+    `store` — та же очередь ожидания, из которой собираются записи (T241):
+    придержанные слова живут в памяти процесса, и второго их хранилища быть не
+    должно, иначе показ рассказывал бы не о той очереди, что связывает кадры.
+    """
     router = Router(name="records")
 
     @router.message(Command(RECORDS_COMMAND))
     async def on_records(message: Message) -> None:
         chat_id = message.chat.id
-        await show_records(message, chat_id, chat_ui_lang(chat_id))
+        await show_records(message, chat_id, chat_ui_lang(chat_id), store=store)
 
     return router

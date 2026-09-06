@@ -841,6 +841,42 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "Photos that could not be shown: {failed}. Telegram refused them — they are "
         "still in the chat above.",
     },
+    # --- слова, не дождавшиеся кадра (T241, задача #197) ---
+    #
+    # Вторая половина того же правила, что у кадров без записи (T068): очередь
+    # ожидания симметрична с T229, а называлась при завершении только одна её
+    # сторона. Аудитор сказал о находке, кадра не прислал — и о потере ему не
+    # говорил никто.
+    "finish.held": {
+        "ru": "Слова без кадра — {count}. Они никуда не пропали, но записи по ним нет: "
+        "без фотографии её не бывает. Показываю их ниже — придёт кадр, соберу запись.",
+        "en": "Words with no photo — {count}. Not lost, but there is no record for them: "
+        "without a photo there is none. They follow below — send the frame and the record "
+        "will be made.",
+    },
+    "finish.held_words": {
+        "ru": "Ждут кадра: {note}",
+        "en": "Waiting for a photo: {note}",
+    },
+    # Голосовое возвращается самим голосовым — по той же причине, по которой
+    # кадр возвращается кадром (T138): расшифровки у придержанного голоса ещё
+    # нет, она делается в момент сборки записи, и пересказать его нечем.
+    "finish.held_voice": {
+        "ru": "Эти слова ждут кадра.",
+        "en": "These words are waiting for a photo.",
+    },
+    "finish.held_rest": {
+        "ru": "Ещё {rest} — показываю по одной пачке: пришлите кадры к этим и вызовите "
+        "/records, покажу следующие.",
+        "en": "And {rest} more — shown one batch at a time: send photos for these and call "
+        "/records for the next ones.",
+    },
+    "finish.held_failed": {
+        "ru": "Голосовых показать не удалось: {failed}. Телеграм их не отдал — они остались "
+        "в переписке выше.",
+        "en": "Voice messages that could not be shown: {failed}. Telegram refused them — "
+        "they are still in the chat above.",
+    },
     "finish.ask": {
         "ru": "Поправить запись или собирать отчёт?",
         "en": "Edit a record, or build the report?",
@@ -1110,10 +1146,59 @@ TEXTS: dict[str, dict[str, str]] = {
     # Описания команд в меню телеграма (T139). Меню — единственное место, где
     # аудитор увидит команду, не зная о ней заранее: набирать `/records` по
     # памяти на точке никто не будет.
-    "cmd.start": {"ru": "Начать проверку", "en": "Start an inspection"},
+    # Название пункта «Новая проверка» — слово владельца (D087), и оно же стоит
+    # на кнопке мастера (`btn.new_inspection`). Совпадение намеренное: пункт
+    # меню и кнопка ведут в одно место и ведут себя одинаково — незавершённую
+    # проверку ни один не затирает, а предлагает выбор. Два разных слова про
+    # одно действие аудитор читал бы как два разных действия.
+    "cmd.start": {"ru": "Новая проверка", "en": "New inspection"},
     "cmd.records": {"ru": "Что записано", "en": "What is recorded"},
     "cmd.undo": {"ru": "Снять последнюю запись", "en": "Undo the last record"},
     "cmd.finish": {"ru": "Завершить и собрать отчёт", "en": "Finish and build the report"},
+    "cmd.mcp": {"ru": "Установка MCP", "en": "MCP setup"},
+    # --- установка MCP: команда для терминала (T209, решение D087) ---
+    #
+    # Пункт назван владельцем и устроен как в соседнем продукте: в чат приходит
+    # готовая строка, которую человек вставляет в терминал. Отличие одно и по
+    # существу — ТОКЕНА В НЕЙ НЕТ, и сказано об этом прямо (`routers/mcp.py`).
+    "mcp.setup": {
+        "ru": (
+            "Подключение к проверкам из Claude. Следующим сообщением придёт готовая "
+            "команда — выполните её в терминале той машины, где стоит Claude, заменив "
+            "ЗАГЛАВНЫЕ слова своими значениями.\n\n"
+            "Токен личный. Он открывает историю проверок вашей стороны целиком, поэтому "
+            "бот его не печатает: кому какой токен выдан, бот не знает, и ошибка здесь "
+            "стоила бы чужих проверок. Свой токен возьмите в управляющей компании и "
+            "никому не пересылайте — пересланный работает у того, кто его получил."
+        ),
+        "en": (
+            "Connecting Claude to the inspections. The next message is the ready command "
+            "— run it in the terminal of the machine where Claude is installed, replacing "
+            "the UPPERCASE words with your own values.\n\n"
+            "The token is personal. It opens your side's entire inspection history, so the "
+            "bot does not print it: the bot does not know whose token is whose, and a "
+            "mistake here would cost somebody else's inspections. Get your token from the "
+            "management company and forward it to no one — a forwarded token works for "
+            "whoever received it."
+        ),
+    },
+    # Одна строка и ничего кроме неё: сообщение целиком копируется одним
+    # движением (долгое нажатие → «Копировать»), а команда, склеенная с
+    # объяснением, копировалась бы вместе с ним.
+    "mcp.command": {
+        "ru": (
+            "claude mcp add dodo-audit -e DODO_MCP_URL={url} "
+            "-e DODO_MCP_TOKEN=ВАШ_ТОКЕН -- ПУТЬ_К_КОПИИ_РЕПОЗИТОРИЯ/tools/mcp_bridge.sh"
+        ),
+        "en": (
+            "claude mcp add dodo-audit -e DODO_MCP_URL={url} "
+            "-e DODO_MCP_TOKEN=YOUR_TOKEN -- PATH_TO_REPO_CHECKOUT/tools/mcp_bridge.sh"
+        ),
+    },
+    # Стенд адреса не назвал. Заглушка ЗАГЛАВНЫМИ и на языке интерфейса — по
+    # тому же правилу, что и остальные подставляемые слова: молча подставить
+    # петлю значило бы выдать догадку за настройку стенда.
+    "mcp.url_unknown": {"ru": "АДРЕС_СЕРВЕРА", "en": "SERVER_ADDRESS"},
     "cmd.version": {"ru": "Версия сборки", "en": "Build version"},
     # Ответ о сборке — не украшение: по нему аудитор может сказать, что именно
     # он видел, а мы — понять, к какому образу относится его жалоба (T246).
