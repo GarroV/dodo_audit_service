@@ -40,11 +40,13 @@ from .routers import (
     build_finish_router,
     build_info_router,
     build_material_router,
+    build_mcp_router,
     build_record_router,
     build_records_router,
     build_start_router,
 )
 from .routers.material import MaterialHandler
+from .routers.mcp import MCP_COMMAND
 from .routers.record import make_frame_handler, make_material_handler, make_waiting_handler
 from .routers.records import RECORDS_COMMAND
 from .texts import DEFAULT_UI_LANG, default_ui_lang, t
@@ -154,6 +156,10 @@ def build_dispatcher(
     dispatcher.include_router(build_start_router(settings, pending))
     dispatcher.include_router(build_edit_router())
     dispatcher.include_router(build_records_router())
+    # Установка MCP (T209) — рядом с остальными командами: своих состояний
+    # диалога у неё нет, обычного текста она не ждёт, и на порядок разбора
+    # материала не влияет.
+    dispatcher.include_router(build_mcp_router())
     dispatcher.include_router(build_finish_router())
     # Информационная часть ждёт обычный текст, голос и кадр в своём состоянии
     # диалога (T158), поэтому идёт раньше приёма материала: иначе ответ на
@@ -192,12 +198,19 @@ def create_bot(settings: BotSettings) -> Bot:
 #: Команды в меню телеграма: имя и ключ описания в каталоге текстов.
 #:
 #: Порядок — порядок работы аудитора, а не алфавит: начать, посмотреть
-#: записанное, снять последнее, завершить.
+#: записанное, снять последнее, завершить. Установка MCP стоит последней и
+#: этот порядок не ломает: она не шаг обхода, а разовая настройка, и место ей
+#: за работой, а не посреди неё (T209, решение D087).
+#:
+#: Чего в меню нет намеренно: снятия сданной проверки. По решению D086 это
+#: операция управляющей компании через MCP, а не кнопка у аудитора на точке, —
+#: и входа в неё бот не получает вовсе (`src/mcp/retraction.py`).
 MENU_COMMANDS = (
     ("start", "cmd.start"),
     (RECORDS_COMMAND, "cmd.records"),
     ("undo", "cmd.undo"),
     ("finish", "cmd.finish"),
+    (MCP_COMMAND, "cmd.mcp"),
 )
 
 

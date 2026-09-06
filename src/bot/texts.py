@@ -1110,10 +1110,59 @@ TEXTS: dict[str, dict[str, str]] = {
     # Описания команд в меню телеграма (T139). Меню — единственное место, где
     # аудитор увидит команду, не зная о ней заранее: набирать `/records` по
     # памяти на точке никто не будет.
-    "cmd.start": {"ru": "Начать проверку", "en": "Start an inspection"},
+    # Название пункта «Новая проверка» — слово владельца (D087), и оно же стоит
+    # на кнопке мастера (`btn.new_inspection`). Совпадение намеренное: пункт
+    # меню и кнопка ведут в одно место и ведут себя одинаково — незавершённую
+    # проверку ни один не затирает, а предлагает выбор. Два разных слова про
+    # одно действие аудитор читал бы как два разных действия.
+    "cmd.start": {"ru": "Новая проверка", "en": "New inspection"},
     "cmd.records": {"ru": "Что записано", "en": "What is recorded"},
     "cmd.undo": {"ru": "Снять последнюю запись", "en": "Undo the last record"},
     "cmd.finish": {"ru": "Завершить и собрать отчёт", "en": "Finish and build the report"},
+    "cmd.mcp": {"ru": "Установка MCP", "en": "MCP setup"},
+    # --- установка MCP: команда для терминала (T209, решение D087) ---
+    #
+    # Пункт назван владельцем и устроен как в соседнем продукте: в чат приходит
+    # готовая строка, которую человек вставляет в терминал. Отличие одно и по
+    # существу — ТОКЕНА В НЕЙ НЕТ, и сказано об этом прямо (`routers/mcp.py`).
+    "mcp.setup": {
+        "ru": (
+            "Подключение к проверкам из Claude. Следующим сообщением придёт готовая "
+            "команда — выполните её в терминале той машины, где стоит Claude, заменив "
+            "ЗАГЛАВНЫЕ слова своими значениями.\n\n"
+            "Токен личный. Он открывает историю проверок вашей стороны целиком, поэтому "
+            "бот его не печатает: кому какой токен выдан, бот не знает, и ошибка здесь "
+            "стоила бы чужих проверок. Свой токен возьмите в управляющей компании и "
+            "никому не пересылайте — пересланный работает у того, кто его получил."
+        ),
+        "en": (
+            "Connecting Claude to the inspections. The next message is the ready command "
+            "— run it in the terminal of the machine where Claude is installed, replacing "
+            "the UPPERCASE words with your own values.\n\n"
+            "The token is personal. It opens your side's entire inspection history, so the "
+            "bot does not print it: the bot does not know whose token is whose, and a "
+            "mistake here would cost somebody else's inspections. Get your token from the "
+            "management company and forward it to no one — a forwarded token works for "
+            "whoever received it."
+        ),
+    },
+    # Одна строка и ничего кроме неё: сообщение целиком копируется одним
+    # движением (долгое нажатие → «Копировать»), а команда, склеенная с
+    # объяснением, копировалась бы вместе с ним.
+    "mcp.command": {
+        "ru": (
+            "claude mcp add dodo-audit -e DODO_MCP_URL={url} "
+            "-e DODO_MCP_TOKEN=ВАШ_ТОКЕН -- ПУТЬ_К_КОПИИ_РЕПОЗИТОРИЯ/tools/mcp_bridge.sh"
+        ),
+        "en": (
+            "claude mcp add dodo-audit -e DODO_MCP_URL={url} "
+            "-e DODO_MCP_TOKEN=YOUR_TOKEN -- PATH_TO_REPO_CHECKOUT/tools/mcp_bridge.sh"
+        ),
+    },
+    # Стенд адреса не назвал. Заглушка ЗАГЛАВНЫМИ и на языке интерфейса — по
+    # тому же правилу, что и остальные подставляемые слова: молча подставить
+    # петлю значило бы выдать догадку за настройку стенда.
+    "mcp.url_unknown": {"ru": "АДРЕС_СЕРВЕРА", "en": "SERVER_ADDRESS"},
     # Кнопки мастера начала проверки (T131). До T131 их надписи стояли строками
     # в `keyboards.py` — единственные строки интерфейса мимо каталога, и потому
     # единственные, которые язык стенда не мог перекрасить.
