@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .errors import (
+    AccessError,
     ConfigError,
     DbError,
     PushError,
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
     from .retract import retract_inspection as retract_inspection
 
 __all__ = [
+    "AccessError",
     "ConfigError",
     "DbError",
     "FindingRow",

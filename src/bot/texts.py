@@ -1156,44 +1156,187 @@ TEXTS: dict[str, dict[str, str]] = {
     "cmd.undo": {"ru": "Снять последнюю запись", "en": "Undo the last record"},
     "cmd.finish": {"ru": "Завершить и собрать отчёт", "en": "Finish and build the report"},
     "cmd.mcp": {"ru": "Установка MCP", "en": "MCP setup"},
-    # --- установка MCP: команда для терминала (T209, решение D087) ---
+    # --- установка MCP: команда для терминала (T209 → T253, решения D087,
+    #     D098, D099) ---
     #
-    # Пункт назван владельцем и устроен как в соседнем продукте: в чат приходит
-    # готовая строка, которую человек вставляет в терминал. Отличие одно и по
-    # существу — ТОКЕНА В НЕЙ НЕТ, и сказано об этом прямо (`routers/mcp.py`).
+    # Пункт устроен как в соседнем продукте: в чат приходит готовая строка,
+    # которую человек вставляет в терминал. До T253 отличие было одно и по
+    # существу — ТОКЕНА В НЕЙ НЕ БЫЛО: бот не знал, кому какой токен выдан, и
+    # напечатанный был бы выдан наугад. Теперь знает — токен выпускается на
+    # него самого (`src/db/mcp_access.py`), поэтому строка приходит готовой
+    # целиком, а объяснение говорит про три вещи, которых человек не увидит
+    # сам: показан один раз, повторный вызов убивает прежний, пересылать
+    # нельзя.
     "mcp.setup": {
         "ru": (
             "Подключение к проверкам из Claude. Следующим сообщением придёт готовая "
-            "команда — выполните её в терминале той машины, где стоит Claude, заменив "
-            "ЗАГЛАВНЫЕ слова своими значениями.\n\n"
-            "Токен личный. Он открывает историю проверок вашей стороны целиком, поэтому "
-            "бот его не печатает: кому какой токен выдан, бот не знает, и ошибка здесь "
-            "стоила бы чужих проверок. Свой токен возьмите в управляющей компании и "
-            "никому не пересылайте — пересланный работает у того, кто его получил."
+            "команда с вашим личным токеном — выполните её в терминале той машины, где "
+            "стоит Claude, заменив ЗАГЛАВНЫЕ слова своими значениями.\n\n"
+            "Токен показан один раз. Бот его не хранит и повторить не сможет: если "
+            "команда потеряется, вызовите пункт заново — придёт новый токен, а прежний "
+            "перестанет работать, и настройку придётся сделать заново.\n\n"
+            "Токен личный и открывает историю проверок целиком. Никому его не "
+            "пересылайте: пересланный работает у того, кто его получил."
         ),
         "en": (
             "Connecting Claude to the inspections. The next message is the ready command "
-            "— run it in the terminal of the machine where Claude is installed, replacing "
-            "the UPPERCASE words with your own values.\n\n"
-            "The token is personal. It opens your side's entire inspection history, so the "
-            "bot does not print it: the bot does not know whose token is whose, and a "
-            "mistake here would cost somebody else's inspections. Get your token from the "
-            "management company and forward it to no one — a forwarded token works for "
-            "whoever received it."
+            "with your personal token — run it in the terminal of the machine where Claude "
+            "is installed, replacing the UPPERCASE words with your own values.\n\n"
+            "The token is shown once. The bot does not store it and cannot repeat it: if "
+            "the command gets lost, call this item again — a new token will arrive and the "
+            "previous one will stop working, so the setup will have to be redone.\n\n"
+            "The token is personal and opens the entire inspection history. Forward it to "
+            "no one: a forwarded token works for whoever received it."
         ),
     },
     # Одна строка и ничего кроме неё: сообщение целиком копируется одним
     # движением (долгое нажатие → «Копировать»), а команда, склеенная с
-    # объяснением, копировалась бы вместе с ним.
+    # объяснением, копировалась бы вместе с ним. С T253 в строке стоит НАСТОЯЩИЙ
+    # токен, поэтому лишнего текста рядом не должно быть тем более.
     "mcp.command": {
         "ru": (
             "claude mcp add dodo-audit -e DODO_MCP_URL={url} "
-            "-e DODO_MCP_TOKEN=ВАШ_ТОКЕН -- ПУТЬ_К_КОПИИ_РЕПОЗИТОРИЯ/tools/mcp_bridge.sh"
+            "-e DODO_MCP_TOKEN={token} -- ПУТЬ_К_КОПИИ_РЕПОЗИТОРИЯ/tools/mcp_bridge.sh"
         ),
         "en": (
             "claude mcp add dodo-audit -e DODO_MCP_URL={url} "
-            "-e DODO_MCP_TOKEN=YOUR_TOKEN -- PATH_TO_REPO_CHECKOUT/tools/mcp_bridge.sh"
+            "-e DODO_MCP_TOKEN={token} -- PATH_TO_REPO_CHECKOUT/tools/mcp_bridge.sh"
         ),
+    },
+    # Сказано отдельным сообщением ПОСЛЕ команды, а не внутри объяснения до
+    # неё: человек, вызвавший пункт второй раз, читает первое сообщение по
+    # диагонали — он уже знает, зачем пришёл. А то, что прежняя настройка
+    # только что перестала работать, узнать больше неоткуда: снаружи это
+    # выглядит как «Claude сломался».
+    "mcp.replaced": {
+        "ru": (
+            "Прежний токен только что отозван — настройка, сделанная им раньше, больше "
+            "не работает. Выполните команду выше, чтобы заменить её."
+        ),
+        "en": (
+            "The previous token has just been revoked — any setup made with it no longer "
+            "works. Run the command above to replace it."
+        ),
+    },
+    # --- круг доступа: кто внутри и кто кого приводит (T253, решение D099) ---
+    "cmd.mcp_add": {"ru": "Дать доступ к MCP", "en": "Grant MCP access"},
+    "cmd.mcp_revoke": {"ru": "Отозвать доступ к MCP", "en": "Revoke MCP access"},
+    "cmd.mcp_who": {"ru": "У кого доступ к MCP", "en": "Who has MCP access"},
+    # Отказ тому, кто в круг не входит. Короткий и без подробностей: человек
+    # здесь свой (мидлварь доступа его пустила), поэтому молчать невежливо, но
+    # и рассказывать ему, кто в круге и как туда попасть, незачем — за этим он
+    # идёт к человеку, а не к боту.
+    "mcp.not_yours": {
+        "ru": "Подключение к MCP настраивают те, кому этот доступ выдан. Обратитесь к ним.",
+        "en": "MCP setup is done by those who have been granted this access. Ask them.",
+    },
+    # Круг не назначен вовсе: стенд поднялся без основателя. Отдельный текст, а
+    # не тот же отказ, — потому что чинится это в другом месте и другим
+    # человеком: не «попроси доступ», а «на стенде не задана переменная».
+    "mcp.circle_unset": {
+        "ru": (
+            "Круг доступа к MCP на этом стенде не назначен, поэтому подключение не "
+            "настраивает никто. Это настройка развёртывания, а не разговора."
+        ),
+        "en": (
+            "The MCP access circle is not configured on this deployment, so nobody can set "
+            "up the connection. This is a deployment setting, not a conversation one."
+        ),
+    },
+    "mcp.add_usage": {
+        "ru": "Кому дать доступ? Пришлите: /mcp_add <Telegram ID>",
+        "en": "Grant access to whom? Send: /mcp_add <Telegram ID>",
+    },
+    "mcp.revoke_usage": {
+        "ru": "У кого отозвать доступ? Пришлите: /mcp_revoke <Telegram ID>",
+        "en": "Revoke access from whom? Send: /mcp_revoke <Telegram ID>",
+    },
+    "mcp.id_not_a_number": {
+        "ru": "«{given}» — не Telegram ID. Нужно одно число.",
+        "en": "“{given}” is not a Telegram ID. A single number is needed.",
+    },
+    # Приводимый обязан быть среди разрешённых ID — иначе доступ выдан тому,
+    # кого мидлварь до бота не пускает. Сказано словами, потому что чинится это
+    # не здесь, а в настройке стенда.
+    "mcp.add_not_allowed": {
+        "ru": (
+            "ID {who} не в списке разрешённых — до бота он не доходит, и доступ ему "
+            "выдавать не из чего. Сначала добавьте его на стенде."
+        ),
+        "en": (
+            "ID {who} is not on the allowed list — it never reaches the bot, so there is "
+            "nothing to grant access to. Add it on the deployment first."
+        ),
+    },
+    "mcp.added": {
+        "ru": (
+            "Доступ выдан: {who}. Теперь у него в меню появился пункт настройки — токен "
+            "он выпустит себе сам, вы его не увидите."
+        ),
+        "en": (
+            "Access granted: {who}. The setup item has appeared in their menu — they will "
+            "issue the token themselves, and you will not see it."
+        ),
+    },
+    "mcp.already_in": {
+        "ru": "У {who} доступ уже есть. Ничего не изменилось.",
+        "en": "{who} already has access. Nothing changed.",
+    },
+    "mcp.revoked": {
+        "ru": (
+            "Доступ отозван: {who}. Пункт настройки у него пропал, живых токенов "
+            "погашено: {tokens}. Отзыв действует сразу, перезапуск не нужен."
+        ),
+        "en": (
+            "Access revoked: {who}. The setup item is gone for them, live tokens "
+            "revoked: {tokens}. The revocation takes effect at once, no restart needed."
+        ),
+    },
+    "mcp.revoke_nobody": {
+        "ru": "У {who} доступа и не было. Ничего не изменилось.",
+        "en": "{who} did not have access anyway. Nothing changed.",
+    },
+    # Основателя круга отозвать нельзя: его называет настройка стенда, и
+    # отозванный он вернулся бы в круг при следующем подъёме бота. Отказ здесь
+    # честнее сделанной и молча отменённой работы.
+    "mcp.revoke_founder": {
+        "ru": (
+            "{who} — основатель круга, он назначен настройкой стенда. Отзыв в чате его "
+            "не уберёт: при следующем подъёме бот вернёт его обратно. Это правится на "
+            "стенде."
+        ),
+        "en": (
+            "{who} founded the circle and is named by a deployment setting. Revoking here "
+            "would not remove them: the bot restores them on the next start. This is "
+            "changed on the deployment."
+        ),
+    },
+    "mcp.who_header": {
+        "ru": "Доступ к MCP:",
+        "en": "MCP access:",
+    },
+    # Строка следа. Кодами и датами, без формулировок: отвечает на вопрос
+    # «доступ у тех, кого я назвал», а он проверяется по идентификаторам.
+    "mcp.who_line": {
+        "ru": "{who} — привёл: {by}, {at}{token}",
+        "en": "{who} — added by: {by}, {at}{token}",
+    },
+    "mcp.who_line_revoked": {
+        "ru": "{who} — отозван: {by}, {at}",
+        "en": "{who} — revoked by: {by}, {at}",
+    },
+    "mcp.who_founder": {"ru": "настройка стенда", "en": "deployment setting"},
+    "mcp.who_has_token": {"ru": ", токен выпущен", "en": ", token issued"},
+    "mcp.who_no_token": {"ru": ", токен не выпускался", "en": ", no token issued"},
+    "mcp.who_empty": {
+        "ru": "Доступ к MCP не выдан никому.",
+        "en": "MCP access has not been granted to anyone.",
+    },
+    # База не ответила. Значения токена в этом тексте нет и быть не может —
+    # разбор ушёл в журнал, человеку остаётся то, что он может сделать.
+    "mcp.unavailable": {
+        "ru": "Не удалось обратиться к списку доступа. Повторите позже.",
+        "en": "The access list could not be reached. Try again later.",
     },
     # Стенд адреса не назвал. Заглушка ЗАГЛАВНЫМИ и на языке интерфейса — по
     # тому же правилу, что и остальные подставляемые слова: молча подставить
