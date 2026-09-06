@@ -192,7 +192,7 @@ def _cleanup_note(убрано: int) -> str:
     return f"{убрано} photo objects were removed from storage and cannot be restored"
 
 
-def _already_retracted(строка: InspectionRow, *, tenant: str, reason: str) -> ToolError:
+def _already_retracted(строка: InspectionRow, *, tenant: str) -> ToolError:
     """Отказ на проверку, снятую раньше, — и доделанная за ним уборка кадров.
 
     Отказ, а не «готово»: вызывающий просил записать СВОЮ причину, а она не
@@ -208,7 +208,12 @@ def _already_retracted(строка: InspectionRow, *, tenant: str, reason: str)
     работа названа.
     """
     try:
-        _, _, убрано = _retract(строка.id, tenant=tenant, reason=reason)
+        # Причина берётся ЗАПИСАННАЯ, а не названная вызовом, и это не мелочь.
+        # Здесь не записывают новую причину, а доделывают уборку по уже
+        # состоявшемуся снятию: названная вызовом причина всё равно не легла бы,
+        # а пустая увела бы ответ в «не названа причина» — то есть в разговор о
+        # том, чего этот вызов уже не делает.
+        _, _, убрано = _retract(строка.id, tenant=tenant, reason=строка.retraction_reason)
     except ToolError as беда:
         уборка = f"остаток кадров убрать не удалось: {беда}"
     else:
@@ -266,7 +271,7 @@ def retract_inspection(
         raise ToolError(UNKNOWN_INSPECTION.format(ident=ident))
     _confirmed(строка, unit=точка, day=день)
     if строка.retracted:
-        raise _already_retracted(строка, tenant=tenant, reason=reason)
+        raise _already_retracted(строка, tenant=tenant)
 
     причина, снята, убрано = _retract(ident, tenant=tenant, reason=reason)
     return {
