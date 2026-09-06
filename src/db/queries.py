@@ -32,7 +32,7 @@ from typing import Any
 
 import psycopg
 
-from .config import check_environment
+from .config import check_environment, load_retraction_settings
 from .errors import DbError
 from .models import FindingRow, InfoRow, InspectionDetail, InspectionRow
 from .units import normalize_unit_name
@@ -65,7 +65,8 @@ select
     i.id, i.tenant_code, u.name, i.chat_id, i.kind, i.inspection_date,
     i.report_lang, i.checklist_version, i.pct, i.grade,
     (select count(*) from findings f where f.inspection_id = i.id),
-    i.pushed_at, i.auditor, i.city, i.partner, i.contact
+    i.pushed_at, i.auditor, i.city, i.partner, i.contact,
+    i.retracted_at, i.retraction_reason
 from inspections i
 join units u on u.tenant_code = i.tenant_code and u.id = i.unit_id
 where i.tenant_code = %(tenant)s
@@ -84,7 +85,8 @@ select
     i.id, i.tenant_code, u.name, i.chat_id, i.kind, i.inspection_date,
     i.report_lang, i.checklist_version, i.pct, i.grade,
     (select count(*) from findings f where f.inspection_id = i.id),
-    i.pushed_at, i.auditor, i.city, i.partner, i.contact
+    i.pushed_at, i.auditor, i.city, i.partner, i.contact,
+    i.retracted_at, i.retraction_reason
 from inspections i
 join units u on u.tenant_code = i.tenant_code and u.id = i.unit_id
 where i.tenant_code = %(tenant)s and u.name_normalized = %(unit)s
@@ -102,6 +104,7 @@ select
     i.report_lang, i.checklist_version, i.pct, i.grade,
     (select count(*) from findings f where f.inspection_id = i.id),
     i.pushed_at, i.auditor, i.city, i.partner, i.contact,
+    i.retracted_at, i.retraction_reason,
     i.deductions, i.counts, i.by_zone
 from inspections i
 join units u on u.tenant_code = i.tenant_code and u.id = i.unit_id
@@ -198,6 +201,13 @@ def _row_to_inspection(row: Any) -> InspectionRow:
         city=str(row[13] or ""),
         partner=str(row[14] or ""),
         contact=str(row[15] or ""),
+        # Пометка снятия (T210, T233). Обычной роли снятая проверка не видна
+        # вовсе — её прячет построчная политика, а не эти строки, — поэтому у
+        # обычного чтения оба поля всегда пусты. Заполненными они приходят
+        # только администратору истории (`include_retracted=True`), и он видит
+        # проверку ИМЕННО как снятую, а не как обычную.
+        retracted=row[16] is not None,
+        retraction_reason=str(row[17] or ""),
     )
 
 
@@ -317,14 +327,19 @@ def _require_inspection_id(inspection_id: str) -> str:
 
 
 @contextmanager
-def _reading(что: str) -> Iterator[psycopg.Connection[Any]]:
+def _reading(что: str, *, as_admin: bool = False) -> Iterator[psycopg.Connection[Any]]:
     """Подключение на время чтения; отказ базы — `DbError`, а не пустая выдача.
 
     Пустой список вместо отказа означал бы «ничего не найдено» — а на деле
     прочитать не смогли, и это разные ответы. Наружу уходит тип исключения, а
     не его текст: в тексте драйвера может оказаться строка подключения.
+
+    `as_admin` меняет не запрос, а РОЛЬ, под которой запрос идёт: снятые
+    проверки прячет построчная политика (миграция `0010`), и увидеть их можно
+    только придя администратором истории. Фильтра «показывать ли снятые» в
+    тексте запросов нет и быть не должно — снятый фильтр не краснеет.
     """
-    settings = check_environment()
+    settings = load_retraction_settings() if as_admin else check_environment()
     try:
         with psycopg.connect(settings.dsn) as conn:
             yield conn
@@ -339,6 +354,7 @@ def list_inspections(
     date_from: date | None = None,
     date_to: date | None = None,
     limit: int = DEFAULT_LIMIT,
+    include_retracted: bool = False,
 ) -> list[InspectionRow]:
     """Проверки одного арендатора, свежие по дате обхода — первыми.
 
@@ -359,6 +375,13 @@ def list_inspections(
 
     `limit` ограничивает выдачу всегда: без предела один вопрос агента
     вычитывал бы всю историю сети.
+
+    `include_retracted` — это не фильтр, а другая РОЛЬ: снятые проверки (T210,
+    D089) прячет построчная политика, и обычному чтению их не видно вовсе.
+    `True` уводит запрос на подключение администратора истории
+    (`DATABASE_RETRACTION_URL`), и тогда в выдаче появляются снятые — помеченные
+    как снятые, с причиной. Не задано подключение — отказ, а не тихая выдача
+    без них: «снятых нет» и «вам их не видно» разные ответы.
     """
     tenant_code = _require_tenant(tenant)
     rows_limit = _require_limit(limit)
@@ -369,7 +392,10 @@ def list_inspections(
         "date_from": date_from,
         "date_to": date_to,
     }
-    with _reading("список проверок") as conn, conn.cursor() as cur:
+    with (
+        _reading("список проверок", as_admin=include_retracted) as conn,
+        conn.cursor() as cur,
+    ):
         if unit is None:
             cur.execute(_LIST_ALL_SQL, params)
         else:
@@ -378,7 +404,9 @@ def list_inspections(
     return [_row_to_inspection(row) for row in rows]
 
 
-def get_inspection(inspection_id: str, *, tenant: str) -> InspectionDetail | None:
+def get_inspection(
+    inspection_id: str, *, tenant: str, include_retracted: bool = False
+) -> InspectionDetail | None:
     """Одна проверка арендатора целиком: шапка, разбивка оценки и находки.
 
     `None` — проверки нет либо она принадлежит другому арендатору. Это один и
@@ -389,10 +417,18 @@ def get_inspection(inspection_id: str, *, tenant: str) -> InspectionDetail | Non
     Оценка не пересчитывается: `pct`, `grade`, `deductions`, `counts` и
     `by_zone` отдаются ровно такими, какими их положил движок при завершении
     проверки (конституция, принцип 2).
+
+    `include_retracted` работает так же, как у списка: это не фильтр, а
+    подключение администратора истории. Без него снятая проверка отвечает
+    `None` — тем же ответом, что несуществующая, и это не небрежность: тому,
+    кто снятых не видит, они и не существуют.
     """
     tenant_code = _require_tenant(tenant)
     ident = _require_inspection_id(inspection_id)
-    with _reading("проверку по идентификатору") as conn, conn.cursor() as cur:
+    with (
+        _reading("проверку по идентификатору", as_admin=include_retracted) as conn,
+        conn.cursor() as cur,
+    ):
         cur.execute(_GET_INSPECTION_SQL, {"tenant": tenant_code, "id": ident})
         row = cur.fetchone()
         if row is None:
@@ -409,9 +445,9 @@ def get_inspection(inspection_id: str, *, tenant: str) -> InspectionDetail | Non
         info = cur.fetchall()
     return InspectionDetail(
         inspection=_row_to_inspection(row),
-        deductions=float(row[16]),
-        counts=dict(row[17]),
-        by_zone=dict(row[18]),
+        deductions=float(row[18]),
+        counts=dict(row[19]),
+        by_zone=dict(row[20]),
         findings=tuple(_row_to_finding(строка) for строка in findings),
         info=tuple(InfoRow(code=str(строка[0]), text=str(строка[1])) for строка in info),
     )
@@ -428,6 +464,12 @@ def findings_by_unit(*, tenant: str, unit: str, limit: int = DEFAULT_LIMIT) -> l
     Арендатор обязателен по той же причине, что и у списка проверок, и здесь
     он единственный заслон: находки достаются через проверки, своей ссылки на
     арендатора у них нет.
+
+    Находок СНЯТОЙ проверки эта выборка не отдаёт никому, и флага «показать
+    снятые» у неё нет намеренно. Спрашивают её об одном — что у точки
+    повторяется, — и снятая проверка это ровно то, чему в таком ответе не
+    место: отозванный документ, посчитанный за повтор, превращается в
+    требование к партнёру по основанию, которого больше нет.
     """
     tenant_code = _require_tenant(tenant)
     name = _require_unit(unit)

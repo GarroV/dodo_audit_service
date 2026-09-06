@@ -14,10 +14,12 @@ pytest).
 
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+import pytest
 from conftest import BASE_DSN
 
 
@@ -53,3 +55,49 @@ def empty_database() -> Iterator[str]:
             conn.execute(
                 sql.SQL("drop database if exists {} with (force)").format(sql.Identifier(dbname))
             )
+
+
+#: Роль администратора истории (миграция `0010`). Вторая непривилегированная
+#: роль базы: снятые проверки видны только ей. Проверять разграничение под
+#: суперпользователем бессмысленно — он обходит политики всегда.
+ADMIN_ROLE = "dodo_audit_admin"
+
+#: Пароль роли администратора, если на этой машине к Postgres ходят по паролю.
+#: Пусто — подключение идёт без него (peer/trust), как на машине разработчика.
+ADMIN_PASSWORD_VAR = "DATABASE_RETRACTION_PASSWORD"
+
+#: Переменная, из которой блок берёт подключение администратора истории.
+RETRACTION_URL_VAR = "DATABASE_RETRACTION_URL"
+
+
+def admin_role_dsn(dsn: str) -> str:
+    """Та же база, но под ролью администратора истории.
+
+    Пароль чужой роли отбрасывается намеренно, тем же приёмом и по той же
+    причине, что в `conftest.app_role_dsn`: подставленный сюда, он дал бы отказ
+    аутентификации вместо понятного «у роли администратора нет пароля».
+    """
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    params = {k: v for k, v in conninfo_to_dict(dsn).items() if k != "password"}
+    params["user"] = ADMIN_ROLE
+    password = os.environ.get(ADMIN_PASSWORD_VAR)
+    if password:
+        params["password"] = password
+    return make_conninfo(**params)
+
+
+def set_retraction_env(db_env: str, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Дать тесту подключение администратора истории вдобавок к подключению приложения.
+
+    Помощник, а не фикстура: фикстуру пришлось бы импортировать в каждый файл,
+    а импортированное имя фикстуры совпадает с именем аргумента теста — и
+    линтер справедливо читает это как переопределение. Поэтому файлы объявляют
+    свою однострочную фикстуру поверх этого помощника.
+
+    Обе связи выдаются одновременно, потому что так устроен продукт: половина
+    проверок этого набора в том и состоит, что одна роль видит, а вторая нет.
+    """
+    dsn = admin_role_dsn(db_env)
+    monkeypatch.setenv(RETRACTION_URL_VAR, dsn)
+    return dsn

@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .errors import ConfigError, DbError, PushError, StorageError, VersionMismatchError
+from .errors import (
+    ConfigError,
+    DbError,
+    PushError,
+    RetractionError,
+    StorageError,
+    VersionMismatchError,
+)
 from .models import FindingRow, InfoRow, InspectionDetail, InspectionRow
 
 # `apply_migrations` (src.db.migrate) и `check_environment` (src.db.config)
@@ -36,6 +43,8 @@ if TYPE_CHECKING:
     from .queries import findings_by_unit as findings_by_unit
     from .queries import get_inspection as get_inspection
     from .queries import list_inspections as list_inspections
+    from .retract import Retraction as Retraction
+    from .retract import retract_inspection as retract_inspection
 
 __all__ = [
     "ConfigError",
@@ -45,6 +54,8 @@ __all__ = [
     "InspectionDetail",
     "InspectionRow",
     "PushError",
+    "Retraction",
+    "RetractionError",
     "StorageError",
     "Unit",
     "VersionMismatchError",
@@ -54,6 +65,7 @@ __all__ = [
     "list_units",
     "push_inspection",
     "resolve_unit",
+    "retract_inspection",
     "upload_photos",
     "upsert_unit",
 ]
@@ -68,6 +80,8 @@ _LAZY = {
     "list_inspections": (".queries", "list_inspections"),
     "get_inspection": (".queries", "get_inspection"),
     "findings_by_unit": (".queries", "findings_by_unit"),
+    "retract_inspection": (".retract", "retract_inspection"),
+    "Retraction": (".retract", "Retraction"),
 }
 
 
