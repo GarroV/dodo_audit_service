@@ -76,7 +76,7 @@ def прогон(площадка: Path, **правки: str) -> subprocess.Comp
         "HEALTH_WAIT": "0",
     }
     return subprocess.run(  # noqa: S603 — аргументы собираем сами, ввода извне нет
-        ["/bin/bash", str(СМОУК)],  # noqa: S607
+        ["/bin/bash", str(СМОУК)],
         cwd=str(площадка),
         capture_output=True,
         text=True,
