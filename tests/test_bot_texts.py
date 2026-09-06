@@ -51,11 +51,13 @@ def test_every_language_of_a_key_takes_the_same_parameters() -> None:
 def test_правило_фотофиксации_дописывается_из_одного_источника(lang: str) -> None:
     """Правило звучит в трёх местах (T160, D078), а формулировка у него одна.
 
-    Скопированная в два места, она разъезжается молча: в отказе поправили, в
+    Скопированная в два места, она разъезжается молча: в ожидании поправили, в
     приветствии забыли — и человек читает в одном продукте два разных правила.
+    С T229 (D090) второе место — не отказ, а ожидание фотографии
+    (`material.waiting_photo`), но источник правила остаётся одним и тем же.
     """
-    note = with_photo_rule(t("material.no_photo", lang), lang)
-    assert note.startswith(t("material.no_photo", lang))
+    note = with_photo_rule(t("material.waiting_photo", lang), lang)
+    assert note.startswith(t("material.waiting_photo", lang))
     assert note.endswith(t("material.photo_required", lang))
     assert "\n\n" in note, "правило обязано стоять абзацем, а не хвостом строки"
 

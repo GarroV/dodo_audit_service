@@ -36,6 +36,7 @@ from src.bot import sidecar
 from src.bot.app import build_dispatcher
 from src.bot.config import BotSettings
 from src.bot.texts import UI_LANGS, t
+from src.bot.view import stored_headline
 from src.domain import get_item, start_inspection
 
 pytestmark = pytest.mark.asyncio
@@ -61,9 +62,24 @@ async def test_подпись_текста_совпадает_с_путём_по
     """Один и тот же текст на двух путях называется одинаково — на обоих языках."""
     for lang in UI_LANGS:
         быстрый = t(
-            "record.fixed", lang, line="", guess="", title="", note=MARK, cue="строка карты"
+            "record.fixed",
+            lang,
+            stored=stored_headline(lang),
+            line="",
+            guess="",
+            title="",
+            note=MARK,
+            cue="строка карты",
         )
-        с_подтверждением = t("record.confirmed", lang, line="", guess="", title="", note=MARK)
+        с_подтверждением = t(
+            "record.confirmed",
+            lang,
+            stored=stored_headline(lang),
+            line="",
+            guess="",
+            title="",
+            note=MARK,
+        )
 
         assert _подпись(быстрый, MARK) == _подпись(с_подтверждением, MARK), (
             f"на языке {lang} быстрый путь подписывает текст записи иначе, "
@@ -88,7 +104,18 @@ async def test_на_быстром_пути_показана_именно_эта
 
     await feed(dp, bot, photo_message("frame-1", caption=CLEAR))
 
-    ожидаемая = _подпись(t("record.confirmed", "ru", line="", guess="", title="", note=MARK), MARK)
+    ожидаемая = _подпись(
+        t(
+            "record.confirmed",
+            "ru",
+            stored=stored_headline("ru"),
+            line="",
+            guess="",
+            title="",
+            note=MARK,
+        ),
+        MARK,
+    )
     assert _подпись(session.last_text, CLEAR) == ожидаемая, (
         f"показ быстрого пути подписывает слова иначе: {session.last_text!r}"
     )

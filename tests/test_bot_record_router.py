@@ -178,6 +178,11 @@ async def test_confirmation_records_and_answers_compactly(
     каждого кадра (`docs/06-mvp-bot.md`, шаг 5) и процент по ходу обхода (T162,
     решение владельца D072), — то и проверяется. Сам вопрос пункта и формулировка
     в отчёт стерегутся отдельно, в `tests/test_bot_confirmed_shown.py`.
+
+    С T230 (решение D090) строк на одну больше: сверху стоит отбивка о
+    сохранении, одна на все пути добавления записи. Запрет на таблицу от этого
+    не слабеет — его держат проверки «нет процента» и «нет чужих номеров», а
+    счётчик строк был для них лишь грубой мерой.
     """
     started()
     stub_classify(monkeypatch, suggestion(candidate("CLN05", "D1", "hot_kitchen", "Печь в нагаре")))
@@ -194,7 +199,7 @@ async def test_confirmation_records_and_answers_compactly(
     for part in ("#1", "CLN05", "D1", "Тепловой участок"):
         assert part in block
     assert "%" not in block, "процент во время обхода не показывается (T162, D072)"
-    assert block.count("\n") <= 3, "подтверждение разрослось — это уже таблица"
+    assert block.count("\n") <= 4, "подтверждение разрослось — это уже таблица"
     assert "#2" not in block, "в подтверждении не место списку остальных записей"
 
 

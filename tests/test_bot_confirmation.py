@@ -116,6 +116,8 @@ async def test_album_timer_failure_is_logged_and_does_not_kill_the_bot(
     assert any("не удалось закрыть альбом" in r.message for r in caplog.records)
 
     # Бот жив: следующее сообщение он всё ещё обрабатывает и отвечает на него.
+    # Комментарий без кадра с T229 (D090) не отказ, а ожидание фотографии —
+    # но для этого теста важен сам факт ответа, а не то, какой он.
     session.clear()
     await feed(dp, bot, text_message("комментарий без кадра"))
-    assert session.last_text == with_photo_rule(t("material.no_photo", "ru"), "ru")
+    assert session.last_text == with_photo_rule(t("material.waiting_photo", "ru"), "ru")

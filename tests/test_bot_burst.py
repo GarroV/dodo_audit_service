@@ -177,8 +177,15 @@ async def test_extra_frame_without_a_matching_comment_is_not_lost(domain_env: ob
     assert caught.materials[1].comment.text == "комментарий пришёл позже"
 
 
-async def test_extra_comment_without_a_frame_gets_no_photo_reply(domain_env: object) -> None:
-    """Комментариев больше кадров — лишний не связан ни с чем, бот отвечает про отсутствие кадра."""
+async def test_extra_comment_without_a_frame_is_held_and_waits(domain_env: object) -> None:
+    """Комментариев больше кадров — лишний ничему не достаётся сразу, но не пропадает (T229, D090).
+
+    До T229 здесь стоял отказ: лишний комментарий терялся. Решение владельца
+    D090 меняет это — комментарий придерживается и ждёт свой кадр, а бот
+    отвечает не отказом, а ожиданием. Материалов по-прежнему не становится
+    больше, чем кадров: фотофиксация (D078) в силе, придержать — не значит
+    собрать запись без кадра.
+    """
     start_inspection(CHAT_ID, "Белград 2", "planned", "ru")
     caught = Caught()
     bot, session = make_bot()
@@ -191,9 +198,9 @@ async def test_extra_comment_without_a_frame_gets_no_photo_reply(domain_env: obj
     assert len(caught.materials) == 1
     assert caught.materials[0].photo_file_ids == ("only-frame",)
     assert caught.materials[0].comment.text == "первый комментарий"
-    # Рядом с отказом стоит правило фотофиксации (T160, D078): без него отказ
+    # Рядом с ожиданием стоит правило фотофиксации (T160, D078): без него оно
     # читается сбоем продукта, а не порядком работы.
-    assert session.last_text == with_photo_rule(t("material.no_photo", "ru"), "ru")
+    assert session.last_text == with_photo_rule(t("material.waiting_photo", "ru"), "ru")
 
 
 async def test_burst_of_voice_comments_link_to_frames_in_order(domain_env: object) -> None:
