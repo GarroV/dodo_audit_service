@@ -23,13 +23,13 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, ErrorEvent, Message
+from aiogram.types import BotCommand, BotCommandScopeChat, ErrorEvent, Message
 
 from src import domain
 
 from .access import AccessMiddleware
 from .albums import ALBUM_WINDOW_SECONDS, AlbumBuffer
-from .config import BotSettings, load_bot_settings
+from .config import MCP_OWNER_ID_VAR, BotSettings, load_bot_settings
 from .lang import chat_ui_lang
 from .material import MaterialStore
 from .pending import PendingStore
@@ -47,7 +47,12 @@ from .routers import (
     build_version_router,
 )
 from .routers.material import MaterialHandler
-from .routers.mcp import MCP_COMMAND
+from .routers.mcp import (
+    MCP_ADD_COMMAND,
+    MCP_COMMAND,
+    MCP_REVOKE_COMMAND,
+    MCP_WHO_COMMAND,
+)
 from .routers.record import make_frame_handler, make_material_handler, make_waiting_handler
 from .routers.records import RECORDS_COMMAND
 from .routers.version import VERSION_COMMAND
@@ -162,10 +167,10 @@ def build_dispatcher(
     # собираются записи (T241): при завершении называются не только кадры без
     # записи, но и слова, кадра не дождавшиеся.
     dispatcher.include_router(build_records_router(store))
-    # Установка MCP (T209) и версия сборки (T246) — рядом с остальными
-    # командами: своих состояний диалога у них нет, обычного текста они не ждут,
-    # и на порядок разбора материала не влияют.
-    dispatcher.include_router(build_mcp_router())
+    # Установка MCP с админкой круга (T209, T253) и версия сборки (T246) —
+    # рядом с остальными командами: своих состояний диалога у них нет, обычного
+    # текста они не ждут, и на порядок разбора материала не влияют.
+    dispatcher.include_router(build_mcp_router(settings))
     dispatcher.include_router(build_version_router())
     dispatcher.include_router(build_finish_router(store))
     # Информационная часть ждёт обычный текст, голос и кадр в своём состоянии
@@ -205,10 +210,9 @@ def create_bot(settings: BotSettings) -> Bot:
 #: Команды в меню телеграма: имя и ключ описания в каталоге текстов.
 #:
 #: Порядок — порядок работы аудитора, а не алфавит: начать, посмотреть
-#: записанное, снять последнее, завершить. Установка MCP (T209, решение D087) и
-#: версия сборки (T246) стоят последними и этот порядок не ломают: обе не шаг
-#: обхода — одна разовая настройка, вторая вопрос «что у нас крутится», — и
-#: место им за работой, а не посреди неё.
+#: записанное, снять последнее, завершить. Версия сборки (T246) стоит последней
+#: и этот порядок не ломает: она не шаг обхода, а вопрос «что у нас крутится», —
+#: и место ей за работой, а не посреди неё.
 #:
 #: Чего в меню нет намеренно: снятия сданной проверки. По решению D086 это
 #: операция управляющей компании через MCP, а не кнопка у аудитора на точке, —
@@ -218,32 +222,87 @@ MENU_COMMANDS = (
     (RECORDS_COMMAND, "cmd.records"),
     ("undo", "cmd.undo"),
     ("finish", "cmd.finish"),
-    (MCP_COMMAND, "cmd.mcp"),
     (VERSION_COMMAND, "cmd.version"),
 )
 
+#: Пункты, которые видит ТОЛЬКО круг доступа к MCP (T253, решение D099).
+#:
+#: Отдельным списком, а не флагом внутри общего: телеграм объявляет меню на
+#: аккаунт, то есть «видно не всем» выражается двумя РАЗНЫМИ объявлениями, а не
+#: одним отфильтрованным. Установка стоит первой — за ней приходят, остальные
+#: три обслуживают сам круг.
+#:
+#: Меню — витрина, а не заслон: он стоит в самих обработчиках
+#: (`routers/mcp.py`, `_guard`), потому что команду можно набрать руками, не
+#: заглядывая в меню. Здесь решается только, кому её показывать.
+MCP_MENU_COMMANDS = (
+    (MCP_COMMAND, "cmd.mcp"),
+    (MCP_ADD_COMMAND, "cmd.mcp_add"),
+    (MCP_REVOKE_COMMAND, "cmd.mcp_revoke"),
+    (MCP_WHO_COMMAND, "cmd.mcp_who"),
+)
 
-async def announce_commands(bot: Bot) -> None:
-    """Объявить команды в меню телеграма (T139).
+
+def _menu(commands: tuple[tuple[str, str], ...], lang: str) -> list[BotCommand]:
+    return [BotCommand(command=name, description=t(key, lang)) for name, key in commands]
+
+
+async def announce_commands(bot: Bot, circle: tuple[int, ...] = ()) -> None:
+    """Объявить команды в меню телеграма (T139, T253).
 
     Без этого команда есть, но её не видно: аудитор на точке не набирает
     `/records` по памяти — он нажимает синюю кнопку меню и выбирает из списка.
     Ровно из-за этого показ записанного и был спрятан за «Завершить»: другого
     входа у него не было, а этот никто не показывал.
 
+    **Объявлений теперь два вида.** Общее меню видят все, кого пускает мидлварь
+    доступа; тем, кто в круге доступа к MCP, поверх общего объявляется своё, с
+    настройкой подключения (D099). Иначе это не выражается вовсе: телеграм
+    держит меню на аккаунт, а не на роль.
+
     Язык — язык стенда (`BOT_UI_LANG`, T131), а не проверки: меню телеграм
     спрашивает один раз при подъёме бота, когда никакой проверки ещё нет.
 
     Отказ телеграма сюда не пускается наружу: без меню бот работает, а не
     подняться из-за него — цена несоразмерная. В журнал он попадает целиком.
+    Круг при этом обходится по одному, и отказ на одном человеке не отменяет
+    объявления остальным: иначе один недоступный чат оставил бы без меню всех.
     """
     lang = default_ui_lang()
     try:
-        await bot.set_my_commands(
-            [BotCommand(command=name, description=t(key, lang)) for name, key in MENU_COMMANDS]
-        )
+        await bot.set_my_commands(_menu(MENU_COMMANDS, lang))
     except Exception:
         logger.exception("команды в меню телеграма не объявились — бот работает без меню")
+    for user_id in circle:
+        try:
+            await announce_personal_menu(bot, user_id, in_circle=True)
+        except Exception:
+            logger.exception("меню круга доступа не объявилось человеку %s", user_id)
+
+
+async def announce_personal_menu(bot: Bot, user_id: int, *, in_circle: bool) -> None:
+    """Объявить или убрать личное меню круга у одного человека (T253).
+
+    Зовётся и при подъёме бота, и сразу после выдачи или отзыва доступа: пункт,
+    появляющийся только после перезапуска, — это не выданный доступ, а отзыв,
+    оставляющий пункт висеть, человек нажмёт, потому что тот у него был.
+
+    Убирается именно УДАЛЕНИЕМ личного меню, а не объявлением общего под видом
+    личного: удалённое возвращает человека к общему меню, и оно потом
+    пополняется само собой. Объявленная копия общего меню осталась бы копией и
+    молча отстала бы от него при следующем пополнении.
+
+    Отказ телеграма отсюда наружу УХОДИТ — в отличие от `announce_commands`.
+    Разница по существу: там меню объявляется скопом при подъёме, и падать
+    из-за одного чата нельзя, а здесь зовущий (`routers/mcp.py`) сам решает,
+    что делать с отказом, и уже это делает — пишет в журнал и продолжает.
+    """
+    lang = default_ui_lang()
+    scope = BotCommandScopeChat(chat_id=user_id)
+    if in_circle:
+        await bot.set_my_commands(_menu(MENU_COMMANDS + MCP_MENU_COMMANDS, lang), scope=scope)
+    else:
+        await bot.delete_my_commands(scope=scope)
 
 
 def log_startup(settings: BotSettings) -> None:
@@ -261,6 +320,36 @@ def log_startup(settings: BotSettings) -> None:
     )
 
 
+def circle_at_startup(settings: BotSettings) -> tuple[int, ...]:
+    """Кому объявлять меню круга при подъёме бота (T253).
+
+    Основатель приводится в круг здесь же: стенд, поднятый с пустой базой,
+    иначе остался бы без единого живого участника — попасть в круг можно
+    только из круга, и завести его было бы нечем.
+
+    **Отказ базы не мешает боту подняться.** Обход точки — работа аудитора, и
+    останавливать её из-за недоступного списка доступа к MCP несоразмерно:
+    круг тогда просто не объявляется в меню, а сама настройка всё равно
+    спрашивает базу на каждое обращение и откажет по месту. В журнал отказ
+    попадает целиком — молча это не проходит.
+    """
+    if settings.mcp_owner_id is None:
+        logger.warning(
+            "круг доступа к MCP не назначен (%s не задан) — настройка подключения "
+            "не доступна никому",
+            MCP_OWNER_ID_VAR,
+        )
+        return ()
+    try:
+        from src.db.mcp_access import add_admin, list_admins
+
+        add_admin(settings.mcp_owner_id, by=None)
+        return tuple(row.telegram_id for row in list_admins() if row.is_live)
+    except Exception:
+        logger.exception("круг доступа к MCP не прочитался — меню круга не объявлено")
+        return ()
+
+
 async def start_polling() -> None:
     """Поднять бота: проверить окружение, затем слушать Telegram."""
     settings = load_bot_settings()
@@ -268,7 +357,7 @@ async def start_polling() -> None:
     # честный ответ «нарушений нет», а узнать об этом на точке — поздно.
     domain.check_environment()
     bot = create_bot(settings)
-    await announce_commands(bot)
+    await announce_commands(bot, circle_at_startup(settings))
     dispatcher = build_dispatcher(settings)
     log_startup(settings)
     try:
