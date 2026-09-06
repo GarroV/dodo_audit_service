@@ -1,4 +1,4 @@
-.PHONY: check test test-honest regress demo demo-down loadcheck loadcheck-live fastpath processhint zonewords lint types dead bounds fmt migrate db-up db-down storage-up storage-down mcp cov-engine
+.PHONY: check test test-honest regress demo demo-down loadcheck loadcheck-live fastpath processhint zonewords lint types dead bounds fmt migrate db-up db-down storage-up storage-down mcp mcp-outside cov-engine
 
 VENV := ./.venv/bin
 DATA := $(shell grep -E '^AUDIT_DATA_DIR=' .env 2>/dev/null | cut -d= -f2-)
@@ -149,6 +149,18 @@ storage-down:
 # Строку подключения к базе и карту токенов читает сам из .env.
 mcp:
 	$(VENV)/python -m src.mcp
+
+# Смоук доступа к MCP СНАРУЖИ (T256). Отвечает на «доступен ли сервер с чужой
+# машины», а не на «поднят ли контейнер»: разница между этими вопросами стоила
+# дня, потому что вторым отвечали на первый.
+#
+# ЗАПУСКАТЬ С ЧУЖОЙ МАШИНЫ, не с площадки. Адрес берётся из DODO_MCP_URL или,
+# если он не задан, из BOT_MCP_URL — то есть проверяется ровно та строка,
+# которую бот раздаёт людям. Токен — DODO_MCP_TOKEN, тот же, что у моста.
+#
+#   DODO_MCP_URL=<адрес туннеля> DODO_MCP_TOKEN=<токен> make mcp-outside
+mcp-outside:
+	$(VENV)/python tools/mcp_outside.py $(ARGS)
 
 cov-engine:  ## покрытие движка, который вызывается подпроцессом (T037)
 	@rm -f .coverage.engine*

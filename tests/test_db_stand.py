@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -45,6 +46,10 @@ MAKEFILE = ROOT / "Makefile"
 #: рабочей копии. Здесь ничего не поднимается, только читается конфигурация.
 PROJECT = "dodo_audit_service-tests"
 
+#: Состав обычного `docker compose up -d` — без профилей. Бот и MCP-сервер: с
+#: задачи T255 сервер тоже сервис стенда, а не команда оператора (#210).
+STAND_SERVICES = ("bot", "mcp")
+
 #: Схема строки подключения Postgres в любом её написании.
 DSN_LITERAL = re.compile(r"(?i)\bpostgres(?:ql)?://")
 
@@ -55,12 +60,18 @@ requires_docker = pytest.mark.skipif(
 
 
 def compose(*args: str) -> subprocess.CompletedProcess[str]:
+    # COMPOSE_PROFILES гасится намеренно: compose читает эту переменную из `.env`
+    # рабочей копии, а на площадке в ней стоит `tunnel` (T256). Унаследованная,
+    # она включала бы профиль сама, и проверка состава стенда отвечала бы на
+    # вопрос про чужую настройку, а не про файл.
+    окружение = {**os.environ, "COMPOSE_PROFILES": ""}
     return subprocess.run(  # noqa: S603 — аргументы собираем сами, ввода извне нет
         ["docker", "compose", "-p", PROJECT, *args],  # noqa: S607 — docker из PATH
         cwd=str(ROOT),
         capture_output=True,
         text=True,
         check=False,
+        env=окружение,
     )
 
 
@@ -160,8 +171,8 @@ def resolved_storage() -> dict[str, dict]:
 def test_профиль_db_поднимает_постгрес_рядом_с_ботом() -> None:
     r = compose("--profile", "db", "config", "--services")
     assert r.returncode == 0, r.stderr
-    assert sorted(r.stdout.split()) == ["bot", "db"], (
-        "профиль `db` обязан поднимать базу ВМЕСТЕ с ботом: база сама по себе "
+    assert sorted(r.stdout.split()) == sorted([*STAND_SERVICES, "db"]), (
+        "профиль `db` обязан поднимать базу ВМЕСТЕ со стендом: база сама по себе "
         "никому не нужна, а бот без неё не сольёт завершённую проверку"
     )
 
@@ -208,7 +219,7 @@ def test_у_постгреса_есть_проверка_готовности(re
 def test_профиль_storage_поднимает_хранилище_рядом_с_ботом() -> None:
     r = compose("--profile", "storage", "config", "--services")
     assert r.returncode == 0, r.stderr
-    assert sorted(r.stdout.split()) == ["bot", "storage"]
+    assert sorted(r.stdout.split()) == sorted([*STAND_SERVICES, "storage"])
 
 
 @requires_docker
@@ -232,9 +243,9 @@ def test_ни_один_стенд_не_включается_сам(resolved_db: 
     """Обычный `docker compose up -d` не обязан поднимать ни базу, ни хранилище."""
     r = compose("config", "--services")
     assert r.returncode == 0, r.stderr
-    assert sorted(r.stdout.split()) == ["bot"], (
-        "стенды базы или хранилища активны без своего профиля: боевой запуск "
-        "начнёт требовать их переменные и поднимать лишнее"
+    assert sorted(r.stdout.split()) == list(STAND_SERVICES), (
+        "стенды базы, хранилища или туннеля активны без своего профиля: боевой "
+        "запуск начнёт требовать их переменные и поднимать лишнее"
     )
 
 
