@@ -206,6 +206,16 @@ def test_refresh_script_is_runnable() -> None:
 # свойства, потеря которых возвращает эту поломку.
 
 
+@pytest.fixture(scope="module")
+def with_tunnel() -> dict[str, dict]:
+    """Конфигурация с включённым профилем туннеля."""
+    r = compose("--profile", "tunnel", "config", "--format", "json")
+    assert r.returncode == 0, r.stderr
+    services = json.loads(r.stdout)["services"]
+    assert isinstance(services, dict)
+    return services
+
+
 @requires_docker
 def test_mcp_server_is_part_of_the_stand(resolved: dict[str, dict]) -> None:
     """Обычный `up -d` поднимает сервер сам — иначе он снова забудется."""
@@ -224,13 +234,13 @@ def test_mcp_server_restarts_itself(resolved: dict[str, dict]) -> None:
 
 
 @requires_docker
-def test_mcp_server_publishes_no_ports(resolved: dict[str, dict]) -> None:
+def test_mcp_server_publishes_no_ports(with_tunnel: dict[str, dict]) -> None:
     """Главный запрет блока: наружу порт не публикуется ничем.
 
     Сервер отдаёт проверки партнёров по токену, а площадка общая — рядом живут
     чужие проекты. Наружу ведёт только туннель.
     """
-    for имя, сервис in resolved.items():
+    for имя, сервис in with_tunnel.items():
         assert not сервис.get("ports"), (
             f"сервис {имя} публикует порт на площадку: {сервис.get('ports')}. "
             f"Проверки партнёров становятся доступны соседям по машине"
@@ -295,4 +305,68 @@ def test_mcp_server_waits_for_the_database_without_demanding_it(resolved: dict[s
     assert зависимости["db"].get("condition") == "service_healthy"
     assert зависимости["db"].get("required") is False, (
         "зависимость от базы жёсткая: стенд без профиля `db` перестанет подниматься целиком"
+    )
+
+
+# --- туннель наружу (T256, #211, решение D100) -------------------------------
+
+
+@requires_docker
+def test_tunnel_is_not_pulled_in_by_the_plain_stand(resolved: dict[str, dict]) -> None:
+    """Туннелю нужен свой секрет, и на ноутбуке он не нужен вовсе."""
+    assert "tunnel" not in resolved, (
+        "туннель поднимается обычным `up -d`: на стенде без секрета он будет "
+        "перезапускаться вечно и мешать читать состояние остальных сервисов"
+    )
+
+
+@requires_docker
+def test_tunnel_reaches_the_server_only_through_its_loopback(with_tunnel: dict[str, dict]) -> None:
+    """Туннель живёт в сетевом пространстве сервера — иначе пришлось бы открывать порт.
+
+    Это и есть механизм решения D100: другого пути к серверу не появляется, а
+    открыть его пришлось бы, слушай сервер внешний адрес.
+    """
+    assert with_tunnel["tunnel"].get("network_mode") == "service:mcp", (
+        "туннель ходит к серверу не через петлю его контейнера. Любой другой путь "
+        "требует, чтобы сервер слушал внешний адрес, — а он этого не делает"
+    )
+
+
+@requires_docker
+def test_tunnel_secret_never_reaches_the_process_arguments(with_tunnel: dict[str, dict]) -> None:
+    """Секрет — переменной, не аргументом: `ps` на общей машине видят все."""
+    туннель = with_tunnel["tunnel"]
+    команда = " ".join(туннель.get("command") or [])
+    assert "--token" not in команда, (
+        "токен туннеля уходит аргументом команды: список процессов на общей площадке "
+        "читается любым соседом"
+    )
+    assert "TUNNEL_TOKEN" in (туннель.get("environment") or {})
+
+
+@requires_docker
+def test_tunnel_version_is_pinned(with_tunnel: dict[str, dict]) -> None:
+    """Обновление туннеля — осознанное изменение, а не то, что подтянулось само."""
+    образ = with_tunnel["tunnel"]["image"]
+    assert ":" in образ and not образ.endswith(":latest"), (
+        f"версия туннеля не прибита: {образ}. Подменившийся между двумя `up` бинарник — "
+        f"это смена того, через что ходит доступ к проверкам партнёров"
+    )
+
+
+@requires_docker
+def test_every_tunnel_variable_is_documented() -> None:
+    """Та же проверка, что у демо-переменных, и по той же причине."""
+    в_стенде = set(
+        re.findall(r"\$\{(CLOUDFLARE_[A-Z0-9_]+)", COMPOSE_FILE.read_text(encoding="utf-8"))
+    )
+    assert в_стенде, "в docker-compose.yml не осталось переменных туннеля"
+    описано = set(re.findall(r"^([A-Z][A-Z0-9_]+)=", ENV_EXAMPLE.read_text(encoding="utf-8"), re.M))
+    assert в_стенде <= описано, (
+        f"переменные туннеля не описаны в .env.example: {sorted(в_стенде - описано)}"
+    )
+    assert "COMPOSE_PROFILES" in описано, (
+        "COMPOSE_PROFILES не описан: без него человек на площадке не узнает, чем "
+        "включается туннель, и подключение снаружи молча не заработает"
     )
