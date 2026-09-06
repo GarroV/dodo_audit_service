@@ -581,6 +581,156 @@ async def test_снятия_сданной_проверки_в_меню_нет()
         assert запрещённое not in имена, f"в меню появилось снятие проверки: /{запрещённое}"
 
 
+# --- как человек ошибается на самом деле ---------------------------------------
+#
+# Команда с аргументом набирается руками, и промахнуться в ней проще всего:
+# позвать без аргумента, вписать имя вместо идентификатора, привести того, кто
+# уже приведён. Ответы на это написаны словами — значит, обязаны проверяться,
+# иначе первая же опечатка уронит обработчик вместо того, чтобы получить ответ.
+
+
+@requires_db
+async def test_привод_без_аргумента_объясняет_как_звать(
+    domain_env: object, db_env: str
+) -> None:
+    """Голая команда — самый частый способ ею воспользоваться в первый раз."""
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await позвать(dp, bot, f"/{MCP_ADD_COMMAND}")
+
+    assert session.last_text == t("mcp.add_usage", "ru")
+
+
+@requires_db
+async def test_отзыв_без_аргумента_объясняет_как_звать(
+    domain_env: object, db_env: str
+) -> None:
+    """То же и у отзыва: молчание здесь читалось бы как «отозвал у всех»."""
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await позвать(dp, bot, f"/{MCP_REVOKE_COMMAND}")
+
+    assert session.last_text == t("mcp.revoke_usage", "ru")
+
+
+@requires_db
+@pytest.mark.parametrize("аргумент", ["Вася", "@vasya", "12ab"])
+async def test_не_идентификатор_называется_не_идентификатором(
+    domain_env: object, db_env: str, аргумент: str
+) -> None:
+    """Человека зовут именем, а бот знает его числом — промах ожидаемый.
+
+    Ответ повторяет сказанное, чтобы человек увидел, ЧТО именно бот прочитал:
+    промах чаще всего в невидимом (лишний пробел, приклеенная собачка), и
+    «нужно число» без этого отправляет искать ошибку не туда.
+    """
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await позвать(dp, bot, f"/{MCP_ADD_COMMAND} {аргумент}")
+
+    assert session.last_text == t("mcp.id_not_a_number", "ru", given=аргумент)
+
+
+@requires_db
+async def test_повторный_привод_говорит_что_ничего_не_изменилось(
+    domain_env: object, db_env: str
+) -> None:
+    """Не отказ: привести уже приведённого — не ошибка.
+
+    Но и не «доступ выдан»: сказать так значило бы, что след привода
+    переписан на нового приводившего, а он не переписан (`add_admin`).
+    """
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+    await позвать(dp, bot, f"/{MCP_ADD_COMMAND} {SECOND_ID}")
+
+    await позвать(dp, bot, f"/{MCP_ADD_COMMAND} {SECOND_ID}")
+
+    assert session.last_text == t("mcp.already_in", "ru", who=SECOND_ID)
+
+
+@requires_db
+async def test_отзыв_у_того_кого_и_не_было_не_отказ(domain_env: object, db_env: str) -> None:
+    """Отзыв идемпотентен: повторить его безопасно, и это сказано прямо.
+
+    Отказ здесь заставил бы гадать, отозван человек или команда не сработала, —
+    а перепроверить это в чате нечем.
+    """
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await позвать(dp, bot, f"/{MCP_REVOKE_COMMAND} {OUTSIDER_ID}")
+
+    assert session.last_text == t("mcp.revoke_nobody", "ru", who=OUTSIDER_ID)
+
+
+# --- база отказала -------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "команда",
+    [COMMAND, f"/{MCP_ADD_COMMAND} {SECOND_ID}", f"/{MCP_REVOKE_COMMAND} {SECOND_ID}",
+     f"/{MCP_WHO_COMMAND}"],
+)
+async def test_недоступная_база_отвечает_словами_а_не_молчанием(
+    domain_env: object, команда: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Отказ базы — не «вам нельзя» и не тишина.
+
+    `DATABASE_URL` снят автоматической фикстурой, то есть база недоступна
+    по-настоящему. Проверяется каждая команда админки: проглоченная уехала бы
+    дальше по цепочке роутеров в разбор материала, а отказ, показанный как
+    «доступ не выдан», отправил бы человека просить доступ у того, у кого он
+    уже есть.
+
+    Разбор при этом обязан уйти в журнал — иначе чинить нечего.
+    """
+    caplog.set_level(logging.ERROR)
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    await позвать(dp, bot, команда)
+
+    assert session.last_text == t("mcp.unavailable", "ru")
+    assert caplog.records, "об отказе базы в журнале нет ни строки"
+
+
+@requires_db
+async def test_сорвавшийся_выпуск_не_печатает_ничего_похожего_на_токен(
+    domain_env: object,
+    db_env: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """База отказала уже ПОСЛЕ проверки круга — на самом выпуске.
+
+    Отдельный случай от «база недоступна вовсе»: там до выпуска дело не
+    доходит, а здесь человек уже прошёл заслон и ждёт строку настройки. Ему
+    обязан прийти отказ, а не полстроки и не заглушка вместо токена: строку с
+    подстановкой он вставит в терминал не читая.
+    """
+    import src.db.mcp_access as store
+
+    caplog.set_level(logging.ERROR)
+    bot, session = make_bot()
+    dp = build_dispatcher(SETTINGS)
+
+    def отказать(*_: object, **__: object) -> None:
+        raise store.AccessError("база отказала на выпуске")
+
+    monkeypatch.setattr(store, "issue_token", отказать)
+    await позвать(dp, bot, COMMAND)
+
+    assert session.last_text == t("mcp.unavailable", "ru")
+    assert not any("claude mcp add" in текст for текст in session.texts), (
+        "строка настройки ушла человеку без токена"
+    )
+    assert caplog.records, "о сорвавшемся выпуске в журнале нет ни строки"
+
+
 # --- подъём бота --------------------------------------------------------------
 
 
