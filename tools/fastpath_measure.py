@@ -64,7 +64,14 @@
 Ни одного обращения к сети: `fast_path` детерминированный, замер бесплатный.
 
 Запуск:  python tools/fastpath_measure.py [--root PATH]
-Коды возврата: 0 — норма, 1 — есть неверное срабатывание, 2 — боевых данных нет.
+
+Окружение: `AUDIT_DATA_DIR` инструмент подставляет себе сам (методика
+репозитория), `STATE_DIR` обязан задать запускающий — его требует любое
+обращение к методике (`src/domain/config.py`), и `make fastpath` его
+подставляет. Не задан — внятный отказ и код 2, а не трассировка (T239).
+
+Коды возврата: 0 — норма, 1 — есть неверное срабатывание, 2 — замерять не по
+чему: боевых данных нет или окружение не настроено.
 """
 
 from __future__ import annotations
@@ -91,7 +98,7 @@ sys.path.insert(0, str(ROOT))
 # инструменты ПОВЕРХ продукта, не его ярус.
 from src.bot.zones import zone_from_words  # noqa: E402
 from src.domain import get_item  # noqa: E402
-from src.domain.errors import ConfigError  # noqa: E402
+from src.domain.errors import ConfigError, DomainError  # noqa: E402
 from src.recognize import language  # noqa: E402
 from src.recognize.config import NO_CHAT  # noqa: E402
 from src.recognize.cues import Cue, cues_path, load_cues, stems  # noqa: E402
@@ -647,8 +654,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(negation_section)
         return 2
 
-    measured = modes(records)
-    print(render(measured))
+    # Методику читают обе половины ниже: `modes` — названия зон и карту слов,
+    # `render` — отпечаток карты. Без `STATE_DIR` `check_environment()`
+    # отказывает, и до T239 этот отказ выходил наружу трассировкой, а
+    # интерпретатор возвращал ЕДИНИЦУ — а единица в этом инструменте означает
+    # «есть неверное срабатывание» (см. коды возврата в шапке). Человек или CI,
+    # читающий только код, узнавал бы, что карта слов ведёт к чужому пункту,
+    # там, где всего лишь не задана переменная окружения. Тот же дефект в
+    # соседнем замере вылечен T224 (`tools/comment_only_measure.py`).
+    try:
+        measured = modes(records)
+        report = render(measured)
+    except DomainError as failure:
+        print(f"Замерять не по чему: {failure}")
+        return 2
+
+    print(report)
     print()
     print(negation_section)
 

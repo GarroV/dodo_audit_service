@@ -39,6 +39,10 @@ x-stand: &stand
   build:
     context: .
     dockerfile: Dockerfile
+    args:
+      # Подставляет scripts/deploy.sh. Руками собранный образ честно ответит
+      # «неизвестна» — это лучше правдоподобной подделки (T246).
+      BUILD_SHA: ${BUILD_SHA:-}
   restart: unless-stopped
   # Секреты и параметры продукта — из .env целиком, имена и назначение — в
   # .env.example. Демо берёт их из ТОГО ЖЕ файла тем же механизмом (D059):

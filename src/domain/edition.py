@@ -51,7 +51,7 @@ from typing import Any
 
 from .config import DATA_FILES, Settings
 from .engine import DOMAIN_KEY, state_file
-from .version import VERSION_FILE, compose, edition_of
+from .version import VERSION_FILE, compose, edition_of, is_one_segment
 
 logger = logging.getLogger(__name__)
 
@@ -69,20 +69,6 @@ SNAPSHOT_FILES = (*DATA_FILES, VERSION_FILE)
 def shelf(settings: Settings) -> Path:
     """Каталог, в котором лежат снимки изданий."""
     return settings.state_dir / SHELF_DIR
-
-
-def _is_one_segment(version: str) -> bool:
-    """Годится ли идентификатор издания как ИМЯ КАТАЛОГА.
-
-    Проверяется не из педантизма: идентификатор приходит из файла проверки, а
-    файл — обычный JSON на диске, который правят руками. `../../` в нём
-    превратило бы поиск снимка в чтение чужого каталога.
-
-    Список запрещённого, а не разрешённого: имя издания задаёт управляющая
-    компания (`checklist_version.txt`) и оно бывает не латиницей, поэтому
-    белый список отверг бы законные издания.
-    """
-    return bool(version) and version not in {".", ".."} and not set(version) & {"/", "\\", "\0"}
 
 
 def _identifies(path: Path, version: str) -> bool:
@@ -111,7 +97,7 @@ def _identifies(path: Path, version: str) -> bool:
 
 def snapshot(settings: Settings, version: str) -> Path | None:
     """Годный снимок этого издания или `None`, если его нет."""
-    if not _is_one_segment(version):
+    if not is_one_segment(version):
         return None
     path = shelf(settings) / version
     return path if _identifies(path, version) else None
@@ -159,7 +145,7 @@ def keep(settings: Settings) -> str:
     version = compose(source, DATA_FILES)
     if snapshot(settings, version) is not None:
         return version
-    if not _is_one_segment(version):
+    if not is_one_segment(version):
         logger.warning("издание %s не годится в имя каталога — снимок не снят", version)
         return version
     target = shelf(settings) / version

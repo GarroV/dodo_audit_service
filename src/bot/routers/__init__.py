@@ -16,6 +16,7 @@ from .mcp import build_mcp_router
 from .record import build_record_router
 from .records import build_records_router
 from .start import build_start_router
+from .version import build_version_router
 
 __all__ = [
     "build_correct_router",
@@ -28,4 +29,5 @@ __all__ = [
     "build_record_router",
     "build_records_router",
     "build_start_router",
+    "build_version_router",
 ]

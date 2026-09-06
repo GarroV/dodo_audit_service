@@ -44,12 +44,15 @@ from .routers import (
     build_record_router,
     build_records_router,
     build_start_router,
+    build_version_router,
 )
 from .routers.material import MaterialHandler
 from .routers.mcp import MCP_COMMAND
 from .routers.record import make_frame_handler, make_material_handler, make_waiting_handler
 from .routers.records import RECORDS_COMMAND
+from .routers.version import VERSION_COMMAND
 from .texts import DEFAULT_UI_LANG, default_ui_lang, t
+from .version import build_version
 
 logger = logging.getLogger(__name__)
 
@@ -159,10 +162,11 @@ def build_dispatcher(
     # собираются записи (T241): при завершении называются не только кадры без
     # записи, но и слова, кадра не дождавшиеся.
     dispatcher.include_router(build_records_router(store))
-    # Установка MCP (T209) — рядом с остальными командами: своих состояний
-    # диалога у неё нет, обычного текста она не ждёт, и на порядок разбора
-    # материала не влияет.
+    # Установка MCP (T209) и версия сборки (T246) — рядом с остальными
+    # командами: своих состояний диалога у них нет, обычного текста они не ждут,
+    # и на порядок разбора материала не влияют.
     dispatcher.include_router(build_mcp_router())
+    dispatcher.include_router(build_version_router())
     dispatcher.include_router(build_finish_router(store))
     # Информационная часть ждёт обычный текст, голос и кадр в своём состоянии
     # диалога (T158), поэтому идёт раньше приёма материала: иначе ответ на
@@ -201,9 +205,10 @@ def create_bot(settings: BotSettings) -> Bot:
 #: Команды в меню телеграма: имя и ключ описания в каталоге текстов.
 #:
 #: Порядок — порядок работы аудитора, а не алфавит: начать, посмотреть
-#: записанное, снять последнее, завершить. Установка MCP стоит последней и
-#: этот порядок не ломает: она не шаг обхода, а разовая настройка, и место ей
-#: за работой, а не посреди неё (T209, решение D087).
+#: записанное, снять последнее, завершить. Установка MCP (T209, решение D087) и
+#: версия сборки (T246) стоят последними и этот порядок не ломают: обе не шаг
+#: обхода — одна разовая настройка, вторая вопрос «что у нас крутится», — и
+#: место им за работой, а не посреди неё.
 #:
 #: Чего в меню нет намеренно: снятия сданной проверки. По решению D086 это
 #: операция управляющей компании через MCP, а не кнопка у аудитора на точке, —
@@ -214,6 +219,7 @@ MENU_COMMANDS = (
     ("undo", "cmd.undo"),
     ("finish", "cmd.finish"),
     (MCP_COMMAND, "cmd.mcp"),
+    (VERSION_COMMAND, "cmd.version"),
 )
 
 
@@ -240,6 +246,21 @@ async def announce_commands(bot: Bot) -> None:
         logger.exception("команды в меню телеграма не объявились — бот работает без меню")
 
 
+def log_startup(settings: BotSettings) -> None:
+    """Первая строка журнала: режим, доступ и ВЕРСИЯ сборки.
+
+    Версия здесь не для порядка. Когда бот отвечает отказом, первым уходит
+    время на выяснение того, что вообще крутится на площадке, — а образ и
+    каталог с кодом расходятся молча (T246, #201).
+    """
+    logger.info(
+        "бот поднят в режиме %s, разрешённых ID: %s, сборка: %s",
+        settings.mode,
+        len(settings.allowed_ids),
+        build_version(),
+    )
+
+
 async def start_polling() -> None:
     """Поднять бота: проверить окружение, затем слушать Telegram."""
     settings = load_bot_settings()
@@ -249,9 +270,7 @@ async def start_polling() -> None:
     bot = create_bot(settings)
     await announce_commands(bot)
     dispatcher = build_dispatcher(settings)
-    logger.info(
-        "бот поднят в режиме %s, разрешённых ID: %s", settings.mode, len(settings.allowed_ids)
-    )
+    log_startup(settings)
     try:
         await dispatcher.start_polling(bot, handle_as_tasks=False)
     finally:

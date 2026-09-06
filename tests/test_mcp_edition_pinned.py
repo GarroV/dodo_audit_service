@@ -29,6 +29,7 @@ from src.domain.edition import shelf, snapshot
 from src.domain.version import edition_of
 from src.mcp import letters
 from src.mcp.checklist import VERSIONS_DIR
+from src.mcp.errors import ToolError
 
 #: Пункт, дописываемый в чек-лист, чтобы у двух изданий отличалось содержимое.
 #: Формулировки выдуманы: боевая методика лежит вне git (D002).
@@ -209,13 +210,20 @@ def test_имя_издания_с_побегом_не_читает_катало�
     пошли смотреть. За `..` кладётся настоящая работающая методика, иначе тест
     был бы зелёным по неверной причине — побег упирался бы во второй сторож
     «такого каталога нет».
+
+    Побег теперь ОТКАЗ, а не `None` (T243). Молчаливое `None` означало для
+    обоих потребителей «издания на машине нет»: испорченный идентификатор был
+    неотличим от потерянного снимка, и человека посылали искать то, чего никто
+    не терял.
     """
     чужое = _издание(tmp_path / "sneaky", ПУНКТ_ПОДМЕНЫ, day="2026-09-04")
     (tmp_path / "state" / "methodology").mkdir(parents=True)
     бумаги = letters.Papers(live=None, store=None, shelf=tmp_path / "state" / "methodology")
 
-    assert letters.pinned("../../sneaky", бумаги) is None
-    assert letters.pinned(f"../../{чужое}", бумаги) is None
+    with pytest.raises(ToolError):
+        letters.pinned("../../sneaky", бумаги)
+    with pytest.raises(ToolError):
+        letters.pinned(f"../../{чужое}", бумаги)
 
 
 def test_подменённый_каталог_называется_в_логе_а_не_в_ответе(
