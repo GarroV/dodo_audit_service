@@ -833,16 +833,35 @@ def apply_edit(
                 refusal=отказ,
                 engine=_clean(вывод, кандидат, holder),
             )
+        # Оба отказа ниже — отказы САМОГО ХРАНИЛИЩА, а не движка, и в журнал
+        # они идут тем же событием `refused` (T238): по журналу обязано быть
+        # видно, что агент управляющей компании приходил и получил отказ.
+        # Почему наверх это по-прежнему отказ, а не `Outcome` — в
+        # `_store_refuses`.
         if fingerprint(кандидат, DATA_FILES) == прежний_отпечаток:
-            raise ChecklistError(
-                f"Правка ничего не изменила в методике: отпечаток данных остался прежним "
-                f"({прежний_отпечаток}). Новая версия с тем же содержимым записала бы в "
-                f"журнал правку, которой не было"
+            raise _store_refuses(
+                store,
+                tenant=tenant,
+                tool=tool,
+                base_version=base_version,
+                note=note,
+                why=(
+                    f"Правка ничего не изменила в методике: отпечаток данных остался прежним "
+                    f"({прежний_отпечаток}). Новая версия с тем же содержимым записала бы в "
+                    f"журнал правку, которой не было"
+                ),
             )
         version = compose(кандидат, DATA_FILES)
         цель = _versions_root(store) / _check_version(version)
         if цель.exists():
-            raise ChecklistError(_occupied(store, base_version=base_version, version=version))
+            raise _store_refuses(
+                store,
+                tenant=tenant,
+                tool=tool,
+                base_version=base_version,
+                note=note,
+                why=_occupied(store, base_version=base_version, version=version),
+            )
         цель.parent.mkdir(parents=True, exist_ok=True)
         os.replace(кандидат, цель)
 
@@ -957,10 +976,39 @@ def _refused(
     refusal: str,
     engine: str | None = None,
 ) -> Outcome:
-    """Отклонённая правка: версии нет, но событие записано.
+    """Отклонённая правка ДВИЖКОМ: версии нет, но событие записано.
 
     Отклонённая правка — тоже событие: без неё непонятно, почему методика не
     менялась, хотя её пытались менять.
+
+    Отказы самого хранилища идут не сюда, а в `_store_refuses`: в журнал они
+    пишутся тем же событием, а наверх уходят отказом, а не `Outcome`.
+    """
+    _write_refusal(
+        store, tenant=tenant, tool=tool, base_version=base_version, note=note, why=refusal
+    )
+    return Outcome(
+        accepted=False,
+        status="the change was refused, no new version was stored",
+        base_version=base_version,
+        refusal=refusal,
+        engine=engine,
+    )
+
+
+def _write_refusal(
+    store: Store, *, tenant: str, tool: str, base_version: str, note: str | None, why: str
+) -> None:
+    """Одна запись `refused` в журнал — общая на оба вида отказа.
+
+    Отдельно от `_refused` потому, что `_refused` делает ДВА дела: пишет
+    событие и собирает ответ вызывающему. Событие — свойство хранилища и одно
+    на всех; форма ответа — свойство того, кто отказал, и она разная.
+
+    `version` здесь всегда пусто, даже когда имя занятой версии известно
+    (`_occupied`): поле означает «версия, которая появилась», а не появилось
+    ничего. Имя, поставленное в него, читалось бы через год как запись о
+    созданной версии.
     """
     _journal(
         store,
@@ -970,17 +1018,43 @@ def _refused(
             "outcome": "refused",
             "base_version": base_version,
             "version": None,
-            "refusal": refusal,
+            "refusal": why,
             "note": note,
         },
     )
-    return Outcome(
-        accepted=False,
-        status="the change was refused, no new version was stored",
-        base_version=base_version,
-        refusal=refusal,
-        engine=engine,
-    )
+
+
+def _store_refuses(
+    store: Store, *, tenant: str, tool: str, base_version: str, note: str | None, why: str
+) -> ChecklistError:
+    """Отказ САМОГО ХРАНИЛИЩА: записать в журнал и вернуть отказ для `raise` (T238).
+
+    Два отказа хранилища — пустая правка и занятое имя версии — уходили наверх
+    мимо журнала, хотя рядом стояло объяснение, почему отклонённую правку
+    записывать надо. По журналу не было видно, что агент управляющей компании
+    приходил и получил отказ; у возврата (T218) это особенно дорого — методика
+    осталась в состоянии, из которого её пытались вывести, и следа попытки не
+    оставалось вовсе.
+
+    **Наверх это по-прежнему отказ, а не `Outcome(accepted=False)`**, и это
+    решение, а не экономия правки. Три причины:
+
+    * `Outcome` объявлен как ВЕРДИКТ ДВИЖКА («версия записана» либо «движок эту
+      методику не принял»). Здесь движок не сказал ничего — отказало хранилище,
+      и по одному полю `accepted` эти два случая не различить;
+    * ответ агенту от превращения стал бы ХУЖЕ, а не лучше: `checklist_tools`
+      пересказывает отклонённую правку словами «Движок сказал: …», и отказ
+      хранилища получил бы неверного автора — на блоке, где отказ обязан
+      называть причину правдиво;
+    * для вызывающего снаружи ничего не меняется: `_accepted` и так превращает
+      отклонённый `Outcome` в `ChecklistError`. То есть менять контракт
+      пришлось бы ради одинакового наблюдаемого поведения.
+
+    Возвращается отказ, а не поднимается здесь: `raise _store_refuses(...)` на
+    месте вызова оставляет ход управления видимым глазом.
+    """
+    _write_refusal(store, tenant=tenant, tool=tool, base_version=base_version, note=note, why=why)
+    return ChecklistError(why)
 
 
 def publish(store: Store, *, tenant: str, version: str) -> dict[str, object]:

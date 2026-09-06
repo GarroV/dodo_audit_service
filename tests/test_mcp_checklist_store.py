@@ -322,6 +322,147 @@ def test_журнал_помнит_и_отклонённую_правку(хра
     assert последняя["refusal"]
 
 
+def test_журнал_помнит_отказ_на_пустую_правку(хранилище: Store) -> None:
+    """T238: отказ хранилища — тоже отклонённая правка.
+
+    До задачи два отказа уходили наверх мимо журнала: пустая правка и занятое
+    имя версии. По журналу было не видно, что агент управляющей компании
+    приходил и получил отказ, — а рядом стояло объяснение, почему отклонённую
+    правку записывать надо.
+    """
+    первый = _добавить(хранилище, version_name="imf")
+    было = len(read_journal(хранилище))
+
+    with pytest.raises(ChecklistError) as отказ:
+        apply_change(
+            хранилище,
+            tenant=АРЕНДАТОР,
+            tool="edit_checklist_item",
+            command="edit",
+            positional="TST01",
+            options={"days": 5},
+            base=первый.version,
+            note="просили на созвоне",
+            today=СЕГОДНЯ,
+        )
+
+    записи = read_journal(хранилище)
+    assert len(записи) == было + 1, "отказ хранилища прошёл мимо журнала"
+    последняя = записи[-1]
+    assert последняя["outcome"] == "refused"
+    assert последняя["version"] is None
+    assert последняя["tenant"] == АРЕНДАТОР
+    assert последняя["tool"] == "edit_checklist_item"
+    assert последняя["base_version"] == первый.version
+    assert последняя["note"] == "просили на созвоне"
+    # Причина в журнале — ТА ЖЕ, что получил вызывающий: две формулировки
+    # одного отказа разошлись бы, и читающий журнал через год спорил бы сам с
+    # собой.
+    assert последняя["refusal"] == str(отказ.value)
+
+
+def test_журнал_помнит_отказ_на_повтор_правки(хранилище: Store) -> None:
+    """Второй отказ хранилища мимо журнала — занятое имя версии (T238).
+
+    Здесь настоящий повтор: та же правка от той же основы, и её результат уже
+    лежит под этим именем.
+    """
+    исходная = current_version(хранилище)
+    _добавить(хранилище, code="TST01")
+    было = len(read_journal(хранилище))
+
+    with pytest.raises(ChecklistError) as отказ:
+        _добавить(хранилище, code="TST01", base=исходная)
+
+    записи = read_journal(хранилище)
+    assert len(записи) == было + 1, "отказ на занятое имя прошёл мимо журнала"
+    последняя = записи[-1]
+    assert последняя["outcome"] == "refused"
+    assert последняя["version"] is None, "версии не появилось — поле обязано молчать"
+    assert последняя["base_version"] == исходная
+    assert последняя["refusal"] == str(отказ.value)
+
+
+def test_журнал_помнит_и_отказ_на_возврат(хранилище: Store) -> None:
+    """Тот же отказ, другой случай (T218): правка НЕ применена, а состояние
+    совпало с уже лежащей версией.
+
+    По журналу этот случай важнее повтора: методика осталась в состоянии, из
+    которого агент управляющей компании пытался её вывести, и без записи
+    непонятно даже, что попытка была.
+    """
+    _добавить(хранилище, code="TST01")
+    apply_change(
+        хранилище,
+        tenant=АРЕНДАТОР,
+        tool="remove_checklist_item",
+        command="remove",
+        positional="TST01",
+        options={"hard": None},
+        today=СЕГОДНЯ,
+    )
+    было = len(read_journal(хранилище))
+
+    with pytest.raises(ChecklistError) as отказ:
+        apply_change(
+            хранилище,
+            tenant=АРЕНДАТОР,
+            tool="restore_checklist_item",
+            command="restore",
+            positional="TST01",
+            options={},
+            today=СЕГОДНЯ,
+        )
+
+    записи = read_journal(хранилище)
+    assert len(записи) == было + 1
+    последняя = записи[-1]
+    assert последняя["outcome"] == "refused"
+    assert последняя["tool"] == "restore_checklist_item"
+    assert последняя["version"] is None
+    assert последняя["refusal"] == str(отказ.value)
+
+
+def test_отказ_хранилища_не_двигает_основу_следующей_правки(хранилище: Store) -> None:
+    """Встречное утверждение: запись в журнал не имеет права поменять поведение.
+
+    Основа следующей правки — последнее ПРИНЯТОЕ событие журнала
+    (`tip_version`). Отклонённая правка версии не создаёт, и отсчёт от неё
+    вести не с чего: событие `refused` обязано быть видно и не обязано влиять.
+    """
+    исходная = current_version(хранилище)
+    первый = _добавить(хранилище, code="TST01")
+    with pytest.raises(ChecklistError):
+        _добавить(хранилище, code="TST01", base=исходная)
+
+    второй = _добавить(хранилище, code="TST02", version_name=None)
+
+    assert второй.base_version == первый.version
+
+
+def test_отказ_окружения_в_журнале_остаётся_failed(
+    хранилище: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Слово в журнале различает, где чинить, и отказ хранилища его не размывает.
+
+    `refused` — правку отклонили по существу, чинить в методике или в запросе.
+    `failed` — до вердикта не дошло, чинить на машине (T187). Записанные одним
+    словом, они через год читались бы как история отклонённых правок.
+    """
+    from src.mcp import checklist as store_api
+    from src.mcp.errors import EngineNoVerdictError
+
+    def _не_дошло(*_args: object, **_kwargs: object) -> tuple[int, str]:
+        raise EngineNoVerdictError("движок не ответил")
+
+    monkeypatch.setattr(store_api, "_run", _не_дошло)
+
+    with pytest.raises(EngineNoVerdictError):
+        _добавить(хранилище)
+
+    assert read_journal(хранилище)[-1]["outcome"] == "failed"
+
+
 def test_журнал_дописывается_а_не_переписывается(хранилище: Store) -> None:
     _добавить(хранилище)
     _добавить(хранилище, code="TST02", version_name=None)
