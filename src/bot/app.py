@@ -43,11 +43,13 @@ from .routers import (
     build_record_router,
     build_records_router,
     build_start_router,
+    build_version_router,
 )
 from .routers.material import MaterialHandler
 from .routers.record import make_frame_handler, make_material_handler, make_waiting_handler
 from .routers.records import RECORDS_COMMAND
 from .texts import DEFAULT_UI_LANG, default_ui_lang, t
+from .version import build_version
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +156,7 @@ def build_dispatcher(
     dispatcher.include_router(build_start_router(settings, pending))
     dispatcher.include_router(build_edit_router())
     dispatcher.include_router(build_records_router())
+    dispatcher.include_router(build_version_router())
     dispatcher.include_router(build_finish_router())
     # Информационная часть ждёт обычный текст, голос и кадр в своём состоянии
     # диалога (T158), поэтому идёт раньше приёма материала: иначе ответ на
@@ -224,6 +227,21 @@ async def announce_commands(bot: Bot) -> None:
         logger.exception("команды в меню телеграма не объявились — бот работает без меню")
 
 
+def log_startup(settings: BotSettings) -> None:
+    """Первая строка журнала: режим, доступ и ВЕРСИЯ сборки.
+
+    Версия здесь не для порядка. Когда бот отвечает отказом, первым уходит
+    время на выяснение того, что вообще крутится на площадке, — а образ и
+    каталог с кодом расходятся молча (T246, #201).
+    """
+    logger.info(
+        "бот поднят в режиме %s, разрешённых ID: %s, сборка: %s",
+        settings.mode,
+        len(settings.allowed_ids),
+        build_version(),
+    )
+
+
 async def start_polling() -> None:
     """Поднять бота: проверить окружение, затем слушать Telegram."""
     settings = load_bot_settings()
@@ -233,9 +251,7 @@ async def start_polling() -> None:
     bot = create_bot(settings)
     await announce_commands(bot)
     dispatcher = build_dispatcher(settings)
-    logger.info(
-        "бот поднят в режиме %s, разрешённых ID: %s", settings.mode, len(settings.allowed_ids)
-    )
+    log_startup(settings)
     try:
         await dispatcher.start_polling(bot, handle_as_tasks=False)
     finally:

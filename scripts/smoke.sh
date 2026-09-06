@@ -43,6 +43,24 @@ else
     say "версия на площадке" "РАСХОЖДЕНИЕ (площадка $version, локально $local_head)"
 fi
 
+# Каталог на площадке и ОБРАЗ, из которого работает бот, — разные вещи:
+# git pull обновляет первое, а без пересборки контейнер продолжает крутить
+# старый код. Каталог при этом показывает свежий коммит, и это читается как
+# доказательство обновления. Поймано 06.09.2026: образ был на сутки старше
+# кода, смоук говорил «всё хорошо». Поэтому спрашиваем версию у САМОГО
+# контейнера — он единственный знает, чем отвечает.
+in_image=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; docker compose exec -T bot printenv BUILD_SHA\"" 2>/dev/null | tr -d '\r\n')
+if [ -z "$in_image" ]; then
+    say "версия внутри образа" "ПРОВАЛ: в образе её нет — собран мимо scripts/deploy.sh"
+    fail=1
+elif [ "$in_image" = "$version" ]; then
+    say "версия внутри образа" "OK ($in_image)"
+else
+    say "версия внутри образа" "ПРОВАЛ: внутри $in_image, в каталоге $version — pull без пересборки"
+    fail=1
+fi
+
+
 errors=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; docker compose logs --tail=60 bot 2>&1 | Select-String -Pattern 'Conflict|Traceback|CRITICAL' | Select-Object -First 3\"" 2>/dev/null | tr -d '\r')
 if [ -z "$errors" ]; then say "логи бота" "OK (конфликтов и падений нет)"; else say "логи бота" "ПРОВАЛ: $errors"; fail=1; fi
 
