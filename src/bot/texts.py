@@ -841,6 +841,42 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "Photos that could not be shown: {failed}. Telegram refused them — they are "
         "still in the chat above.",
     },
+    # --- слова, не дождавшиеся кадра (T241, задача #197) ---
+    #
+    # Вторая половина того же правила, что у кадров без записи (T068): очередь
+    # ожидания симметрична с T229, а называлась при завершении только одна её
+    # сторона. Аудитор сказал о находке, кадра не прислал — и о потере ему не
+    # говорил никто.
+    "finish.held": {
+        "ru": "Слова без кадра — {count}. Они никуда не пропали, но записи по ним нет: "
+        "без фотографии её не бывает. Показываю их ниже — придёт кадр, соберу запись.",
+        "en": "Words with no photo — {count}. Not lost, but there is no record for them: "
+        "without a photo there is none. They follow below — send the frame and the record "
+        "will be made.",
+    },
+    "finish.held_words": {
+        "ru": "Ждут кадра: {note}",
+        "en": "Waiting for a photo: {note}",
+    },
+    # Голосовое возвращается самим голосовым — по той же причине, по которой
+    # кадр возвращается кадром (T138): расшифровки у придержанного голоса ещё
+    # нет, она делается в момент сборки записи, и пересказать его нечем.
+    "finish.held_voice": {
+        "ru": "Эти слова ждут кадра.",
+        "en": "These words are waiting for a photo.",
+    },
+    "finish.held_rest": {
+        "ru": "Ещё {rest} — показываю по одной пачке: пришлите кадры к этим и вызовите "
+        "/records, покажу следующие.",
+        "en": "And {rest} more — shown one batch at a time: send photos for these and call "
+        "/records for the next ones.",
+    },
+    "finish.held_failed": {
+        "ru": "Голосовых показать не удалось: {failed}. Телеграм их не отдал — они остались "
+        "в переписке выше.",
+        "en": "Voice messages that could not be shown: {failed}. Telegram refused them — "
+        "they are still in the chat above.",
+    },
     "finish.ask": {
         "ru": "Поправить запись или собирать отчёт?",
         "en": "Edit a record, or build the report?",

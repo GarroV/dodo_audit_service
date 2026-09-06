@@ -155,12 +155,15 @@ def build_dispatcher(
 
     dispatcher.include_router(build_start_router(settings, pending))
     dispatcher.include_router(build_edit_router())
-    dispatcher.include_router(build_records_router())
+    # Показ записанного и завершение получают ту же очередь ожидания, из которой
+    # собираются записи (T241): при завершении называются не только кадры без
+    # записи, но и слова, кадра не дождавшиеся.
+    dispatcher.include_router(build_records_router(store))
     # Установка MCP (T209) — рядом с остальными командами: своих состояний
     # диалога у неё нет, обычного текста она не ждёт, и на порядок разбора
     # материала не влияет.
     dispatcher.include_router(build_mcp_router())
-    dispatcher.include_router(build_finish_router())
+    dispatcher.include_router(build_finish_router(store))
     # Информационная часть ждёт обычный текст, голос и кадр в своём состоянии
     # диалога (T158), поэтому идёт раньше приёма материала: иначе ответ на
     # вопрос уехал бы в разбор как комментарий к кадру.
