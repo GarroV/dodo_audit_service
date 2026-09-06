@@ -28,13 +28,15 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from mcp_checklist_harness import build_methodology
+from mcp_checklist_harness import build_edition, build_methodology, harness_edition
 
 from src.db.models import FindingRow, InfoRow, InspectionDetail, InspectionRow
 from src.mcp import letters
 from src.mcp.errors import ToolError
 
-ВЕРСИЯ = "harness-2026-09-04-abcdef012345"
+#: Издание, которым нетронутый набор оснастки ЯВЛЯЕТСЯ: `pinned` сверяет
+#: отпечаток, поэтому имя каталога версии обязано быть настоящим (T236).
+ВЕРСИЯ = harness_edition()
 
 #: Другая версия — та, которой у нас в хранилище нет вовсе.
 ЧУЖАЯ_ВЕРСИЯ = "harness-2026-01-01-000000000000"
@@ -90,8 +92,12 @@ def _проверка(**kwargs: object) -> InspectionDetail:
 
 @pytest.fixture
 def хранилище(tmp_path: Path) -> letters.Papers:
-    """Хранилище со снимком ровно той версии, которой помечена проверка."""
-    build_methodology(tmp_path / "store" / "versions" / ВЕРСИЯ)
+    """Хранилище со снимком ровно той версии, которой помечена проверка.
+
+    Каталог раскладывается изданием (`build_edition`), а не одноимённой
+    методикой: `pinned` сверяет отпечаток, и снимок обязан ИМ БЫТЬ, а не
+    просто лежать под правильным именем (T236)."""
+    build_edition(tmp_path / "store" / "versions" / ВЕРСИЯ)
     build_methodology(tmp_path / "live")
     return letters.Papers(live=tmp_path / "live", store=tmp_path / "store")
 
@@ -185,7 +191,7 @@ def test_имя_версии_не_выпускает_за_хранилище(tmp
     # Хранилище настоящее: без существующего `versions/` подъём по `..` не
     # состоялся бы на уровне файловой системы, и тест снова был бы зелёным
     # не потому, что сторож работает.
-    build_methodology(tmp_path / "store" / "versions" / ВЕРСИЯ)
+    build_edition(tmp_path / "store" / "versions" / ВЕРСИЯ)
     хранилище = letters.Papers(live=None, store=tmp_path / "store")
     побег = "../../escape"
     assert (tmp_path / "store" / letters.VERSIONS_DIR / побег).is_dir(), (
@@ -205,14 +211,15 @@ def test_методики_нет_вовсе_отказ_называет_пере
 
 
 def test_расхождение_с_записанной_оценкой_отказ_а_не_письмо(tmp_path: Path) -> None:
-    """Снимок может лежать под нужным именем и быть не тем: имя каталога это
-    ещё не доказательство. Доказательство — совпадение посчитанного движком с
-    записанным в проверке."""
-    build_methodology(tmp_path / "store" / "versions" / ВЕРСИЯ)
+    """Сверка отпечатка (T236) доказывает лишь то, что снимок — настоящее
+    издание записанной версии; она не доказывает, что число в проверке
+    посчитано ПО НЕЙ верно. Доказательство оценки — отдельная сверка:
+    совпадение посчитанного движком с записанным."""
+    build_edition(tmp_path / "store" / "versions" / ВЕРСИЯ)
     papers = letters.Papers(live=None, store=tmp_path / "store")
 
-    # Записано 97%, а по этому снимку движок считает 99.5%: снимок не тот,
-    # хотя каталог назван правильно.
+    # Записано 97%, а по этому снимку движок считает 99.5%: числа разошлись,
+    # хотя снимок — настоящее издание записанной версии.
     with pytest.raises(ToolError, match="97"):
         letters.build(_проверка(pct=97.0, grade="A"), lang=None, papers=papers)
 
@@ -351,18 +358,26 @@ def test_каталога_методики_нет_отказ_называет_п
 
 def test_сломанная_методика_отказ_словами_движка_без_путей(tmp_path: Path) -> None:
     """Движок падает без общего перехвата, и трейсбек печатает пути к файлам
-    продукта. В ответ уходит причина, но не устройство машины."""
-    снимок = build_methodology(tmp_path / "store" / "versions" / ВЕРСИЯ)
-    (снимок / "scoring.json").write_text('{"start_pct": 100.0}', encoding="utf-8")
+    продукта. В ответ уходит причина, но не устройство машины.
+
+    Методика портится ДО того, как берётся версия проверки: сверка отпечатка
+    (T236) опознаёт каталог по содержимому, а не по имени на двери — порча,
+    заведённая ПОСЛЕ вычисления версии, просто сделала бы каталог другим
+    изданием, и до движка дело не дошло бы вовсе."""
+    методика = build_methodology(tmp_path / "live")
+    (методика / "scoring.json").write_text('{"start_pct": 100.0}', encoding="utf-8")
+    версия = letters.version_of(методика)
 
     with pytest.raises(ToolError) as отказ:
         letters.build(
-            _проверка(), lang=None, papers=letters.Papers(live=None, store=tmp_path / "store")
+            _проверка(version=версия),
+            lang=None,
+            papers=letters.Papers(live=методика, store=None),
         )
 
     текст = str(отказ.value)
     assert "письмо не" in текст
-    assert str(снимок) not in текст
+    assert str(методика) not in текст
 
 
 def test_движок_ответил_на_сверку_мусором_отказ_а_не_письмо(

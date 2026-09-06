@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -25,9 +26,9 @@ import pytest
 from mcp_checklist_harness import build_methodology
 
 from src.db.models import FindingRow, InfoRow, InspectionDetail, InspectionRow
+from src.domain.config import DATA_FILES
+from src.domain.version import VERSION_FILE, compose
 from src.mcp import letters
-
-ВЕРСИЯ = "harness-2026-09-05-abcdef012345"
 
 #: Пункт методики про срок плана действий. Движок ищет поле НЕ по коду, а по
 #: формулировке вопроса (`engine/report.py: plan_due_date` — «план\\w* действий»),
@@ -37,6 +38,30 @@ from src.mcp import letters
     "INF07,info,Информация,Information,Срок составления плана действий,"
     "Deadline for the action plan,,,1\n"
 )
+
+
+def _издание_со_сроком(where: Path) -> str:
+    """Разложить набор оснастки С пунктом про срок и вернуть его отпечаток.
+
+    Не `build_edition` из оснастки: тот раскладывает НЕТРОНУТЫЙ набор, а этому
+    файлу нужен пункт про срок внутри самого издания — `pinned` сверяет
+    отпечаток каталога с версией проверки (T236), и пункт обязан войти в
+    содержимое ДО того, как считается идентификатор, а не дописываться в уже
+    изданный каталог задним числом (тогда отпечаток разошёлся бы с версией,
+    которую ждёт проверка, и каталог перестал бы ею быть)."""
+    build_methodology(where)
+    with (where / "checklist.csv").open("a", encoding="utf-8") as файл:
+        файл.write(СРОК_ПУНКТ)
+    (where / VERSION_FILE).write_text("harness-info 2026-09-05\n", encoding="utf-8")
+    return compose(where, DATA_FILES)
+
+
+#: Идентификатор издания этого файла — набор оснастки плюс пункт про срок.
+#: Считается один раз во временном каталоге тем же способом, каким
+#: `harness_edition` считает нетронутый набор: содержимое постоянно, поэтому и
+#: ответ постоянный.
+with tempfile.TemporaryDirectory() as _черновик:
+    ВЕРСИЯ = _издание_со_сроком(Path(_черновик))
 
 #: Дата, которую назвал аудитор.
 СРОК = "30.09.2026"
@@ -110,11 +135,14 @@ def _проверка(*, info: tuple[InfoRow, ...]) -> InspectionDetail:
 
 @pytest.fixture
 def хранилище(tmp_path: Path) -> letters.Papers:
-    """Снимок ровно той версии, которой помечена проверка, — с пунктом про срок."""
+    """Снимок ровно той версии, которой помечена проверка, — с пунктом про срок.
+
+    Обе копии (снимок в хранилище и боевая методика) раскладываются ИЗДАНИЕМ,
+    а не одноимённой методикой: `pinned` сверяет отпечаток каталога с версией
+    проверки (T236), и каталог обязан ЕЮ БЫТЬ, а не просто лежать под верным
+    именем."""
     for каталог in (tmp_path / "store" / "versions" / ВЕРСИЯ, tmp_path / "live"):
-        build_methodology(каталог)
-        with (каталог / "checklist.csv").open("a", encoding="utf-8") as файл:
-            файл.write(СРОК_ПУНКТ)
+        assert _издание_со_сроком(каталог) == ВЕРСИЯ
     return letters.Papers(live=tmp_path / "live", store=tmp_path / "store")
 
 

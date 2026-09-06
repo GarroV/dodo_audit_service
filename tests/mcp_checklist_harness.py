@@ -12,7 +12,9 @@
 
 from __future__ import annotations
 
+import functools
 import json
+import tempfile
 from pathlib import Path
 
 SCORING = {
@@ -79,3 +81,41 @@ def build_methodology(where: Path) -> Path:
     (where / "photo-cues.md").write_text(КАРТА_СЛОВ, encoding="utf-8")
     (where / "scoring.json").write_text(json.dumps(SCORING, ensure_ascii=False), encoding="utf-8")
     return where
+
+
+def build_edition(where: Path, *, name: str = "harness", day: str = "2026-09-04") -> str:
+    """Разложить методику КАК ИЗДАНИЕ и вернуть идентификатор, которым она является.
+
+    Отличие от `build_methodology` ровно одно и оно принципиальное: имя издания
+    здесь не выдумывается, а СЧИТАЕТСЯ по содержимому — той же формулой
+    (`domain.version.compose`), которой издание штампуется в проверку и которой
+    оно сверяется при чтении (T236).
+
+    Раскладывать снимок версии под выдуманным именем больше нельзя: `pinned`
+    сверяет отпечаток, и каталог с правильным именем и чужим содержимым — это
+    ровно тот дефект, ради которого сверка появилась. Оснастка, продолжавшая бы
+    так делать, проверяла бы поведение, которого у продукта нет.
+
+    Имя набора и дата — параметры, потому что двум РАЗНЫМ изданиям в одном
+    тесте нужны разные имена, а содержимое у них может отличаться одной
+    строкой.
+    """
+    from src.domain.config import DATA_FILES
+    from src.domain.version import VERSION_FILE, compose
+
+    build_methodology(where)
+    (where / VERSION_FILE).write_text(f"{name} {day}\n", encoding="utf-8")
+    return compose(where, DATA_FILES)
+
+
+@functools.cache
+def harness_edition(*, name: str = "harness", day: str = "2026-09-04") -> str:
+    """Издание, которым является нетронутый набор этой оснастки.
+
+    Нужен там, где идентификатор версии стоит в КОНСТАНТЕ модуля (проверка
+    собирается руками, и `checklist_version` у неё — литерал), а каталог
+    раскладывается позже, в фикстуре. Считается один раз во временном каталоге:
+    содержимое набора постоянно, поэтому и ответ постоянный.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        return build_edition(Path(tmp), name=name, day=day)

@@ -51,8 +51,7 @@ from typing import Any
 
 from .config import DATA_FILES, Settings
 from .engine import DOMAIN_KEY, state_file
-from .errors import DomainError
-from .version import VERSION_FILE, compose
+from .version import VERSION_FILE, compose, edition_of
 
 logger = logging.getLogger(__name__)
 
@@ -94,22 +93,20 @@ def _identifies(path: Path, version: str) -> bool:
     Не сходится — снимок в дело не идёт: считать по каталогу, который выдаёт
     себя за издание проверки, ровно тот дефект, ради которого всё это.
 
-    Полноту снимка отдельно не проверяем, и это не упущение: пропавший файл
-    методики в отпечаток не входит (`version.fingerprint` его пропускает), и
-    отпечаток такого каталога с отметкой не сойдётся. Тем самым неполный
-    снимок отвергается тем же сравнением — а он опасен ровно как подменённый:
-    недостающий файл движок молча добирает из своей копии данных.
+    Сам ответ считает `version.edition_of` — тот же код, которым тот же вопрос
+    задаёт хранилище версий MCP (`mcp.letters.pinned`). Свести пришлось на
+    дефекте T236: там сверки не было вовсе, и два ответа на один вопрос
+    расходились молча. Здесь остаётся только предупреждение в лог — оно про
+    ЭТУ полку и в общем ответе ему не место.
+
+    Отказывать при испорченном снимке нельзя: снимок — не окружение продукта,
+    и его беда обязана стоить ровно того, что снимка нет, а не остановки
+    работы аудитора.
     """
-    if not path.is_dir():
-        return False
-    try:
-        return compose(path, DATA_FILES) == version
-    except DomainError:
-        # Испорченный `checklist_version.txt` внутри снимка. Отказывать здесь
-        # нельзя: снимок — не окружение продукта, и его беда обязана стоить
-        # ровно того, что снимка нет, а не остановки работы аудитора.
+    прочитано = edition_of(path, DATA_FILES)
+    if прочитано is None and path.is_dir():
         logger.warning("снимок издания %s не читается как издание: %s", version, path)
-        return False
+    return прочитано == version
 
 
 def snapshot(settings: Settings, version: str) -> Path | None:
