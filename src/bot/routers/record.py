@@ -107,6 +107,18 @@ logger = logging.getLogger(__name__)
 #: Что делать с кадрами, которые пришли без подписи и ждут комментария.
 WaitingHandler = Callable[[Message, PhotoGroup, str], Awaitable[None]]
 
+#: Сколько кадров пачки разбирается за раз (T232, решения D091 и D093). Число
+#: названо владельцем, а не выведено замером, и второе решение объясняет, почему
+#: именно предел, а не порции: пачка больше пяти — исключение, а не рабочий
+#: случай, и остальные кадры аудитор присылает отдельной пачкой.
+#:
+#: Предел стоит здесь, у РАЗБОРА, а не на приёме материала: платит пачка
+#: вызовами модели (по вызову на кадр, T206), а принимать кадры бот обязан все —
+#: они идут в список присланного, и отброшенный на приёме кадр исчез бы вместе с
+#: ним. Прокомментированной пачки предел не касается вовсе: там один разбор на
+#: все кадры, сколько бы ракурсов человек ни снял.
+BATCH_LIMIT = 5
+
 
 def make_waiting_handler(pending: PendingStore) -> WaitingHandler:
     """Кадр без комментария — спросить «Разобрать?» и запомнить вопрос (T067)."""
@@ -639,9 +651,20 @@ async def _analyze_frames(
             pending=pending,
         )
         return
-    total = len(file_ids)
-    await message.answer(t("record.batch", lang, count=total))
-    for no, file_id in enumerate(file_ids, start=1):
+    sent = len(file_ids)
+    taken = file_ids[:BATCH_LIMIT]
+    total = len(taken)
+    if sent > total:
+        # Про лишние кадры бот ГОВОРИТ (D093): молча отброшенные, они выглядели
+        # бы записанными — аудитор ушёл бы с точки, считая фотофиксацию
+        # сделанной. Сами кадры при этом не пропадают: они уже в заметках (T068)
+        # и вернутся списком при завершении проверки.
+        await message.answer(
+            t("record.batch_over_limit", lang, count=sent, limit=BATCH_LIMIT, rest=sent - total)
+        )
+    else:
+        await message.answer(t("record.batch", lang, count=total))
+    for no, file_id in enumerate(taken, start=1):
         await analyze(
             message,
             chat_id,
