@@ -43,6 +43,40 @@ else
     say "версия на площадке" "РАСХОЖДЕНИЕ (площадка $version, локально $local_head)"
 fi
 
+# Каталог на площадке и ОБРАЗ, из которого работает бот, — разные вещи:
+# git pull обновляет первое, а без пересборки контейнер продолжает крутить
+# старый код. Каталог при этом показывает свежий коммит, и это читается как
+# доказательство обновления. Поймано 06.09.2026: образ был на сутки старше кода,
+# смоук говорил «всё хорошо». Поэтому сверяем дату сборки образа с датой кода.
+img_created=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; docker compose images --format json\"" 2>/dev/null | tr -d '\r' | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin)[0]["Created"])
+except Exception:
+    print("")' 2>/dev/null)
+code_time=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; git log -1 --format=%cI\"" 2>/dev/null | tr -d '\r')
+if [ -n "$img_created" ] && [ -n "$code_time" ]; then
+    verdict=$(python3 -c "
+import re
+from datetime import datetime, timezone
+
+def parse(s):
+    # Docker отдаёт наносекунды (9 знаков), datetime принимает максимум 6.
+    s = re.sub(r'([.,]\\d{6})\\d+', r'\\1', s.strip())
+    s = s.replace('Z', '+00:00')
+    return datetime.fromisoformat(s).astimezone(timezone.utc)
+
+print('OK' if parse('$img_created') >= parse('$code_time') else 'STALE')
+" 2>/dev/null)
+    if [ "$verdict" = "OK" ]; then
+        say "образ против кода" "OK (собран не раньше кода)"
+    else
+        say "образ против кода" "ПРОВАЛ: образ старше кода — был git pull без пересборки"
+        fail=1
+    fi
+else
+    say "образ против кода" "не проверено (не смог прочитать даты)"
+fi
+
 errors=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; docker compose logs --tail=60 bot 2>&1 | Select-String -Pattern 'Conflict|Traceback|CRITICAL' | Select-Object -First 3\"" 2>/dev/null | tr -d '\r')
 if [ -z "$errors" ]; then say "логи бота" "OK (конфликтов и падений нет)"; else say "логи бота" "ПРОВАЛ: $errors"; fail=1; fi
 
