@@ -101,21 +101,28 @@ case "$probe" in
     *) say "MCP-сервер отвечает на петле" "ПРОВАЛ: $(printf '%s' "$probe" | tr '\n' ' ')"; fail=1 ;;
 esac
 
-tunnel=$(service_status tunnel)
-case "$tunnel" in
-    "") say "туннель наружу" "ПРОВАЛ: сервиса нет в стенде — не задан COMPOSE_PROFILES=tunnel"; fail=1 ;;
-    *Restarting*) say "туннель наружу" "ПРОВАЛ: перезапускается ($tunnel) — проверь CLOUDFLARE_TUNNEL_TOKEN"; fail=1 ;;
-    Up*) say "туннель наружу" "OK ($tunnel)" ;;
-    *) say "туннель наружу" "ПРОВАЛ ($tunnel)"; fail=1 ;;
+# Наружу площадка выходит ОБЩИМ входом Tailscale Funnel (D102), а не своим
+# туннелем: домена в учётке нет, а Funnel даёт постоянный адрес без него —
+# ровно так же живёт соседний продукт на этой машине.
+#
+# Между входом и сервером стоит звено: сервер слушает петлю ВНУТРИ контейнера,
+# и проброшенное соединение до неё не доходит — оно приходит на внешний
+# интерфейс, которого сервер не слушает. Звено сидит в сетевом пространстве
+# сервера, принимает на внешнем интерфейсе и передаёт на петлю.
+proxy=$(remote "docker ps --filter name=dodo-mcp-proxy --format '{{.Status}}'")
+case "$proxy" in
+    "") say "звено до сервера" "ПРОВАЛ: контейнер dodo-mcp-proxy не запущен"; fail=1 ;;
+    Up*) say "звено до сервера" "OK ($proxy)" ;;
+    *) say "звено до сервера" "ПРОВАЛ ($proxy)"; fail=1 ;;
 esac
 
-# Туннель, поднятый и не соединившийся с Cloudflare, выглядит как «Up». Его
-# собственный журнал — единственное место, где видно, что соединение есть.
-registered=$(remote "docker compose logs --tail=80 tunnel 2>&1 | Select-String -Pattern 'Registered tunnel connection' | Select-Object -First 1")
-if [ -n "$registered" ]; then
-    say "туннель зарегистрирован" "OK"
+# Funnel, включённый и не отдающий наш порт, выглядит так же, как выключенный:
+# спрашивается сам Tailscale, а не память оператора.
+funnel=$(remote "tailscale funnel status 2>&1 | Select-String -Pattern '127.0.0.1:8266' | Select-Object -First 1")
+if [ -n "$funnel" ]; then
+    say "общий вход отдаёт сервер" "OK"
 else
-    say "туннель зарегистрирован" "ПРОВАЛ: в журнале нет соединения с Cloudflare"; fail=1
+    say "общий вход отдаёт сервер" "ПРОВАЛ: Funnel не проксирует порт звена"; fail=1
 fi
 
 # Адрес спрашивается у САМОГО бота, а не у файла рядом: печатает человеку он, и
