@@ -47,10 +47,11 @@ fi
 # git pull обновляет первое, а без пересборки контейнер продолжает крутить
 # старый код. Каталог при этом показывает свежий коммит, и это читается как
 # доказательство обновления. Поймано 06.09.2026: образ был на сутки старше кода,
-# смоук говорил «всё хорошо». Поэтому сверяем дату сборки образа с датой кода.
-img_created=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; docker compose images --format json\"" 2>/dev/null | tr -d '\r' | python3 -c 'import json,sys
+# смоук говорил «всё хорошо». Поэтому сверяем время сборки образа (LastTagTime) с датой кода.
+img_created=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; docker compose images --format json\"" 2>/dev/null | tr -d '\r' | python3 -c 'import json, sys
 try:
-    print(json.load(sys.stdin)[0]["Created"])
+    d = json.load(sys.stdin)[0]
+    print(d.get("LastTagTime") or d.get("Created") or "")
 except Exception:
     print("")' 2>/dev/null)
 code_time=$(ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -Command \"cd $REMOTE_DIR; git log -1 --format=%cI\"" 2>/dev/null | tr -d '\r')
