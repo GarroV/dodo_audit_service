@@ -23,7 +23,7 @@ import json
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
-from .catalogue import KIND_CHECKLIST, ToolSpec, as_list, find
+from .catalogue import KIND_CHECKLIST, KIND_RETRACTION, ToolSpec, as_list, find
 from .checklist import Store
 from .errors import McpError, ToolError
 
@@ -141,8 +141,24 @@ CHECKLIST_CLOSED = (
 )
 
 
+#: Отказ на снятие проверки без открытого права. Один текст на оба случая —
+#: «на сервере снятие не настроено» и «этому токену оно не открыто» — по той же
+#: причине, что у методики: разница между ними спрашивающему ничем не поможет,
+#: а о настройках сервера расскажет. Переменная названа, потому что читает
+#: отказ тот же человек, который держит сервер у себя на петле.
+#:
+#: Про личность права сказано вслух: иначе владелец второго токена того же
+#: арендатора решит, что доступ сломан, и пойдёт искать причину в коде.
+RETRACTION_CLOSED = (
+    "Снятие проверок для этого доступа не открыто. Право на снятие даётся не стороне, а "
+    "конкретному токену: у одного арендатора токенов несколько, по человеку на токен, а "
+    "снятие необратимо для партнёра. Открывается оно переменной MCP_RETRACTION_TOKENS. "
+    "Проверки при этом читаются как обычно"
+)
+
+
 def _call_tool(
-    params: dict[str, Any], *, tenant: str, checklist: Store | None
+    params: dict[str, Any], *, tenant: str, checklist: Store | None, may_retract: bool
 ) -> dict[str, Any] | str:
     """Вызов инструмента. Строка в ответе — отказ протокола, словарь — результат.
 
@@ -163,6 +179,8 @@ def _call_tool(
         return f"Аргументы инструмента {name} ожидаются объектом"
     if spec.kind == KIND_CHECKLIST and checklist is None:
         return _tool_text(CHECKLIST_CLOSED, failed=True)
+    if spec.kind == KIND_RETRACTION and not may_retract:
+        return _tool_text(RETRACTION_CLOSED, failed=True)
     refusal = _check_arguments(spec, arguments)
     if refusal is not None:
         return refusal
@@ -189,13 +207,21 @@ def _call_tool(
         # ЗАПИСИ, и агент пересказал бы это человеку как отказ чтения, пока
         # его правка молча терялась. Проверено разбором безопасности 03.09
         # живым запуском двух параллельных вызовов.
-        если_методика = spec.kind == KIND_CHECKLIST
-        что = "правку методики" if если_методика else "проверки"
-        чего_нет = (
-            "Это отказ записи, а не отклонение правки движком"
-            if если_методика
-            else "Это отказ чтения, а не отсутствие проверок"
-        )
+        # Снятие разведено с чтением по той же причине, по какой когда-то
+        # развели чтение и правку методики: «не удалось выполнить проверки»
+        # на СНЯТИИ агент перескажет человеку как отказ чтения, и тот пойдёт
+        # чинить историю, пока отозванный документ остаётся в ней висеть.
+        что, чего_нет = {
+            KIND_CHECKLIST: (
+                "правку методики",
+                "Это отказ записи, а не отклонение правки движком",
+            ),
+            KIND_RETRACTION: (
+                "снятие проверки",
+                "Это отказ базы или хранилища, а не отказ в снятии; сняли или нет — "
+                "видно повторным вызовом, он же доделает начатое",
+            ),
+        }.get(spec.kind, ("проверки", "Это отказ чтения, а не отсутствие проверок"))
         return _tool_text(
             f"Не удалось выполнить {что} ({type(отказ).__name__}). {чего_нет}",
             failed=True,
@@ -204,7 +230,7 @@ def _call_tool(
 
 
 def handle(
-    message: object, *, tenant: str, checklist: Store | None = None
+    message: object, *, tenant: str, checklist: Store | None = None, may_retract: bool = False
 ) -> dict[str, Any] | None:
     """Разобранное сообщение JSON-RPC → ответ. `None` — уведомление, ответа нет.
 
@@ -250,7 +276,7 @@ def handle(
     if method == "tools/list":
         return _result(request_id, {"tools": as_list()})
     if method == "tools/call":
-        outcome = _call_tool(params, tenant=tenant, checklist=checklist)
+        outcome = _call_tool(params, tenant=tenant, checklist=checklist, may_retract=may_retract)
         if isinstance(outcome, str):
             return _error(request_id, CODE_INVALID_PARAMS, outcome)
         return _result(request_id, outcome)

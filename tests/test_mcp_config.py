@@ -18,7 +18,7 @@ from src.mcp.config import (
     MIN_TOKEN_LENGTH,
     Settings,
     load_settings,
-    resolve_tenant,
+    resolve_access,
 )
 from src.mcp.errors import AuthError, McpConfigError
 
@@ -106,7 +106,7 @@ def test_два_токена_одного_арендатора_разрешен�
 @pytest.mark.parametrize("заголовок", [f"Bearer {ТОКЕН_А}", f"bearer {ТОКЕН_А}"])
 def test_известный_токен_даёт_своего_арендатора(заголовок: str) -> None:
     """Регистр схемы клиенты пишут по-разному, поэтому сверка без учёта регистра."""
-    assert resolve_tenant(_настройки(), заголовок) == АРЕНДАТОР_А
+    assert resolve_access(_настройки(), заголовок).tenant == АРЕНДАТОР_А
 
 
 @pytest.mark.parametrize(
@@ -127,19 +127,19 @@ def test_запрос_без_внятного_токена_это_отказ(з�
     а голое значение заголовка пишут как есть (T116). Годный вид доступа
     остался один, и он же объявлен в `WWW-Authenticate` при отказе."""
     with pytest.raises(AuthError):
-        resolve_tenant(_настройки(), заголовок)
+        resolve_access(_настройки(), заголовок)
 
 
 def test_чужой_токен_не_даёт_ничего() -> None:
     """Не «арендатор по умолчанию» и не пустая выдача — именно отказ."""
     with pytest.raises(AuthError):
-        resolve_tenant(_настройки(), f"Bearer {ТОКЕН_Б}")
+        resolve_access(_настройки(), f"Bearer {ТОКЕН_Б}")
 
 
 def test_отказ_не_повторяет_предъявленный_токен() -> None:
     """Текст отказа уходит в лог и клиенту; токен в нём — это утечка токена."""
     with pytest.raises(AuthError) as отказ:
-        resolve_tenant(_настройки(), f"Bearer {ТОКЕН_Б}")
+        resolve_access(_настройки(), f"Bearer {ТОКЕН_Б}")
 
     assert ТОКЕН_Б not in str(отказ.value)
 

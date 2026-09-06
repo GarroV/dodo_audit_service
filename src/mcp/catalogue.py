@@ -27,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import checklist_tools, tools
+from . import checklist_tools, retraction, tools
 
 #: Инструменты проверок: обработчику нужен только код арендатора.
 KIND_INSPECTIONS = "inspections"
@@ -37,6 +37,18 @@ KIND_INSPECTIONS = "inspections"
 #: Вид объявлен здесь, а не угадывается по имени: угадывание по имени однажды
 #: открыло бы правку методики новому инструменту, которого никто не проверял.
 KIND_CHECKLIST = "checklist"
+
+#: Снятие проверки из истории (T211, D086/D089). Третий вид, а не «инструмент
+#: проверок, который пишет»: правило блока — у всего, что не объявлено
+#: методикой, обработчик обязан лежать в модуле чтения, где записи нет вовсе
+#: (`tests/test_mcp_server.py`). Отдельный вид не ослабляет это правило, а
+#: делает исключение из него ЕДИНСТВЕННЫМ, названным и пересчитываемым: тем же
+#: тестом проверяется, что инструмент такого вида ровно один.
+#:
+#: Право на него личное и спрашивается на входе (`rpc._call_tool`), как и у
+#: методики: обработчик, забывший спросить о правах, был бы дырой, которую
+#: видно только чтением всех обработчиков подряд.
+KIND_RETRACTION = "retraction"
 
 
 @dataclass(frozen=True)
@@ -1015,6 +1027,69 @@ TOOLS: tuple[ToolSpec, ...] = (
         },
         handler=checklist_tools.publish_checklist_version,
         kind=KIND_CHECKLIST,
+    ),
+    ToolSpec(
+        name="retract_inspection",
+        description=(
+            "Retract a finalized inspection from the history. Use this when a "
+            "report turned out to be wrong: the wrong one is retracted and a "
+            "corrected inspection is recorded separately by an auditor — an "
+            "inspection is never edited in place, and this tool cannot change "
+            "anything inside one.\n\n"
+            "THIS IS NOT REVERSIBLE FOR THE PARTNER. The report and the letter "
+            "for this inspection are already in the partner's hands, and the "
+            "photo evidence is deleted from storage for good. The row itself "
+            "stays in the history, marked as retracted and carrying the "
+            "reason, so it remains visible that the inspection happened — but "
+            "from every ordinary read it disappears.\n\n"
+            "A reason is mandatory and is recorded permanently. It is written "
+            "once: retracting an already retracted inspection does not replace "
+            "the reason it was retracted for.\n\n"
+            "To make sure the right document is being withdrawn, the call must "
+            "also name the unit and the inspection date as they are recorded — "
+            "read them off the inspection first (get_inspection) and confirm "
+            "with the person asking for this. If they do not match, nothing is "
+            "retracted and the answer says what that inspection actually is."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "id": _INSPECTION_ID_PROPERTY,
+                "reason": {
+                    "type": "string",
+                    "description": (
+                        "Why this inspection is being withdrawn, in the words "
+                        "of the person who decided it — recorded permanently "
+                        "next to the inspection. Without a reason a withdrawn "
+                        "document cannot be told apart from a quietly erased "
+                        "one, so this is refused when empty."
+                    ),
+                },
+                "confirm_unit": {
+                    "type": "string",
+                    "description": (
+                        "Name of the unit (pizzeria) this inspection was made "
+                        "at, as recorded. Confirmation, not a filter: it must "
+                        "match, or nothing is retracted."
+                    ),
+                },
+                "confirm_date": {
+                    "type": "string",
+                    "description": (
+                        "Date the unit was visited, as recorded. Format: "
+                        "YYYY-MM-DD. Confirmation, not a filter: it must "
+                        "match, or nothing is retracted. This is the "
+                        "inspection date, not the date the record was pushed "
+                        "into the database."
+                    ),
+                },
+            },
+            "required": ["id", "reason", "confirm_unit", "confirm_date"],
+            "additionalProperties": False,
+        },
+        handler=retraction.retract_inspection,
+        kind=KIND_RETRACTION,
+        history=True,
     ),
 )
 

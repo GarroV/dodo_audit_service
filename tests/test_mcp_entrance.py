@@ -31,7 +31,7 @@ from typing import Any
 
 import pytest
 
-from src.mcp.config import MCP_TOKENS_VAR, MIN_TOKEN_LENGTH, Settings, load_settings, resolve_tenant
+from src.mcp.config import MCP_TOKENS_VAR, MIN_TOKEN_LENGTH, Settings, load_settings, resolve_access
 from src.mcp.errors import AuthError, McpConfigError
 from src.mcp.server import build_server
 
@@ -113,7 +113,7 @@ def test_сверка_не_падает_на_предъявленном_токе
 
     assert настройки.tenant_for(КИРИЛЛИЧЕСКИЙ_ТОКЕН) is None
     with pytest.raises(AuthError):
-        resolve_tenant(настройки, f"Bearer {КИРИЛЛИЧЕСКИЙ_ТОКЕН}")
+        resolve_access(настройки, f"Bearer {КИРИЛЛИЧЕСКИЙ_ТОКЕН}")
 
 
 def test_токен_вне_ascii_в_заголовке_даёт_отказ_а_не_пустой_ответ(
@@ -186,7 +186,7 @@ def test_голый_токен_без_схемы_это_отказ() -> None:
     настройки = Settings(tokens={ТОКЕН: АРЕНДАТОР}, tenants=(АРЕНДАТОР,), host="127.0.0.1", port=0)
 
     with pytest.raises(AuthError, match="Bearer"):
-        resolve_tenant(настройки, ТОКЕН)
+        resolve_access(настройки, ТОКЕН)
 
 
 def test_голый_токен_не_пускают_и_по_настоящему_http(адрес: tuple[str, int]) -> None:
