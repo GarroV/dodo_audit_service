@@ -66,7 +66,7 @@ from src import domain
 from src.domain.errors import DomainError
 from src.recognize.classify import classify, needs_photo
 from src.recognize.errors import ModelUnavailable, RecognizeError
-from src.recognize.fastpath import FastItem, fast_path
+from src.recognize.fastpath import NO_CUE, FastItem, fast_path
 from src.recognize.manual import manual_candidates
 from src.recognize.models import UNKNOWN_ZONE
 from src.recognize.transcribe import transcribe
@@ -360,19 +360,21 @@ def _model_suggestion(proposal: Proposal) -> domain.Suggestion | None:
 
 
 async def _try_fast(
-    message: Message, chat_id: int, base: Proposal, pending: PendingStore, lang: str
+    message: Message,
+    chat_id: int,
+    base: Proposal,
+    pending: PendingStore,
+    lang: str,
+    item: FastItem,
 ) -> bool:
-    """Сверка со списком нарушений до модели: сошлось — записать сразу (T117, T121).
+    """Записать пункт, который нашла сверка со списком нарушений (T117, T121).
 
-    Возвращает, взяла ли сверка материал на себя. Не взяла — дальше разбирает
-    модель, как раньше.
+    Возвращает, легла ли запись. Не легла — дальше разбирает модель, как раньше.
 
-    В поток вынесено намеренно, хотя ни сети, ни подпроцесса тут нет. Вызов
-    читает с диска методику и карту кадров: 2.3 мс на сработавшем комментарии,
-    1.2 мс на отказе — в пятьдесят раз дороже `get_state` (0.046 мс), который в
-    цикле оставлен осознанно. Пока чтение идёт, бот не обслуживает никого, и на
-    двадцати аудиторах это та же растущая очередь, из-за которой в поток уехали
-    вызовы движка (T101).
+    Сам вызов сверки стоит у вызывающего (`analyze`), а не здесь: с T231 её
+    ответ читают двое — этот путь берёт найденный пункт, а правка ответом
+    смотрит на ПРИЧИНУ отказа. Второй вызов ради причины стоил бы повторного
+    чтения методики с диска на каждой правке.
 
     Язык здесь — интерфейса, а не отчёта, и это не оплошность: `item.title` —
     вопрос чек-листа, который аудитор читает у себя в чате. В запись он не
@@ -388,16 +390,6 @@ async def _try_fast(
     кнопки «Разобрать моделью» под ней. Не записалось — и кнопке нечего
     разбирать: материал уже у модели.
     """
-    found = await asyncio.to_thread(
-        fast_path, base.note, base.zone_hint or None, lang=lang, chat_id=chat_id
-    )
-    if found.item is None:
-        # `reason` — для замера (`tools/fastpath_measure.py`) и разбора, поэтому
-        # он идёт в журнал, а не в чат: аудитору он ничего не объясняет, а
-        # объяснять отказ, за которым просто следует обычный разбор, нечем.
-        logger.info("быстрый путь не сработал в чате %s: %s", chat_id, found.reason)
-        return False
-    item = found.item
     saved = await _save(
         message,
         chat_id,
@@ -434,6 +426,65 @@ async def _try_fast(
     # последнему, что бот показал в чате.
     pending.propose(chat_id, replace(base, fast=item), at=getattr(saved, "message_id", None))
     return True
+
+
+async def _correct_zone(message: Message, chat_id: int, base: Proposal, lang: str) -> bool:
+    """Ответ назвал ТОЛЬКО зону — поправить зону записи, не трогая пункт (T231, D090).
+
+    Возвращает, поправлена ли запись. Нет — дальше всё идёт как раньше.
+
+    Случай из решения владельца: бот отбился, что запись сохранена, аудитор
+    отвечает на эту отбивку «это был другой цех» — и ждёт, что запись переедет,
+    а не что у него спросят, какое нарушение записать. До задачи такой ответ
+    уходил в модель: пункта в нём нет, и она возвращала либо не то, либо ничего,
+    а в отсутствие ключа модели открывался ручной перечень — то есть самая
+    частая правка стоила дороже всех и заканчивалась ничем.
+
+    **Признак «в словах только зона» берётся у самого продукта, а не выдумывается
+    здесь.** Сверка со списком нарушений отвечает `NO_CUE`, когда ни одна строка
+    карты не произнесена целиком, — это и есть «объекта в словах нет». Любая
+    другая причина отказа означает, что объект назван (строка задета, но
+    непонятна колонка; строк несколько; пункт не той зоны), и тогда работает
+    прежняя дорога: пункт ищется заново моделью. Иначе ответ «в горячем цехе
+    течёт кран» переставил бы зону и молча потерял бы найденное нарушение.
+
+    Пункт, класс и текст записи передаются свои же, прежние: движок меняет
+    только названные поля, а показ и карты сообщений собираются там же, где у
+    всех остальных путей (`_save`). Своей ветки показа у правки зоны нет
+    намеренно — вторая собралась бы иначе и разошлась бы с первой на первой же
+    вычитке.
+    """
+    n = base.correcting
+    if n is None or not base.zone_spoken:
+        return False
+    zone = base.zone_hint
+    if not zone:
+        return False
+    inspection = read_inspection(chat_id)
+    current = None if inspection is None else inspection.finding(n)
+    if current is None:
+        # Запись сняли между отбивкой и ответом. Заводить по такому ответу новую
+        # нечего: пункта в словах нет вовсе.
+        return False
+    saved = await _save(
+        message,
+        chat_id,
+        code=current.code,
+        level=current.level,
+        zone=zone,
+        text=current.text,
+        # Кадры у записи уже есть, и второй раз тот же идентификатор движок
+        # не примет.
+        file_ids=(),
+        source=base.source,
+        lang=lang,
+        correcting=n,
+        # Зону аудитор назвал ЭТИМИ словами — оговорка про догадку была бы
+        # неправдой ровно там, где человек только что сказал обратное.
+        zone_guessed=False,
+        origin=base.origin,
+    )
+    return saved is not None
 
 
 async def analyze(
@@ -492,8 +543,21 @@ async def analyze(
         origin=origin,
     )
 
-    if fast and note and await _try_fast(message, chat_id, base, pending, lang):
-        return
+    if fast and note:
+        found = await asyncio.to_thread(
+            fast_path, base.note, base.zone_hint or None, lang=lang, chat_id=chat_id
+        )
+        if found.item is not None:
+            if await _try_fast(message, chat_id, base, pending, lang, found.item):
+                return
+        else:
+            # `reason` — для замера (`tools/fastpath_measure.py`) и разбора,
+            # поэтому он идёт в журнал, а не в чат: аудитору он ничего не
+            # объясняет, а объяснять отказ, за которым просто следует обычный
+            # разбор, нечем. Читает его отсюда только правка зоны (T231).
+            logger.info("быстрый путь не сработал в чате %s: %s", chat_id, found.reason)
+            if found.reason == NO_CUE and await _correct_zone(message, chat_id, base, lang):
+                return
 
     bot = message.bot
     photo = (
