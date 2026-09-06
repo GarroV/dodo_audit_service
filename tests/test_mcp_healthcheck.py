@@ -67,7 +67,7 @@ def _подделка(код: int, имя: str) -> type[http.server.BaseHTTPRequ
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-        def log_message(self, fmt: str, *args: object) -> None:
+        def log_message(self, _fmt: str, *_args: object) -> None:
             return
 
     return Подделка

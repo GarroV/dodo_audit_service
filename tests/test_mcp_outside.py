@@ -72,7 +72,7 @@ def _подделка(код: int, имя: str, тело: bytes = b"") -> type[h
             if тело:
                 self.wfile.write(тело)
 
-        def log_message(self, fmt: str, *args: object) -> None:
+        def log_message(self, _fmt: str, *_args: object) -> None:
             return
 
     return Подделка
@@ -115,7 +115,7 @@ def _подменённый() -> type[http.server.BaseHTTPRequestHandler]:
             if тело:
                 self.wfile.write(тело)
 
-        def log_message(self, fmt: str, *args: object) -> None:
+        def log_message(self, _fmt: str, *_args: object) -> None:
             return
 
     return Подменённый
