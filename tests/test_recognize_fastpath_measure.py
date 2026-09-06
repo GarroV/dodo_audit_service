@@ -176,6 +176,36 @@ def test_неверное_срабатывание_даёт_код_возвра�
     assert rc == 1
 
 
+def test_без_переменной_state_dir_внятный_отказ_а_не_трассировка(
+    domain_env: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """T239: окружение не настроено — код 2 и одна строка, а не трассировка и код 1.
+
+    Единица в этом инструменте означает «есть неверное срабатывание», то есть
+    «карта слов ведёт к чужому пункту». Незаданная переменная окружения — не
+    это, и человек или CI, читающий только код возврата, до T239 узнавал про
+    неверное срабатывание там, где всего лишь не задан `STATE_DIR`. Тот же
+    дефект в соседнем замере вылечен T224.
+
+    Записи здесь подставлены, а не прочитаны: без них замер вышел бы с кодом 2
+    ещё раньше — на пустом корне, — и про окружение не сказал бы ничего.
+    """
+    record = Record(code="CLN06", zone="dining", note=FURNITURE, source="synthetic")
+    monkeypatch.setattr(fpm, "load_records", lambda _root: (record,))
+    monkeypatch.delenv("STATE_DIR")
+
+    rc = fpm.main(["--root", str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert rc == 2, "незаданная переменная окружения выдана за неверное срабатывание"
+    assert "Замерять не по чему" in out
+    assert "STATE_DIR" in out
+    assert "Traceback" not in out
+
+
 def test_без_боевых_данных_код_возврата_2(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

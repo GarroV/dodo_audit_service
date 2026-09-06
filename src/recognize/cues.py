@@ -58,6 +58,20 @@ _WORD = re.compile(r"[а-яёa-z0-9]+")
 #: так, написано в `src/recognize/language.py`.
 _SUFFIXES = language.suffixes()
 
+#: Пары «беглая гласная + согласная»: в исходной форме слова гласная есть, во
+#: всех остальных её нет («участок» → «участка», «перчаток» → «перчатки»).
+#: Отсечкой окончаний это не лечится: беглая гласная стоит не на конце слова, а
+#: ВНУТРИ основы, и «участок» с «участке» расходились по разным ключам, пока
+#: правила не было (T242). Замер `tools/zone_words_measure.py` показывал это
+#: как три неузнанные зоны из десяти.
+#:
+#: Правило нормализует основу, а не режет её условно, поэтому оно способно
+#: только СВЕСТИ два ключа в один и не способно развести те, что совпадали:
+#: применяется оно к готовой основе, одинаково с обеих сторон сравнения.
+#: Цена — столкновения («порок» и «порка» дают один ключ), и платится она
+#: только там, где язык объявил пары в `language_rules.json`.
+_FLEETING = language.fleeting()
+
 #: Слова, которые есть в половине подсказок и потому ничего не различают.
 _STOPWORDS = language.stopwords()
 
@@ -110,10 +124,20 @@ class Cue:
 
 
 def _stem(word: str) -> str:
+    """Основа слова: отсечь окончание, затем снять беглую гласную.
+
+    Порядок обязателен. Беглая гласная сидит перед последней согласной ОСНОВЫ,
+    и до отсечки окончания её там ещё не видно: «участке» становится «участк»
+    только после того, как ушло «е».
+    """
     w = word.replace("ё", "е")
     for suffix in _SUFFIXES:
-        if len(w) - len(suffix) >= 3 and w.endswith(suffix):
-            return w[: -len(suffix)]
+        if len(w) - len(suffix) >= language.MIN_STEM and w.endswith(suffix):
+            w = w[: -len(suffix)]
+            break
+    for pair in _FLEETING:
+        if len(w) - 1 >= language.MIN_STEM and w.endswith(pair):
+            return w[:-2] + pair[1]
     return w
 
 
@@ -122,9 +146,9 @@ def stems(text: str) -> set[str]:
     return {
         stem
         for word in _WORD.findall(text.lower())
-        if len(word) >= 3 and word not in _STOPWORDS
+        if len(word) >= language.MIN_STEM and word not in _STOPWORDS
         for stem in (_stem(word),)
-        if len(stem) >= 3
+        if len(stem) >= language.MIN_STEM
     }
 
 
